@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: Install nightly
+      run: |
+        rustup toolchain install nightly
+        rustup component add rustfmt --toolchain nightly
+    - name: Restore cargo caches
+      uses: Swatinem/rust-cache@v2
+    - name: Check formatting
+      run: cargo +nightly fmt --all --verbose -- --check
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: Install Rust
+      run: rustup toolchain install stable
+    - name: Restore cargo caches
+      uses: Swatinem/rust-cache@v2
+    - name: Run tests
+      run: cargo test --verbose
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: Install Rust
+      run: rustup toolchain install stable
+    - name: Restore cargo caches
+      uses: Swatinem/rust-cache@v2
+    - name: Run clippy
+      run: cargo clippy --all-features --tests --examples -- -D warnings -A dead-code
