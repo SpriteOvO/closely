@@ -59,22 +59,23 @@ pub struct Subscription {
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
-#[serde(tag = "platform", rename_all = "snake_case")]
+#[serde(tag = "platform")]
 pub enum Platform {
-    Bilibili(PlatformBilibili),
+    #[serde(rename = "live.bilibili.com")]
+    LiveBilibiliCom(PlatformLiveBilibiliCom),
     // Yea! PRs for supports of more platforms are welcome!
 }
 
 impl fmt::Display for Platform {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Platform::Bilibili(p) => write!(f, "bilibili:{}", p.uid),
+            Platform::LiveBilibiliCom(p) => write!(f, "live.bilibili.com:{}", p.uid),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
-pub struct PlatformBilibili {
+pub struct PlatformLiveBilibiliCom {
     pub uid: u64,
 }
 
@@ -166,7 +167,7 @@ interval = '1min'
 telegram = [ { id = 1234, thread_id = 123, token = "xxx" } ]
 
 [[subscription.meow]]
-platform = "bilibili"
+platform = "live.bilibili.com"
 uid = 123456
 notify = "meow"
                 "#,
@@ -185,7 +186,9 @@ notify = "meow"
                 subscription: HashMap::from_iter([(
                     "meow".into(),
                     vec![Subscription {
-                        platform: Arc::new(Platform::Bilibili(PlatformBilibili { uid: 123456 })),
+                        platform: Arc::new(Platform::LiveBilibiliCom(PlatformLiveBilibiliCom {
+                            uid: 123456
+                        })),
                         notify: "meow".into(),
                         offline_notification: false,
                     }]
@@ -199,7 +202,7 @@ notify = "meow"
 interval = '1min'
 
 [[subscription.meow]]
-platform = "bilibili"
+platform = "live.bilibili.com"
 uid = 123456
 notify = "meow"
                 "#

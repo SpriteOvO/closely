@@ -30,16 +30,19 @@ telegram = [ { username = "my_follows", thread_id = 114, token_env = "PERSONAL_T
 telegram = [ { id = 1145141919, token = "1234567890:AbCdEfGhiJkLmNoPq1R2s3T4u5V6w7X8y9z" } ]
 
 [[subscription.Suzume]] # define a subscription with name `Suzume`
-platform = "bilibili" # specify the live streaming platform
+platform = "live.bilibili.com" # specify the live streaming platform
 uid = 6610851 # parameters specific to different live streaming platforms
 notify = "Suzume" # reference to notify defined above, notifications will be pushed when the live status changed
 
 [[subscription.CookieBacon]] # define a subscription with name `CookieBacon`
-platform = "bilibili"
+platform = "live.bilibili.com"
 uid = 14172231
 notify = "Personal"
 offline_notification = true # notify if the live goes offline, defaults to `false`
 ```
+
+> [!NOTE]
+> This project is in an initial development phase, ths configuration may frequently undergo breaking changes in releases.
 
 ### 2. Build and Run
 

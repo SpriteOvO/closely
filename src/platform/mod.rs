@@ -1,4 +1,4 @@
-mod bilibili;
+mod live_bilibili_com;
 
 use std::fmt;
 
@@ -35,7 +35,7 @@ pub async fn fetch_live_status(platform: &Platform) -> anyhow::Result<LiveStatus
     trace!("fetch live status '{platform}'");
 
     match platform {
-        Platform::Bilibili(p) => bilibili::fetch_live_status(p).await,
+        Platform::LiveBilibiliCom(p) => live_bilibili_com::fetch_live_status(p).await,
     }
     .map_err(|err| anyhow!("({platform}) {err}"))
 }

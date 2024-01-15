@@ -5,9 +5,10 @@ use serde::Deserialize;
 use serde_json::{self as json, json};
 
 use super::LiveStatus;
-use crate::config::PlatformBilibili;
+use crate::config::PlatformLiveBilibiliCom;
 
-const BILIBILI_API: &str = "https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids";
+const LIVE_BILIBILI_COM_API: &str =
+    "https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids";
 
 #[derive(Deserialize)]
 struct BilibiliResponse {
@@ -30,33 +31,35 @@ struct BilibiliResponseData {
     cover_from_user: String,
 }
 
-pub(super) async fn fetch_live_status(platform: &PlatformBilibili) -> anyhow::Result<LiveStatus> {
+pub(super) async fn fetch_live_status(
+    platform: &PlatformLiveBilibiliCom,
+) -> anyhow::Result<LiveStatus> {
     let body = json!({ "uids": [platform.uid] });
 
     let resp = reqwest::Client::new()
-        .post(BILIBILI_API)
+        .post(LIVE_BILIBILI_COM_API)
         .json(&body)
         .send()
         .await
-        .map_err(|err| anyhow!("failed to send request for bilibili: {err}"))?;
+        .map_err(|err| anyhow!("failed to send request: {err}"))?;
 
     let status = resp.status();
     if !status.is_success() {
-        bail!("response from bilibili status is not success: {resp:?}");
+        bail!("response status is not success: {resp:?}");
     }
 
     let text = resp
         .text()
         .await
-        .map_err(|err| anyhow!("failed to obtain text from response of bilibili: {err}"))?;
-    let resp: BilibiliResponse = json::from_str(&text)
-        .map_err(|err| anyhow!("failed to deserialize response from bilibili: {err}"))?;
+        .map_err(|err| anyhow!("failed to obtain text from response: {err}"))?;
+    let resp: BilibiliResponse =
+        json::from_str(&text).map_err(|err| anyhow!("failed to deserialize response: {err}"))?;
     if resp.code != 0 {
-        bail!("response from bilibili contains error, response '{text}'");
+        bail!("response contains error, response '{text}'");
     }
 
     let data = resp.data.into_values().next().ok_or_else(|| {
-        anyhow!("UNEXPECTED! response from bilibili with unexpected data array, response '{text}'")
+        anyhow!("UNEXPECTED! response with unexpected data array, response '{text}'")
     })?;
 
     Ok(LiveStatus {
