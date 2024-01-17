@@ -125,7 +125,12 @@ pub async fn notify_post(
     post: &Post,
     from: &StatusFrom,
 ) -> anyhow::Result<()> {
-    let content = format!("[{}] {}", from.platform_name, post.content);
+    let content = format!(
+        "[{}] {}{}",
+        from.platform_name,
+        if post.is_repost { "🔁 " } else { "" },
+        post.content
+    );
 
     let mut body = json!(
         {

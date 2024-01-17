@@ -82,6 +82,7 @@ impl fmt::Display for StatusKind {
 pub struct Post {
     pub content: String,
     pub url: String,
+    pub is_repost: bool,
     pub attachments: Vec<PostAttachment>,
 }
 

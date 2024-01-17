@@ -61,7 +61,6 @@ struct TwitterStatus {
 #[derive(Debug)]
 struct Tweet {
     url: IncompleteUrl<TwitterCom>,
-    #[allow(dead_code)]
     is_retweet: bool,
     #[allow(dead_code)]
     is_pinned: bool,
@@ -95,6 +94,7 @@ pub(super) async fn fetch_status(platform: &PlatformTwitterCom) -> anyhow::Resul
         .map(|tweet| Post {
             content: tweet.content,
             url: tweet.url.real_url(),
+            is_repost: tweet.is_retweet,
             attachments: tweet
                 .attachments
                 .into_iter()
