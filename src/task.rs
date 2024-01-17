@@ -7,7 +7,7 @@ use tokio::time::MissedTickBehavior;
 use crate::{
     config::{Notify, Platform},
     notify,
-    platform::{self, LiveStatus},
+    platform::{self, Status},
 };
 
 pub struct Task {
@@ -15,7 +15,7 @@ pub struct Task {
     interval: Duration,
     notify: Arc<Notify>,
     platform: Arc<Platform>,
-    last_status: Option<LiveStatus>,
+    last_status: Option<Status>,
 }
 
 impl Task {
@@ -53,19 +53,20 @@ impl Task {
 
 impl Task {
     async fn run_once(&mut self) -> anyhow::Result<()> {
-        let live_status = platform::fetch_live_status(&self.platform)
+        let status = platform::fetch_status(&self.platform)
             .await
-            .map_err(|err| anyhow!("failed to fetch live status: {err}"))?;
+            .map_err(|err| anyhow!("failed to fetch status for '{}': {err}", self.name))?;
 
-        trace!("live status of '{}' now is '{live_status:?}'", self.name);
+        trace!("status of '{}' now is '{status:?}'", self.name);
 
-        if let Some(last_status) = &self.last_status {
-            if live_status.online && !last_status.online {
-                info!("live status of '{}' changed to '{live_status}'", self.name);
-                notify::notify(&self.notify, &live_status).await;
-            }
+        if let Some(notification) = status.needs_notify(self.last_status.as_ref()) {
+            info!(
+                "'{}' needs to send a notification '{notification}'",
+                self.name
+            );
+            notify::notify(&self.notify, &notification).await;
         }
-        self.last_status = Some(live_status);
+        self.last_status = Some(status);
 
         Ok(())
     }

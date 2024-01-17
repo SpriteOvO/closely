@@ -4,9 +4,13 @@ Watch the status of your favorite lives and push notifications to your configure
 
 ## Supported platforms
 
-### Live streaming
+### Source of update
 
-- [bilibili](https://live.bilibili.com/)
+- Social media
+  - [Twitter](https://twitter.com/)
+
+- Live streaming
+  - [bilibili live](https://live.bilibili.com/)
 
 ### Notification
 
@@ -33,6 +37,11 @@ telegram = [ { id = 1145141919, token = "1234567890:AbCdEfGhiJkLmNoPq1R2s3T4u5V6
 platform = "live.bilibili.com" # specify the live streaming platform
 uid = 6610851 # parameters specific to different live streaming platforms
 notify = "Suzume" # reference to notify defined above, notifications will be pushed when the live status changed
+
+[[subscription.Suzume]]
+platform = "twitter.com"
+username = "suzumiyasuzume"
+notify = "Suzume"
 
 [[subscription.CookieBacon]] # define a subscription with name `CookieBacon`
 platform = "live.bilibili.com"
