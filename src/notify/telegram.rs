@@ -107,17 +107,6 @@ pub async fn notify_post(notify: &NotifyTelegram, post: &Post) -> anyhow::Result
         .token()
         .map_err(|err| anyhow!("failed to read token for telegram: {err}"))?;
 
-    let (caption, entities) = (
-        &post.content,
-        json!([
-            {
-                "type": "text_link",
-                "offset": 0,
-                "length": post.content.encode_utf16().count(),
-                "url": post.url,
-            }
-        ]),
-    );
     let mut body = json!(
         {
             "chat_id": match &notify.chat {
@@ -129,34 +118,58 @@ pub async fn notify_post(notify: &NotifyTelegram, post: &Post) -> anyhow::Result
         }
     );
 
-    let method = match post.attachments.len() {
-        0 => {
+    let num_attachments = post.attachments.len();
+    let method = match num_attachments {
+        0 | 1 => {
             let body = body.as_object_mut().unwrap();
-            body.insert("text".into(), json!(caption));
-            body.insert("entities".into(), entities);
-            "sendMessage"
-        }
-        1 => {
-            let body = body.as_object_mut().unwrap();
-            let attachment = post.attachments.first().unwrap();
 
-            match attachment {
-                PostAttachment::Image(image) => {
-                    body.insert("photo".into(), json!(image.media_url));
-                    body.insert("caption".into(), json!(caption));
-                    body.insert("caption_entities".into(), entities);
-                    "sendPhoto"
-                }
-                PostAttachment::Video(video) => {
-                    body.insert("video".into(), json!(video.media_url));
-                    body.insert("caption".into(), json!(caption));
-                    body.insert("caption_entities".into(), entities);
-                    "sendVideo"
+            // Button "View Post"
+            body.insert(
+                "reply_markup".into(),
+                json!({
+                    "inline_keyboard": [[{
+                        "text": "View Post",
+                        "url": post.url,
+                    }]]
+                }),
+            );
+
+            if num_attachments == 0 {
+                body.insert("text".into(), json!(post.content));
+                "sendMessage"
+            } else {
+                let attachment = post.attachments.first().unwrap();
+
+                match attachment {
+                    PostAttachment::Image(image) => {
+                        body.insert("photo".into(), json!(image.media_url));
+                        body.insert("caption".into(), json!(post.content));
+                        "sendPhoto"
+                    }
+                    PostAttachment::Video(video) => {
+                        body.insert("video".into(), json!(video.media_url));
+                        body.insert("caption".into(), json!(post.content));
+                        "sendVideo"
+                    }
                 }
             }
         }
         _ => {
             let body = body.as_object_mut().unwrap();
+
+            let view_text = ">> View Post <<";
+            let (caption, entities) = (
+                format!("{}\n\n{view_text}", post.content),
+                json!([
+                    {
+                        "type": "text_link",
+                        "offset": post.content.encode_utf16().count() + "\n\n".encode_utf16().count(),
+                        "length": view_text.encode_utf16().count(),
+                        "url": post.url,
+                    }
+                ]),
+            );
+
             let mut media = post
                 .attachments
                 .iter()
