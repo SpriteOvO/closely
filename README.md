@@ -1,6 +1,6 @@
-# live-stream-watcher
+# Closely
 
-Watch the status of your favorite lives and push notifications to your configured chats.
+Subscribe to updates from people you follow, from any platform to any platform.
 
 ## Supported platforms
 
@@ -55,12 +55,12 @@ notify = "Personal"
 ### 2. Build and Run
 
 ```bash
-git clone https://github.com/SpriteOvO/live-stream-watcher.git
-cd live-stream-watcher
+git clone https://github.com/SpriteOvO/closely.git
+cd closely
 git checkout <latest-version>
 
 cargo build --release
-./target/release/live-stream-watcher --config "path/to/config.toml"
+./target/release/closely --config "path/to/config.toml"
 ```
 
 ## License

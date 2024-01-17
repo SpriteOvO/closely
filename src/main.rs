@@ -4,7 +4,7 @@ use std::{fs, path::Path, process::exit, sync::Arc};
 
 use anyhow::anyhow;
 use clap::Parser;
-use live_stream_watcher::{self as watcher, prop};
+use closely::prop;
 use spdlog::{
     prelude::*,
     sink::{RotatingFileSink, RotationPolicy},
@@ -69,5 +69,5 @@ fn setup_logger(verbose: bool, log_dir: Option<&Path>) -> anyhow::Result<()> {
 }
 
 async fn run(args: cli::Args) -> anyhow::Result<()> {
-    watcher::run(&args.config).await
+    closely::run(&args.config).await
 }

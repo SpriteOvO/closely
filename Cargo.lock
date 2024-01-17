@@ -251,6 +251,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "702fc72eb24e5a1e48ce58027a675bc24edd52096d5397d4aea7c6dd9eca0bd1"
 
 [[package]]
+name = "closely"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "const_format",
+ "humantime-serde",
+ "once_cell",
+ "reqwest",
+ "scraper",
+ "serde",
+ "serde_json",
+ "spdlog-rs",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -747,25 +766,6 @@ name = "linux-raw-sys"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4cd1a83af159aa67994778be9070f0ae1bd732942279cabb14f86f986a21456"
-
-[[package]]
-name = "live-stream-watcher"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "const_format",
- "humantime-serde",
- "once_cell",
- "reqwest",
- "scraper",
- "serde",
- "serde_json",
- "spdlog-rs",
- "tokio",
- "toml",
-]
 
 [[package]]
 name = "lock_api"
