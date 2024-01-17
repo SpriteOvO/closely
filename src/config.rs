@@ -50,13 +50,12 @@ impl Config {
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Subscription {
-    #[serde(flatten)]
     pub platform: Arc<Platform>,
     notify: String,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
-#[serde(tag = "platform")]
+#[serde(tag = "url")]
 pub enum Platform {
     #[serde(rename = "live.bilibili.com")]
     LiveBilibiliCom(PlatformLiveBilibiliCom),
@@ -172,8 +171,11 @@ interval = '1min'
 telegram = [ { id = 1234, thread_id = 123, token = "xxx" } ]
 
 [[subscription.meow]]
-platform = "live.bilibili.com"
-uid = 123456
+platform = { url = "live.bilibili.com", uid = 123456 }
+notify = "meow"
+
+[[subscription.meow]]
+platform = { url = "twitter.com", username = "meowww" }
 notify = "meow"
                 "#,
             )
@@ -190,12 +192,20 @@ notify = "meow"
                 )]),
                 subscription: HashMap::from_iter([(
                     "meow".into(),
-                    vec![Subscription {
-                        platform: Arc::new(Platform::LiveBilibiliCom(PlatformLiveBilibiliCom {
-                            uid: 123456
-                        })),
-                        notify: "meow".into(),
-                    }]
+                    vec![
+                        Subscription {
+                            platform: Arc::new(Platform::LiveBilibiliCom(
+                                PlatformLiveBilibiliCom { uid: 123456 }
+                            )),
+                            notify: "meow".into(),
+                        },
+                        Subscription {
+                            platform: Arc::new(Platform::TwitterCom(PlatformTwitterCom {
+                                username: "meowww".into()
+                            })),
+                            notify: "meow".into(),
+                        }
+                    ]
                 )]),
             }
         );
@@ -206,8 +216,7 @@ notify = "meow"
 interval = '1min'
 
 [[subscription.meow]]
-platform = "live.bilibili.com"
-uid = 123456
+platform = { url = "live.bilibili.com", uid = 123456 }
 notify = "meow"
                 "#
             )

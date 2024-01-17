@@ -22,30 +22,30 @@ Yea! PRs for support of more platforms are welcome!
 
 ### 1. Configure
 
-Create a configuration file with the following format:
+Create a configuration file with the following example format:
 
 ```toml
 interval = '1min' # update interval for each subscription
 
 [notify.Personal] # define a target of notifications with name `Personal`
-telegram = [ { username = "my_follows", thread_id = 114, token_env = "PERSONAL_TELEGRAM_BOT_TOKEN" } ] # notifications will be pushed to 1 Telegram chat according to the given parameters
+# notifications will be pushed to 1 Telegram chat according to the given parameters
+telegram = [ { username = "my_follows", thread_id = 114, token_env = "PERSONAL_TELEGRAM_BOT_TOKEN" } ]
 
 [notify.Suzume] # define a target of notifications with name `Suzume`
 telegram = [ { id = 1145141919, token = "1234567890:AbCdEfGhiJkLmNoPq1R2s3T4u5V6w7X8y9z" } ]
 
 [[subscription.Suzume]] # define a subscription with name `Suzume`
-platform = "live.bilibili.com" # specify the live streaming platform
-uid = 6610851 # parameters specific to different live streaming platforms
-notify = "Suzume" # reference to notify defined above, notifications will be pushed when the live status changed
+# specify the platform and parameters
+platform = { url = "live.bilibili.com", uid = 6610851 }
+# reference to notify defined above, notifications will be pushed when the status changed
+notify = "Suzume"
 
 [[subscription.Suzume]]
-platform = "twitter.com"
-username = "suzumiyasuzume"
+platform = { url = "twitter.com", username = "suzumiyasuzume" }
 notify = "Suzume"
 
 [[subscription.CookieBacon]] # define a subscription with name `CookieBacon`
-platform = "live.bilibili.com"
-uid = 14172231
+platform = { url = "live.bilibili.com", uid = 14172231 }
 notify = "Personal"
 ```
 
