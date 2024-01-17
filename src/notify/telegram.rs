@@ -128,7 +128,13 @@ pub async fn notify_post(
     let content = format!(
         "[{}] {}{}",
         from.platform_name,
-        if post.is_repost { "🔁 " } else { "" },
+        if post.is_repost {
+            "🔁 "
+        } else if post.is_quote {
+            "🔁💬 "
+        } else {
+            ""
+        },
         post.content
     );
 

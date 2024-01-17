@@ -82,7 +82,8 @@ impl fmt::Display for StatusKind {
 pub struct Post {
     pub content: String,
     pub url: String,
-    pub is_repost: bool,
+    pub is_repost: bool, // TODO: Include the source information
+    pub is_quote: bool,  // TODO: Include the source information
     pub attachments: Vec<PostAttachment>,
 }
 

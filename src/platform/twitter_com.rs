@@ -62,6 +62,7 @@ struct TwitterStatus {
 struct Tweet {
     url: IncompleteUrl<TwitterCom>,
     is_retweet: bool,
+    is_quote: bool,
     #[allow(dead_code)]
     is_pinned: bool,
     date: NaiveDateTime,
@@ -95,6 +96,7 @@ pub(super) async fn fetch_status(platform: &PlatformTwitterCom) -> anyhow::Resul
             content: tweet.content,
             url: tweet.url.real_url(),
             is_repost: tweet.is_retweet,
+            is_quote: tweet.is_quote,
             attachments: tweet
                 .attachments
                 .into_iter()
@@ -181,6 +183,7 @@ fn parse_nitter_html(html: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {
 
         let is_pinned = s!(tweet_body.contains(".pinned"));
         let is_retweet = s!(tweet_body.contains(".retweet-header"));
+        let is_quote = s!(tweet_body.contains(".quote"));
         let tweet_date = s!(tweet_body.select(".tweet-date > a").attr("title"))?;
         let tweet_content = s!(tweet_body.select(".tweet-content"))?.text().collect();
         let attachment_images = s!(tweet_body.selects(".attachment.image > .still-image"))
@@ -208,6 +211,7 @@ fn parse_nitter_html(html: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {
         let tweet = Tweet {
             url: tweet_link.into(),
             is_retweet,
+            is_quote,
             is_pinned,
             date: tweet_date,
             content: tweet_content,
