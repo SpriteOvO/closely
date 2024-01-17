@@ -38,7 +38,6 @@ notify = "Suzume" # reference to notify defined above, notifications will be pus
 platform = "live.bilibili.com"
 uid = 14172231
 notify = "Personal"
-offline_notification = true # notify if the live goes offline, defaults to `false`
 ```
 
 > [!NOTE]

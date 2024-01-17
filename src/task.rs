@@ -15,7 +15,6 @@ pub struct Task {
     interval: Duration,
     notify: Arc<Notify>,
     platform: Arc<Platform>,
-    offline_notification: bool,
     last_status: Option<LiveStatus>,
 }
 
@@ -25,7 +24,6 @@ impl Task {
         interval: Duration,
         notify: Arc<Notify>,
         platform: Arc<Platform>,
-        offline_notification: bool,
     ) -> Self {
         Self {
             name,
@@ -33,7 +31,6 @@ impl Task {
             notify,
             platform,
             last_status: None,
-            offline_notification,
         }
     }
 
@@ -63,11 +60,9 @@ impl Task {
         trace!("live status of '{}' now is '{live_status:?}'", self.name);
 
         if let Some(last_status) = &self.last_status {
-            if last_status.online != live_status.online {
+            if live_status.online && !last_status.online {
                 info!("live status of '{}' changed to '{live_status}'", self.name);
-                if live_status.online || self.offline_notification {
-                    notify::notify(&self.notify, &live_status).await;
-                }
+                notify::notify(&self.notify, &live_status).await;
             }
         }
         self.last_status = Some(live_status);

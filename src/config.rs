@@ -21,7 +21,7 @@ impl Config {
 
     pub fn subscriptions(
         &self,
-    ) -> impl Iterator<Item = (String, (Arc<Notify>, Arc<Platform>, bool))> + '_ {
+    ) -> impl Iterator<Item = (String, (Arc<Notify>, Arc<Platform>))> + '_ {
         self.subscription.iter().flat_map(|(name, subscriptions)| {
             subscriptions.iter().map(|subscription| {
                 (
@@ -29,7 +29,6 @@ impl Config {
                     (
                         Arc::clone(self.notify.get(&subscription.notify).unwrap()),
                         Arc::clone(&subscription.platform),
-                        subscription.offline_notification,
                     ),
                 )
             })
@@ -54,8 +53,6 @@ pub struct Subscription {
     #[serde(flatten)]
     pub platform: Arc<Platform>,
     notify: String,
-    #[serde(default)]
-    offline_notification: bool,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -190,7 +187,6 @@ notify = "meow"
                             uid: 123456
                         })),
                         notify: "meow".into(),
-                        offline_notification: false,
                     }]
                 )]),
             }

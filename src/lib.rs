@@ -20,15 +20,7 @@ pub async fn run(config: impl AsRef<Path>) -> anyhow::Result<()> {
 
     let tasks = config
         .subscriptions()
-        .map(|(name, (notify, platform, offline_notification))| {
-            Task::new(
-                name,
-                config.interval,
-                notify,
-                platform,
-                offline_notification,
-            )
-        });
+        .map(|(name, (notify, platform))| Task::new(name, config.interval, notify, platform));
 
     task::run_tasks(tasks).await?.join_all().await;
 
