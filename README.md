@@ -1,5 +1,7 @@
 # Closely
 
+[![](https://img.shields.io/github/actions/workflow/status/SpriteOvO/closely/CI.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white)](https://github.com/SpriteOvO/closely/actions/workflows/CI.yml)
+
 Subscribe to updates from people you follow, from any platform to any platform.
 
 ## Supported platforms
