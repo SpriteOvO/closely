@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail};
 use serde::Deserialize;
 use serde_json::{self as json, json};
 
-use super::{LiveStatus, Status};
+use super::{LiveStatus, PlatformName, Status, StatusFrom, StatusKind};
 use crate::config::PlatformLiveBilibiliCom;
 
 const LIVE_BILIBILI_COM_API: &str =
@@ -60,11 +60,18 @@ pub(super) async fn fetch_status(platform: &PlatformLiveBilibiliCom) -> anyhow::
         anyhow!("UNEXPECTED! response with unexpected data array, response '{text}'")
     })?;
 
-    Ok(Status::Live(LiveStatus {
-        online: data.live_status == 1,
-        title: data.title,
-        streamer_name: data.uname,
-        cover_image_url: data.cover_from_user,
-        live_url: format!("https://live.bilibili.com/{}", data.room_id),
-    }))
+    Ok(Status {
+        kind: StatusKind::Live(LiveStatus {
+            online: data.live_status == 1,
+            title: data.title,
+            streamer_name: data.uname.clone(),
+            cover_image_url: data.cover_from_user,
+            live_url: format!("https://live.bilibili.com/{}", data.room_id),
+        }),
+        from: StatusFrom {
+            platform_name: PlatformName::LiveBilibiliCom,
+            user_display_name: data.uname,
+            user_profile_url: format!("https://space.bilibili.com/{}", platform.uid),
+        },
+    })
 }

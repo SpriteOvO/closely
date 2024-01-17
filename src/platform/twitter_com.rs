@@ -9,7 +9,10 @@ use spdlog::prelude::*;
 
 use crate::{
     config::PlatformTwitterCom,
-    platform::{Post, PostAttachment, PostAttachmentImage, Posts, Status},
+    platform::{
+        PlatformName, Post, PostAttachment, PostAttachmentImage, Posts, Status, StatusFrom,
+        StatusKind,
+    },
     prop,
 };
 
@@ -50,7 +53,10 @@ impl IncompleteUrl<NitterNet> {
 }
 
 #[derive(Debug)]
-struct Timeline(Vec<Tweet>);
+struct TwitterStatus {
+    timeline: Vec<Tweet>,
+    fullname: String,
+}
 
 #[derive(Debug)]
 struct Tweet {
@@ -81,10 +87,10 @@ struct Video {
 }
 
 pub(super) async fn fetch_status(platform: &PlatformTwitterCom) -> anyhow::Result<Status> {
-    let timeline = fetch_timeline(&platform.username).await?;
+    let status = fetch_twitter_status(&platform.username).await?;
 
-    let posts = timeline
-        .0
+    let posts = status
+        .timeline
         .into_iter()
         .map(|tweet| Post {
             content: tweet.content,
@@ -108,10 +114,17 @@ pub(super) async fn fetch_status(platform: &PlatformTwitterCom) -> anyhow::Resul
         })
         .collect();
 
-    Ok(Status::Posts(Posts(posts)))
+    Ok(Status {
+        kind: StatusKind::Posts(Posts(posts)),
+        from: StatusFrom {
+            platform_name: PlatformName::TwitterCom,
+            user_display_name: status.fullname,
+            user_profile_url: format!("https://twitter.com/{}", platform.username),
+        },
+    })
 }
 
-async fn fetch_timeline(username: impl AsRef<str>) -> anyhow::Result<Timeline> {
+async fn fetch_twitter_status(username: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {
     let resp = reqwest::ClientBuilder::new()
         .gzip(true)
         .user_agent(prop::PACKAGE.user_agent)
@@ -155,10 +168,11 @@ macro_rules! s {
     }};
 }
 
-fn parse_nitter_html(html: impl AsRef<str>) -> anyhow::Result<Timeline> {
+fn parse_nitter_html(html: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {
     let html = Html::parse_document(html.as_ref());
 
     let mut timeline = vec![];
+    let fullname = s!(html.select(".profile-card-fullname").attr("title"))?;
 
     for timeline_item in s!(html.selects(".timeline-item")) {
         let tweet_link =
@@ -207,7 +221,10 @@ fn parse_nitter_html(html: impl AsRef<str>) -> anyhow::Result<Timeline> {
     // timeline by date.
     timeline.sort_by(|lhs, rhs| rhs.date.cmp(&lhs.date));
 
-    Ok(Timeline(timeline))
+    Ok(TwitterStatus {
+        timeline,
+        fullname: fullname.into(),
+    })
 }
 
 #[cfg(test)]
@@ -217,16 +234,17 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_twitter_timeline() {
+    async fn test_twitter_status() {
         let year_2024 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-        let timeline = fetch_timeline("nasa").await.unwrap();
+        let status = fetch_twitter_status("nasa").await.unwrap();
 
-        assert!(timeline.0.iter().all(|tweet| tweet.date.date() > year_2024));
-        assert!(timeline.0.iter().all(|tweet| !tweet.content.is_empty()));
-        assert!(timeline.0.iter().any(|tweet| !tweet.attachments.is_empty()));
-        assert!(timeline
-            .0
-            .iter()
-            .any(|tweet| tweet.url.incomplete_url().contains("/NASA/")));
+        assert_eq!(status.fullname, "NASA");
+
+        let timeline_iter = || status.timeline.iter();
+
+        assert!(timeline_iter().all(|tweet| tweet.date.date() > year_2024));
+        assert!(timeline_iter().all(|tweet| !tweet.content.is_empty()));
+        assert!(timeline_iter().any(|tweet| !tweet.attachments.is_empty()));
+        assert!(timeline_iter().any(|tweet| tweet.url.incomplete_url().contains("/NASA/")));
     }
 }

@@ -5,7 +5,9 @@ use spdlog::prelude::*;
 
 use crate::{
     config::{NotifyTelegram, NotifyTelegramChat},
-    platform::{LiveStatus, Notification, Post, PostAttachment, PostsRef},
+    platform::{
+        LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, StatusFrom,
+    },
 };
 
 #[derive(Deserialize)]
@@ -32,13 +34,27 @@ pub async fn notify(
     notify: &NotifyTelegram,
     notification: &Notification<'_>,
 ) -> anyhow::Result<()> {
-    match notification {
-        Notification::Live(live_status) => notify_live(notify, live_status).await,
-        Notification::Posts(posts) => notify_posts(notify, posts).await,
+    let token = notify
+        .token()
+        .map_err(|err| anyhow!("failed to read token for telegram: {err}"))?;
+
+    match &notification.kind {
+        NotificationKind::Live(live_status) => {
+            notify_live(notify, token, live_status, notification.from).await
+        }
+        NotificationKind::Posts(posts) => {
+            notify_posts(notify, token, posts, notification.from).await
+        }
     }
 }
 
-pub async fn notify_live(notify: &NotifyTelegram, live_status: &LiveStatus) -> anyhow::Result<()> {
+pub async fn notify_live(
+    notify: &NotifyTelegram,
+    token: impl AsRef<str>,
+    live_status: &LiveStatus,
+    from: &StatusFrom,
+) -> anyhow::Result<()> {
+    let title = format!("[{}] {}", from.platform_name, live_status.title);
     let body = json!(
         {
             "chat_id": match &notify.chat {
@@ -47,21 +63,17 @@ pub async fn notify_live(notify: &NotifyTelegram, live_status: &LiveStatus) -> a
             },
             "message_thread_id": notify.thread_id,
             "photo": live_status.cover_image_url,
-            "caption": live_status.title,
+            "caption": title,
             "caption_entities": [
                 {
                     "type": "text_link",
                     "offset": 0,
-                    "length": live_status.title.encode_utf16().count(),
+                    "length": title.encode_utf16().count(),
                     "url": live_status.live_url
                 }
             ]
         }
     );
-
-    let token = notify
-        .token()
-        .map_err(|err| anyhow!("failed to read token for telegram: {err}"))?;
     let resp = reqwest::Client::new()
         .post(telegram_api(token, "sendPhoto"))
         .json(&body)
@@ -87,11 +99,16 @@ pub async fn notify_live(notify: &NotifyTelegram, live_status: &LiveStatus) -> a
     Ok(())
 }
 
-pub async fn notify_posts(notify: &NotifyTelegram, posts: &PostsRef<'_>) -> anyhow::Result<()> {
+pub async fn notify_posts(
+    notify: &NotifyTelegram,
+    token: impl AsRef<str>,
+    posts: &PostsRef<'_>,
+    from: &StatusFrom,
+) -> anyhow::Result<()> {
     let mut errors = vec![];
 
     for post in &posts.0 {
-        if let Err(err) = notify_post(notify, post).await {
+        if let Err(err) = notify_post(notify, token.as_ref(), post, from).await {
             error!("failed to notify post to Telegram: {err}");
             errors.push(err);
         }
@@ -102,10 +119,13 @@ pub async fn notify_posts(notify: &NotifyTelegram, posts: &PostsRef<'_>) -> anyh
         .fold(Ok(()), |res, err| bail!("{res:?} {err}"))
 }
 
-pub async fn notify_post(notify: &NotifyTelegram, post: &Post) -> anyhow::Result<()> {
-    let token = notify
-        .token()
-        .map_err(|err| anyhow!("failed to read token for telegram: {err}"))?;
+pub async fn notify_post(
+    notify: &NotifyTelegram,
+    token: &str,
+    post: &Post,
+    from: &StatusFrom,
+) -> anyhow::Result<()> {
+    let content = format!("[{}] {}", from.platform_name, post.content);
 
     let mut body = json!(
         {
@@ -135,7 +155,7 @@ pub async fn notify_post(notify: &NotifyTelegram, post: &Post) -> anyhow::Result
             );
 
             if num_attachments == 0 {
-                body.insert("text".into(), json!(post.content));
+                body.insert("text".into(), json!(content));
                 "sendMessage"
             } else {
                 let attachment = post.attachments.first().unwrap();
@@ -143,12 +163,12 @@ pub async fn notify_post(notify: &NotifyTelegram, post: &Post) -> anyhow::Result
                 match attachment {
                     PostAttachment::Image(image) => {
                         body.insert("photo".into(), json!(image.media_url));
-                        body.insert("caption".into(), json!(post.content));
+                        body.insert("caption".into(), json!(content));
                         "sendPhoto"
                     }
                     PostAttachment::Video(video) => {
                         body.insert("video".into(), json!(video.media_url));
-                        body.insert("caption".into(), json!(post.content));
+                        body.insert("caption".into(), json!(content));
                         "sendVideo"
                     }
                 }
@@ -159,11 +179,11 @@ pub async fn notify_post(notify: &NotifyTelegram, post: &Post) -> anyhow::Result
 
             let view_text = ">> View Post <<";
             let (caption, entities) = (
-                format!("{}\n\n{view_text}", post.content),
+                format!("{}\n\n{view_text}", content),
                 json!([
                     {
                         "type": "text_link",
-                        "offset": post.content.encode_utf16().count() + "\n\n".encode_utf16().count(),
+                        "offset": content.encode_utf16().count() + "\n\n".encode_utf16().count(),
                         "length": view_text.encode_utf16().count(),
                         "url": post.url,
                     }

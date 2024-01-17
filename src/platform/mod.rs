@@ -9,22 +9,50 @@ use spdlog::prelude::*;
 use crate::config::Platform;
 
 #[derive(Debug)]
-pub enum Status {
-    Live(LiveStatus),
-    Posts(Posts),
+pub enum PlatformName {
+    LiveBilibiliCom,
+    TwitterCom,
+}
+
+impl fmt::Display for PlatformName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LiveBilibiliCom => write!(f, "live.bilibili"),
+            Self::TwitterCom => write!(f, "Twitter"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct StatusFrom {
+    pub platform_name: PlatformName,
+    pub user_display_name: String,
+    pub user_profile_url: String,
+}
+
+#[derive(Debug)]
+pub struct Status {
+    pub kind: StatusKind,
+    pub from: StatusFrom,
 }
 
 impl Status {
     pub fn needs_notify<'a>(&'a self, last_status: Option<&'a Status>) -> Option<Notification<'a>> {
-        match (self, last_status) {
-            (Self::Live(live_status), Some(Self::Live(last_live_status))) => (live_status.online
-                && !last_live_status.online)
-                .then_some(Notification::Live(live_status)),
-            (Self::Posts(posts), Some(Self::Posts(last_posts))) => {
+        match (&self.kind, last_status.map(|s| &s.kind)) {
+            (StatusKind::Live(live_status), Some(StatusKind::Live(last_live_status))) => {
+                (live_status.online && !last_live_status.online).then_some(Notification {
+                    kind: NotificationKind::Live(live_status),
+                    from: &self.from,
+                })
+            }
+            (StatusKind::Posts(posts), Some(StatusKind::Posts(last_posts))) => {
                 let new_posts =
                     vec_diff_by(&posts.0, &last_posts.0, |l, r| l.url == r.url).collect::<Vec<_>>();
                 if !new_posts.is_empty() {
-                    Some(Notification::Posts(PostsRef(new_posts)))
+                    Some(Notification {
+                        kind: NotificationKind::Posts(PostsRef(new_posts)),
+                        from: &self.from,
+                    })
                 } else {
                     None
                 }
@@ -35,7 +63,13 @@ impl Status {
     }
 }
 
-impl fmt::Display for Status {
+#[derive(Debug)]
+pub enum StatusKind {
+    Live(LiveStatus),
+    Posts(Posts),
+}
+
+impl fmt::Display for StatusKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Live(live_status) => write!(f, "{}", live_status),
@@ -111,12 +145,24 @@ impl fmt::Display for PostsRef<'_> {
 }
 
 #[derive(Debug)]
-pub enum Notification<'a> {
+pub struct Notification<'a> {
+    pub kind: NotificationKind<'a>,
+    pub from: &'a StatusFrom,
+}
+
+impl<'a> fmt::Display for Notification<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.kind)
+    }
+}
+
+#[derive(Debug)]
+pub enum NotificationKind<'a> {
     Live(&'a LiveStatus),
     Posts(PostsRef<'a>),
 }
 
-impl<'a> fmt::Display for Notification<'a> {
+impl<'a> fmt::Display for NotificationKind<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Live(live_status) => write!(f, "{}", live_status),
