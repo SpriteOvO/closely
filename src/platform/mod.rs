@@ -17,7 +17,7 @@ pub enum PlatformName {
 impl fmt::Display for PlatformName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::LiveBilibiliCom => write!(f, "live.bilibili"),
+            Self::LiveBilibiliCom => write!(f, "bilibili 直播"),
             Self::TwitterCom => write!(f, "Twitter"),
         }
     }

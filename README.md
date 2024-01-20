@@ -9,10 +9,10 @@ Subscribe to updates from people you follow, from any platform to any platform.
 ### Source of update
 
 - Social media
-  - [Twitter](https://twitter.com/)
+  - [Twitter (twitter.com)](https://twitter.com/)
 
 - Live streaming
-  - [bilibili live](https://live.bilibili.com/)
+  - [bilibili 直播 (live.bilibili.com)](https://live.bilibili.com/)
 
 ### Notification
 
