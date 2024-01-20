@@ -32,7 +32,26 @@ struct BilibiliResponseData {
 }
 
 pub(super) async fn fetch_status(platform: &PlatformLiveBilibiliCom) -> anyhow::Result<Status> {
-    let body = json!({ "uids": [platform.uid] });
+    let data = fetch_bilibili_live_info(platform.uid).await?;
+
+    Ok(Status {
+        kind: StatusKind::Live(LiveStatus {
+            online: data.live_status == 1,
+            title: data.title,
+            streamer_name: data.uname.clone(),
+            cover_image_url: data.cover_from_user,
+            live_url: format!("https://live.bilibili.com/{}", data.room_id),
+        }),
+        from: StatusFrom {
+            platform_name: PlatformName::LiveBilibiliCom,
+            user_display_name: data.uname,
+            user_profile_url: format!("https://space.bilibili.com/{}", platform.uid),
+        },
+    })
+}
+
+async fn fetch_bilibili_live_info(uid: u64) -> anyhow::Result<BilibiliResponseData> {
+    let body = json!({ "uids": [uid] });
 
     let resp = reqwest::Client::new()
         .post(LIVE_BILIBILI_COM_API)
@@ -56,22 +75,17 @@ pub(super) async fn fetch_status(platform: &PlatformLiveBilibiliCom) -> anyhow::
         bail!("response contains error, response '{text}'");
     }
 
-    let data = resp.data.into_values().next().ok_or_else(|| {
+    resp.data.into_values().next().ok_or_else(|| {
         anyhow!("UNEXPECTED! response with unexpected data array, response '{text}'")
-    })?;
-
-    Ok(Status {
-        kind: StatusKind::Live(LiveStatus {
-            online: data.live_status == 1,
-            title: data.title,
-            streamer_name: data.uname.clone(),
-            cover_image_url: data.cover_from_user,
-            live_url: format!("https://live.bilibili.com/{}", data.room_id),
-        }),
-        from: StatusFrom {
-            platform_name: PlatformName::LiveBilibiliCom,
-            user_display_name: data.uname,
-            user_profile_url: format!("https://space.bilibili.com/{}", platform.uid),
-        },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_live_bilibili_deser() {
+        fetch_bilibili_live_info(9617619).await.unwrap();
+    }
 }
