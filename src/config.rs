@@ -56,9 +56,12 @@ pub struct Subscription {
 
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(tag = "url")]
+#[allow(clippy::enum_variant_names)]
 pub enum Platform {
     #[serde(rename = "live.bilibili.com")]
     LiveBilibiliCom(PlatformLiveBilibiliCom),
+    #[serde(rename = "space.bilibili.com")]
+    SpaceBilibiliCom(PlatformSpaceBilibiliCom),
     #[serde(rename = "twitter.com")]
     TwitterCom(PlatformTwitterCom),
     // Yea! PRs for supports of more platforms are welcome!
@@ -68,6 +71,7 @@ impl fmt::Display for Platform {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Platform::LiveBilibiliCom(p) => write!(f, "live.bilibili.com:{}", p.uid),
+            Platform::SpaceBilibiliCom(p) => write!(f, "space.bilibili.com:{}", p.uid),
             Platform::TwitterCom(p) => write!(f, "twitter.com:{}", p.username),
         }
     }
@@ -75,6 +79,11 @@ impl fmt::Display for Platform {
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct PlatformLiveBilibiliCom {
+    pub uid: u64,
+}
+
+#[derive(Debug, PartialEq, Deserialize)]
+pub struct PlatformSpaceBilibiliCom {
     pub uid: u64,
 }
 

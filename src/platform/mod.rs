@@ -1,4 +1,5 @@
-mod live_bilibili_com;
+pub(crate) mod live_bilibili_com;
+mod space_bilibili_com;
 mod twitter_com;
 
 use std::fmt;
@@ -9,8 +10,10 @@ use spdlog::prelude::*;
 use crate::config::Platform;
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum PlatformName {
     LiveBilibiliCom,
+    SpaceBilibiliCom,
     TwitterCom,
 }
 
@@ -18,22 +21,28 @@ impl fmt::Display for PlatformName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::LiveBilibiliCom => write!(f, "bilibili 直播"),
+            Self::SpaceBilibiliCom => write!(f, "bilibili 动态"),
             Self::TwitterCom => write!(f, "Twitter"),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct StatusFrom {
+pub struct StatusSource {
     pub platform_name: PlatformName,
-    pub user_display_name: String,
-    pub user_profile_url: String,
+    pub user: Option<StatusSourceUser>,
+}
+
+#[derive(Debug)]
+pub struct StatusSourceUser {
+    pub display_name: String,
+    pub profile_url: String,
 }
 
 #[derive(Debug)]
 pub struct Status {
     pub kind: StatusKind,
-    pub from: StatusFrom,
+    pub source: StatusSource,
 }
 
 impl Status {
@@ -42,7 +51,7 @@ impl Status {
             (StatusKind::Live(live_status), Some(StatusKind::Live(last_live_status))) => {
                 (live_status.online && !last_live_status.online).then_some(Notification {
                     kind: NotificationKind::Live(live_status),
-                    from: &self.from,
+                    source: &self.source,
                 })
             }
             (StatusKind::Posts(posts), Some(StatusKind::Posts(last_posts))) => {
@@ -51,7 +60,7 @@ impl Status {
                 if !new_posts.is_empty() {
                     Some(Notification {
                         kind: NotificationKind::Posts(PostsRef(new_posts)),
-                        from: &self.from,
+                        source: &self.source,
                     })
                 } else {
                     None
@@ -149,7 +158,7 @@ impl fmt::Display for PostsRef<'_> {
 #[derive(Debug)]
 pub struct Notification<'a> {
     pub kind: NotificationKind<'a>,
-    pub from: &'a StatusFrom,
+    pub source: &'a StatusSource,
 }
 
 impl<'a> fmt::Display for Notification<'a> {
@@ -178,6 +187,7 @@ pub async fn fetch_status(platform: &Platform) -> anyhow::Result<Status> {
 
     match platform {
         Platform::LiveBilibiliCom(p) => live_bilibili_com::fetch_status(p).await,
+        Platform::SpaceBilibiliCom(p) => space_bilibili_com::fetch_status(p).await,
         Platform::TwitterCom(p) => twitter_com::fetch_status(p).await,
     }
     .map_err(|err| anyhow!("({platform}) {err}"))

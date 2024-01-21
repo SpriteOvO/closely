@@ -4,24 +4,24 @@ use anyhow::{anyhow, bail};
 use serde::Deserialize;
 use serde_json::{self as json, json};
 
-use super::{LiveStatus, PlatformName, Status, StatusFrom, StatusKind};
+use super::{LiveStatus, PlatformName, Status, StatusKind, StatusSource, StatusSourceUser};
 use crate::config::PlatformLiveBilibiliCom;
 
 const LIVE_BILIBILI_COM_API: &str =
     "https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids";
 
 #[derive(Deserialize)]
-struct BilibiliResponse {
-    code: i32,
+pub(crate) struct BilibiliResponse<T> {
+    pub(crate) code: i32,
     #[allow(dead_code)]
-    msg: String,
+    pub(crate) msg: String,
     #[allow(dead_code)]
-    message: String,
-    data: HashMap<String, BilibiliResponseData>,
+    pub(crate) message: String,
+    pub(crate) data: T,
 }
 
 #[derive(Deserialize)]
-struct BilibiliResponseData {
+struct BilibiliResponseDataRoom {
     title: String,
     room_id: u64,
     #[allow(dead_code)]
@@ -42,15 +42,17 @@ pub(super) async fn fetch_status(platform: &PlatformLiveBilibiliCom) -> anyhow::
             cover_image_url: data.cover_from_user,
             live_url: format!("https://live.bilibili.com/{}", data.room_id),
         }),
-        from: StatusFrom {
+        source: StatusSource {
             platform_name: PlatformName::LiveBilibiliCom,
-            user_display_name: data.uname,
-            user_profile_url: format!("https://space.bilibili.com/{}", platform.uid),
+            user: Some(StatusSourceUser {
+                display_name: data.uname,
+                profile_url: format!("https://space.bilibili.com/{}", platform.uid),
+            }),
         },
     })
 }
 
-async fn fetch_bilibili_live_info(uid: u64) -> anyhow::Result<BilibiliResponseData> {
+async fn fetch_bilibili_live_info(uid: u64) -> anyhow::Result<BilibiliResponseDataRoom> {
     let body = json!({ "uids": [uid] });
 
     let resp = reqwest::Client::new()
@@ -69,7 +71,7 @@ async fn fetch_bilibili_live_info(uid: u64) -> anyhow::Result<BilibiliResponseDa
         .text()
         .await
         .map_err(|err| anyhow!("failed to obtain text from response: {err}"))?;
-    let resp: BilibiliResponse =
+    let resp: BilibiliResponse<HashMap<String, BilibiliResponseDataRoom>> =
         json::from_str(&text).map_err(|err| anyhow!("failed to deserialize response: {err}"))?;
     if resp.code != 0 {
         bail!("response contains error, response '{text}'");

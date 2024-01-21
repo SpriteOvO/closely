@@ -6,7 +6,7 @@ use spdlog::prelude::*;
 use crate::{
     config::{NotifyTelegram, NotifyTelegramChat},
     platform::{
-        LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, StatusFrom,
+        LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, StatusSource,
     },
 };
 
@@ -40,10 +40,10 @@ pub async fn notify(
 
     match &notification.kind {
         NotificationKind::Live(live_status) => {
-            notify_live(notify, token, live_status, notification.from).await
+            notify_live(notify, token, live_status, notification.source).await
         }
         NotificationKind::Posts(posts) => {
-            notify_posts(notify, token, posts, notification.from).await
+            notify_posts(notify, token, posts, notification.source).await
         }
     }
 }
@@ -52,9 +52,9 @@ pub async fn notify_live(
     notify: &NotifyTelegram,
     token: impl AsRef<str>,
     live_status: &LiveStatus,
-    from: &StatusFrom,
+    source: &StatusSource,
 ) -> anyhow::Result<()> {
-    let title = format!("[{}] {}", from.platform_name, live_status.title);
+    let title = format!("[{}] {}", source.platform_name, live_status.title);
     let body = json!(
         {
             "chat_id": match &notify.chat {
@@ -103,12 +103,12 @@ pub async fn notify_posts(
     notify: &NotifyTelegram,
     token: impl AsRef<str>,
     posts: &PostsRef<'_>,
-    from: &StatusFrom,
+    source: &StatusSource,
 ) -> anyhow::Result<()> {
     let mut errors = vec![];
 
     for post in &posts.0 {
-        if let Err(err) = notify_post(notify, token.as_ref(), post, from).await {
+        if let Err(err) = notify_post(notify, token.as_ref(), post, source).await {
             error!("failed to notify post to Telegram: {err}");
             errors.push(err);
         }
@@ -123,11 +123,11 @@ pub async fn notify_post(
     notify: &NotifyTelegram,
     token: &str,
     post: &Post,
-    from: &StatusFrom,
+    source: &StatusSource,
 ) -> anyhow::Result<()> {
     let content = format!(
         "[{}] {}{}",
-        from.platform_name,
+        source.platform_name,
         if post.is_repost {
             "🔁 "
         } else if post.is_quote {

@@ -7,11 +7,12 @@ use reqwest::header::{HeaderValue, ACCEPT_LANGUAGE};
 use scraper::{Html, Selector};
 use spdlog::prelude::*;
 
+use super::StatusSourceUser;
 use crate::{
     config::PlatformTwitterCom,
     platform::{
-        PlatformName, Post, PostAttachment, PostAttachmentImage, Posts, Status, StatusFrom,
-        StatusKind,
+        PlatformName, Post, PostAttachment, PostAttachmentImage, Posts, Status, StatusKind,
+        StatusSource,
     },
     prop,
 };
@@ -118,10 +119,12 @@ pub(super) async fn fetch_status(platform: &PlatformTwitterCom) -> anyhow::Resul
 
     Ok(Status {
         kind: StatusKind::Posts(Posts(posts)),
-        from: StatusFrom {
+        source: StatusSource {
             platform_name: PlatformName::TwitterCom,
-            user_display_name: status.fullname,
-            user_profile_url: format!("https://twitter.com/{}", platform.username),
+            user: Some(StatusSourceUser {
+                display_name: status.fullname,
+                profile_url: format!("https://twitter.com/{}", platform.username),
+            }),
         },
     })
 }
