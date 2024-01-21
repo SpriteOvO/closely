@@ -37,7 +37,7 @@ async fn main() {
 }
 
 fn setup_logger(verbose: bool, log_dir: Option<&Path>) -> anyhow::Result<()> {
-    if verbose || cfg!(debug_assertions) {
+    if verbose {
         spdlog::default_logger().set_level_filter(LevelFilter::All)
     }
 
