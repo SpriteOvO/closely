@@ -14,22 +14,17 @@ pub struct Task {
     name: String,
     interval: Duration,
     notify: Arc<Notify>,
-    platform: Arc<Platform>,
+    fetcher: Box<dyn platform::Fetcher + Send>,
     last_status: Option<Status>,
 }
 
 impl Task {
-    pub fn new(
-        name: String,
-        interval: Duration,
-        notify: Arc<Notify>,
-        platform: Arc<Platform>,
-    ) -> Self {
+    pub fn new(name: String, interval: Duration, notify: Arc<Notify>, platform: Platform) -> Self {
         Self {
             name,
             interval,
             notify,
-            platform,
+            fetcher: platform::fetcher(platform),
             last_status: None,
         }
     }
@@ -53,16 +48,24 @@ impl Task {
 
 impl Task {
     async fn run_once(&mut self) -> anyhow::Result<()> {
-        let status = platform::fetch_status(&self.platform)
-            .await
-            .map_err(|err| anyhow!("failed to fetch status for '{}': {err}", self.name))?;
+        let status = self.fetcher.fetch_status().await.map_err(|err| {
+            anyhow!(
+                "failed to fetch status for '{}' on '{}': {err}",
+                self.name,
+                self.fetcher
+            )
+        })?;
 
-        trace!("status of '{}' now is '{status:?}'", self.name);
+        trace!(
+            "status of '{}' on '{}' now is '{status:?}'",
+            self.name,
+            self.fetcher
+        );
 
         if let Some(notification) = status.needs_notify(self.last_status.as_ref()) {
             info!(
-                "'{}' needs to send a notification '{notification}'",
-                self.name
+                "'{}' needs to send a notification for '{}': '{notification}'",
+                self.name, self.fetcher
             );
             notify::notify(&self.notify, &notification).await;
         }

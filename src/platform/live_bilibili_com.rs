@@ -1,10 +1,12 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt, future::Future, pin::Pin};
 
 use anyhow::{anyhow, bail};
 use serde::Deserialize;
 use serde_json::{self as json, json};
 
-use super::{LiveStatus, PlatformName, Status, StatusKind, StatusSource, StatusSourceUser};
+use super::{
+    Fetcher, LiveStatus, PlatformName, Status, StatusKind, StatusSource, StatusSourceUser,
+};
 use crate::config::PlatformLiveBilibiliCom;
 
 const LIVE_BILIBILI_COM_API: &str =
@@ -31,25 +33,47 @@ struct BilibiliResponseDataRoom {
     cover_from_user: String,
 }
 
-pub(super) async fn fetch_status(platform: &PlatformLiveBilibiliCom) -> anyhow::Result<Status> {
-    let data = fetch_bilibili_live_info(platform.uid).await?;
+pub struct LiveBilibiliComFetcher {
+    params: PlatformLiveBilibiliCom,
+}
 
-    Ok(Status {
-        kind: StatusKind::Live(LiveStatus {
-            online: data.live_status == 1,
-            title: data.title,
-            streamer_name: data.uname.clone(),
-            cover_image_url: data.cover_from_user,
-            live_url: format!("https://live.bilibili.com/{}", data.room_id),
-        }),
-        source: StatusSource {
-            platform_name: PlatformName::LiveBilibiliCom,
-            user: Some(StatusSourceUser {
-                display_name: data.uname,
-                profile_url: format!("https://space.bilibili.com/{}", platform.uid),
+impl Fetcher for LiveBilibiliComFetcher {
+    fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
+        Box::pin(self.fetch_status_impl())
+    }
+}
+
+impl fmt::Display for LiveBilibiliComFetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.params)
+    }
+}
+
+impl LiveBilibiliComFetcher {
+    pub fn new(params: PlatformLiveBilibiliCom) -> Self {
+        Self { params }
+    }
+
+    async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
+        let data = fetch_bilibili_live_info(self.params.uid).await?;
+
+        Ok(Status {
+            kind: StatusKind::Live(LiveStatus {
+                online: data.live_status == 1,
+                title: data.title,
+                streamer_name: data.uname.clone(),
+                cover_image_url: data.cover_from_user,
+                live_url: format!("https://live.bilibili.com/{}", data.room_id),
             }),
-        },
-    })
+            source: StatusSource {
+                platform_name: PlatformName::LiveBilibiliCom,
+                user: Some(StatusSourceUser {
+                    display_name: data.uname,
+                    profile_url: format!("https://space.bilibili.com/{}", self.params.uid),
+                }),
+            },
+        })
+    }
 }
 
 async fn fetch_bilibili_live_info(uid: u64) -> anyhow::Result<BilibiliResponseDataRoom> {

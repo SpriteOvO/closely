@@ -2,10 +2,15 @@ pub(crate) mod live_bilibili_com;
 mod space_bilibili_com;
 mod twitter_com;
 
-use std::fmt;
+use std::{
+    fmt::{self, Display},
+    future::Future,
+    pin::Pin,
+};
 
-use anyhow::anyhow;
-use spdlog::prelude::*;
+use live_bilibili_com::LiveBilibiliComFetcher;
+use space_bilibili_com::SpaceBilibiliComFetcher;
+use twitter_com::TwitterComFetcher;
 
 use crate::config::Platform;
 
@@ -182,15 +187,16 @@ impl<'a> fmt::Display for NotificationKind<'a> {
     }
 }
 
-pub async fn fetch_status(platform: &Platform) -> anyhow::Result<Status> {
-    trace!("fetch status '{platform}'");
+pub trait Fetcher: Display {
+    fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>>;
+}
 
+pub fn fetcher(platform: Platform) -> Box<dyn Fetcher + Send> {
     match platform {
-        Platform::LiveBilibiliCom(p) => live_bilibili_com::fetch_status(p).await,
-        Platform::SpaceBilibiliCom(p) => space_bilibili_com::fetch_status(p).await,
-        Platform::TwitterCom(p) => twitter_com::fetch_status(p).await,
+        Platform::LiveBilibiliCom(p) => Box::new(LiveBilibiliComFetcher::new(p)),
+        Platform::SpaceBilibiliCom(p) => Box::new(SpaceBilibiliComFetcher::new(p)),
+        Platform::TwitterCom(p) => Box::new(TwitterComFetcher::new(p)),
     }
-    .map_err(|err| anyhow!("({platform}) {err}"))
 }
 
 fn vec_diff_by<'a, T, F>(lhs: &'a [T], rhs: &'a [T], predicate: F) -> impl Iterator<Item = &'a T>

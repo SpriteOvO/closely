@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{fmt, future::Future, marker::PhantomData, pin::Pin};
 
 use anyhow::{anyhow, bail};
 use chrono::NaiveDateTime;
@@ -7,7 +7,7 @@ use reqwest::header::{HeaderValue, ACCEPT_LANGUAGE};
 use scraper::{Html, Selector};
 use spdlog::prelude::*;
 
-use super::StatusSourceUser;
+use super::{Fetcher, StatusSourceUser};
 use crate::{
     config::PlatformTwitterCom,
     platform::{
@@ -87,46 +87,68 @@ struct Video {
     preview_image_url: IncompleteUrl<NitterNet>,
 }
 
-pub(super) async fn fetch_status(platform: &PlatformTwitterCom) -> anyhow::Result<Status> {
-    let status = fetch_twitter_status(&platform.username).await?;
+pub struct TwitterComFetcher {
+    params: PlatformTwitterCom,
+}
 
-    let posts = status
-        .timeline
-        .into_iter()
-        .map(|tweet| Post {
-            content: tweet.content,
-            url: tweet.url.real_url(),
-            is_repost: tweet.is_retweet,
-            is_quote: tweet.is_quote,
-            attachments: tweet
-                .attachments
-                .into_iter()
-                .map(|attachment| match attachment {
-                    Attachment::Image(image) => PostAttachment::Image(PostAttachmentImage {
-                        media_url: image.url.real_url(),
-                    }),
-                    // For now, we have no way to get the URL of the video, so we convert the
-                    // preview image of the video into an image attachment.
-                    //
-                    // TODO: Add an overlay on the preview image to indicate that it's a video.
-                    Attachment::Video(video) => PostAttachment::Image(PostAttachmentImage {
-                        media_url: video.preview_image_url.real_url(),
-                    }),
-                })
-                .collect(),
+impl Fetcher for TwitterComFetcher {
+    fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
+        Box::pin(self.fetch_status_impl())
+    }
+}
+
+impl fmt::Display for TwitterComFetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.params)
+    }
+}
+
+impl TwitterComFetcher {
+    pub fn new(params: PlatformTwitterCom) -> Self {
+        Self { params }
+    }
+
+    async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
+        let status = fetch_twitter_status(&self.params.username).await?;
+
+        let posts = status
+            .timeline
+            .into_iter()
+            .map(|tweet| Post {
+                content: tweet.content,
+                url: tweet.url.real_url(),
+                is_repost: tweet.is_retweet,
+                is_quote: tweet.is_quote,
+                attachments: tweet
+                    .attachments
+                    .into_iter()
+                    .map(|attachment| match attachment {
+                        Attachment::Image(image) => PostAttachment::Image(PostAttachmentImage {
+                            media_url: image.url.real_url(),
+                        }),
+                        // For now, we have no way to get the URL of the video, so we convert the
+                        // preview image of the video into an image attachment.
+                        //
+                        // TODO: Add an overlay on the preview image to indicate that it's a video.
+                        Attachment::Video(video) => PostAttachment::Image(PostAttachmentImage {
+                            media_url: video.preview_image_url.real_url(),
+                        }),
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        Ok(Status {
+            kind: StatusKind::Posts(Posts(posts)),
+            source: StatusSource {
+                platform_name: PlatformName::TwitterCom,
+                user: Some(StatusSourceUser {
+                    display_name: status.fullname,
+                    profile_url: format!("https://twitter.com/{}", self.params.username),
+                }),
+            },
         })
-        .collect();
-
-    Ok(Status {
-        kind: StatusKind::Posts(Posts(posts)),
-        source: StatusSource {
-            platform_name: PlatformName::TwitterCom,
-            user: Some(StatusSourceUser {
-                display_name: status.fullname,
-                profile_url: format!("https://twitter.com/{}", platform.username),
-            }),
-        },
-    })
+    }
 }
 
 async fn fetch_twitter_status(username: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {

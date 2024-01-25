@@ -1,3 +1,5 @@
+use std::{fmt, future::Future, pin::Pin};
+
 use anyhow::{anyhow, bail, Ok};
 use serde::Deserialize;
 use serde_json::{self as json};
@@ -5,8 +7,8 @@ use spdlog::prelude::*;
 use tap::prelude::*;
 
 use super::{
-    live_bilibili_com::BilibiliResponse, PlatformName, Post, PostAttachment, PostAttachmentImage,
-    Posts, Status, StatusKind, StatusSource,
+    live_bilibili_com::BilibiliResponse, Fetcher, PlatformName, Post, PostAttachment,
+    PostAttachmentImage, Posts, Status, StatusKind, StatusSource,
 };
 use crate::config::PlatformSpaceBilibiliCom;
 
@@ -71,18 +73,40 @@ mod data {
     }
 }
 
-pub(super) async fn fetch_status(platform: &PlatformSpaceBilibiliCom) -> anyhow::Result<Status> {
-    let posts = fetch_space_bilibili_history(platform.uid).await?;
+pub struct SpaceBilibiliComFetcher {
+    params: PlatformSpaceBilibiliCom,
+}
 
-    Ok(Status {
-        kind: StatusKind::Posts(posts),
-        source: StatusSource {
-            platform_name: PlatformName::SpaceBilibiliCom,
-            // TODO: User info is only contained in cards, not in a unique kv, implement it later if
-            // needed
-            user: None,
-        },
-    })
+impl Fetcher for SpaceBilibiliComFetcher {
+    fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
+        Box::pin(self.fetch_status_impl())
+    }
+}
+
+impl fmt::Display for SpaceBilibiliComFetcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.params)
+    }
+}
+
+impl SpaceBilibiliComFetcher {
+    pub fn new(params: PlatformSpaceBilibiliCom) -> Self {
+        Self { params }
+    }
+
+    async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
+        let posts = fetch_space_bilibili_history(self.params.uid).await?;
+
+        Ok(Status {
+            kind: StatusKind::Posts(posts),
+            source: StatusSource {
+                platform_name: PlatformName::SpaceBilibiliCom,
+                // TODO: User info is only contained in cards, not in a unique kv, implement it
+                // later if needed
+                user: None,
+            },
+        })
+    }
 }
 
 async fn fetch_space_bilibili_history(uid: u64) -> anyhow::Result<Posts> {

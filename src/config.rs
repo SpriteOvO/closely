@@ -19,16 +19,14 @@ impl Config {
         Ok(config)
     }
 
-    pub fn subscriptions(
-        &self,
-    ) -> impl Iterator<Item = (String, (Arc<Notify>, Arc<Platform>))> + '_ {
+    pub fn subscriptions(&self) -> impl Iterator<Item = (String, (Arc<Notify>, Platform))> + '_ {
         self.subscription.iter().flat_map(|(name, subscriptions)| {
             subscriptions.iter().map(|subscription| {
                 (
                     name.clone(),
                     (
                         Arc::clone(self.notify.get(&subscription.notify).unwrap()),
-                        Arc::clone(&subscription.platform),
+                        subscription.platform.clone(),
                     ),
                 )
             })
@@ -50,11 +48,11 @@ impl Config {
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Subscription {
-    pub platform: Arc<Platform>,
+    pub platform: Platform,
     notify: String,
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(tag = "url")]
 #[allow(clippy::enum_variant_names)]
 pub enum Platform {
@@ -70,26 +68,44 @@ pub enum Platform {
 impl fmt::Display for Platform {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Platform::LiveBilibiliCom(p) => write!(f, "live.bilibili.com:{}", p.uid),
-            Platform::SpaceBilibiliCom(p) => write!(f, "space.bilibili.com:{}", p.uid),
-            Platform::TwitterCom(p) => write!(f, "twitter.com:{}", p.username),
+            Platform::LiveBilibiliCom(p) => write!(f, "{p}"),
+            Platform::SpaceBilibiliCom(p) => write!(f, "{p}"),
+            Platform::TwitterCom(p) => write!(f, "{p}"),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct PlatformLiveBilibiliCom {
     pub uid: u64,
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+impl fmt::Display for PlatformLiveBilibiliCom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "live.bilibili.com:{}", self.uid)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct PlatformSpaceBilibiliCom {
     pub uid: u64,
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+impl fmt::Display for PlatformSpaceBilibiliCom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "space.bilibili.com:{}", self.uid)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct PlatformTwitterCom {
     pub username: String,
+}
+
+impl fmt::Display for PlatformTwitterCom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "twitter.com:{}", self.username)
+    }
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -203,15 +219,15 @@ notify = "meow"
                     "meow".into(),
                     vec![
                         Subscription {
-                            platform: Arc::new(Platform::LiveBilibiliCom(
-                                PlatformLiveBilibiliCom { uid: 123456 }
-                            )),
+                            platform: Platform::LiveBilibiliCom(PlatformLiveBilibiliCom {
+                                uid: 123456
+                            }),
                             notify: "meow".into(),
                         },
                         Subscription {
-                            platform: Arc::new(Platform::TwitterCom(PlatformTwitterCom {
+                            platform: Platform::TwitterCom(PlatformTwitterCom {
                                 username: "meowww".into()
-                            })),
+                            }),
                             notify: "meow".into(),
                         }
                     ]
