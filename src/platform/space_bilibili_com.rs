@@ -1,16 +1,17 @@
-use std::{fmt, future::Future, pin::Pin};
+use std::{collections::HashSet, fmt, future::Future, pin::Pin};
 
 use anyhow::{anyhow, bail, Ok};
 use serde::Deserialize;
 use serde_json::{self as json};
 use spdlog::prelude::*;
 use tap::prelude::*;
+use tokio::sync::Mutex;
 
 use super::{
-    live_bilibili_com::BilibiliResponse, Fetcher, PlatformName, Post, PostAttachment,
-    PostAttachmentImage, Posts, Status, StatusKind, StatusSource,
+    live_bilibili_com::BilibiliResponse, Fetcher, Notification, NotificationKind, PlatformName,
+    Post, PostAttachment, PostAttachmentImage, Posts, Status, StatusKind, StatusSource,
 };
-use crate::config::PlatformSpaceBilibiliCom;
+use crate::{config::PlatformSpaceBilibiliCom, platform::PostsRef};
 
 const SPACE_BILIBILI_COM_API: &str =
     "https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/space_history?host_uid=";
@@ -75,11 +76,19 @@ mod data {
 
 pub struct SpaceBilibiliComFetcher {
     params: PlatformSpaceBilibiliCom,
+    published_cache: Mutex<HashSet<String>>,
 }
 
 impl Fetcher for SpaceBilibiliComFetcher {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
         Box::pin(self.fetch_status_impl())
+    }
+
+    fn post_filter<'a>(
+        &'a self,
+        notification: Notification<'a>,
+    ) -> Pin<Box<dyn Future<Output = Option<Notification<'a>>> + Send + '_>> {
+        Box::pin(self.post_filter_impl(notification))
     }
 }
 
@@ -91,7 +100,10 @@ impl fmt::Display for SpaceBilibiliComFetcher {
 
 impl SpaceBilibiliComFetcher {
     pub fn new(params: PlatformSpaceBilibiliCom) -> Self {
-        Self { params }
+        Self {
+            params,
+            published_cache: Mutex::new(HashSet::new()),
+        }
     }
 
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
@@ -106,6 +118,35 @@ impl SpaceBilibiliComFetcher {
                 user: None,
             },
         })
+    }
+
+    async fn post_filter_impl<'a>(
+        &self,
+        mut notification: Notification<'a>,
+    ) -> Option<Notification<'a>> {
+        // Sometimes the API returns posts without all "published video" posts, it
+        // causes the problem that the next update will treat the missing posts as new
+        // posts and notify them again. So we do some hacky filter here.
+
+        if let NotificationKind::Posts(posts) = notification.kind {
+            let mut published_cache = self.published_cache.lock().await;
+            let remaining_posts = posts
+                .0
+                .into_iter()
+                .filter(|post| !published_cache.contains(&post.url))
+                .collect::<Vec<_>>();
+
+            remaining_posts.iter().for_each(|post| {
+                assert!(published_cache.insert(post.url.clone()));
+            });
+            drop(published_cache);
+
+            if remaining_posts.is_empty() {
+                return None;
+            }
+            notification.kind = NotificationKind::Posts(PostsRef(remaining_posts));
+        }
+        Some(notification)
     }
 }
 
@@ -204,7 +245,69 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_live_bilibili_deser() {
+    async fn deser() {
         fetch_space_bilibili_history(8047632).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn dedup_published_videos() {
+        let fetcher = SpaceBilibiliComFetcher::new(PlatformSpaceBilibiliCom { uid: 1 });
+
+        let source = StatusSource {
+            platform_name: PlatformName::SpaceBilibiliCom,
+            user: None,
+        };
+        let mut posts = vec![];
+
+        macro_rules! make_notification {
+            ( $posts:expr ) => {
+                Notification {
+                    kind: NotificationKind::Posts(PostsRef($posts)),
+                    source: &source,
+                }
+            };
+            () => {
+                make_notification!(posts.iter().collect())
+            };
+        }
+
+        assert!(fetcher.post_filter(make_notification!()).await.is_none());
+
+        posts.push(Post {
+            content: "test1".into(),
+            url: "https://test1".into(),
+            is_repost: false,
+            is_quote: false,
+            attachments: vec![],
+        });
+
+        let filtered = fetcher.post_filter(make_notification!()).await;
+        assert!(matches!(
+            filtered.unwrap().kind,
+            NotificationKind::Posts(posts) if posts.0.len() == 1 && posts.0[0].content == "test1"
+        ));
+
+        let filtered = fetcher.post_filter(make_notification!()).await;
+        assert!(filtered.is_none());
+
+        let filtered = fetcher.post_filter(make_notification!(vec![])).await;
+        assert!(filtered.is_none());
+
+        posts.push(Post {
+            content: "test2".into(),
+            url: "https://test2".into(),
+            is_repost: false,
+            is_quote: false,
+            attachments: vec![],
+        });
+
+        let filtered = fetcher.post_filter(make_notification!()).await;
+        assert!(matches!(
+            filtered.unwrap().kind,
+            NotificationKind::Posts(posts) if posts.0.len() == 1 && posts.0[0].content == "test2"
+        ));
+
+        let filtered = fetcher.post_filter(make_notification!(vec![])).await;
+        assert!(filtered.is_none());
     }
 }

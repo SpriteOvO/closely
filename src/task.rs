@@ -14,7 +14,7 @@ pub struct Task {
     name: String,
     interval: Duration,
     notify: Arc<Notify>,
-    fetcher: Box<dyn platform::Fetcher + Send>,
+    fetcher: Box<dyn platform::Fetcher + Send + Sync>,
     last_status: Option<Status>,
 }
 
@@ -62,7 +62,11 @@ impl Task {
             self.fetcher
         );
 
-        if let Some(notification) = status.needs_notify(self.last_status.as_ref()) {
+        if let Some(notification) = self
+            .fetcher
+            .post_filter_opt(status.needs_notify(self.last_status.as_ref()))
+            .await
+        {
             info!(
                 "'{}' needs to send a notification for '{}': '{notification}'",
                 self.name, self.fetcher

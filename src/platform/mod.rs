@@ -189,9 +189,33 @@ impl<'a> fmt::Display for NotificationKind<'a> {
 
 pub trait Fetcher: Display {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>>;
+
+    // "post" means "after" here
+    fn post_filter_opt<'a>(
+        &'a self,
+        notification: Option<Notification<'a>>,
+    ) -> Pin<Box<dyn Future<Output = Option<Notification<'a>>> + Send + '_>>
+    where
+        Self: Sync,
+    {
+        Box::pin(async move {
+            match notification {
+                Some(n) => self.post_filter(n).await,
+                None => None,
+            }
+        })
+    }
+
+    // "post" means "after" here
+    fn post_filter<'a>(
+        &'a self,
+        notification: Notification<'a>,
+    ) -> Pin<Box<dyn Future<Output = Option<Notification<'a>>> + Send + '_>> {
+        Box::pin(async move { Some(notification) })
+    }
 }
 
-pub fn fetcher(platform: Platform) -> Box<dyn Fetcher + Send> {
+pub fn fetcher(platform: Platform) -> Box<dyn Fetcher + Send + Sync> {
     match platform {
         Platform::LiveBilibiliCom(p) => Box::new(LiveBilibiliComFetcher::new(p)),
         Platform::SpaceBilibiliCom(p) => Box::new(SpaceBilibiliComFetcher::new(p)),
