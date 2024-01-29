@@ -77,7 +77,7 @@ mod data {
 pub struct SpaceBilibiliComFetcher {
     params: PlatformSpaceBilibiliCom,
     first_fetch: OnceCell<()>,
-    published_cache: Mutex<HashSet<String>>,
+    fetched_cache: Mutex<HashSet<String>>,
 }
 
 impl Fetcher for SpaceBilibiliComFetcher {
@@ -104,7 +104,7 @@ impl SpaceBilibiliComFetcher {
         Self {
             params,
             first_fetch: OnceCell::new(),
-            published_cache: Mutex::new(HashSet::new()),
+            fetched_cache: Mutex::new(HashSet::new()),
         }
     }
 
@@ -114,7 +114,7 @@ impl SpaceBilibiliComFetcher {
         // The initial full cache for `post_filter`
         self.first_fetch
             .get_or_init(|| async {
-                let mut published_cache = self.published_cache.lock().await;
+                let mut published_cache = self.fetched_cache.lock().await;
                 posts.0.iter().for_each(|post| {
                     assert!(published_cache.insert(post.url.clone()));
                 })
@@ -141,17 +141,17 @@ impl SpaceBilibiliComFetcher {
         // posts and notify them again. So we do some hacky filter here.
 
         if let NotificationKind::Posts(posts) = notification.kind {
-            let mut published_cache = self.published_cache.lock().await;
+            let mut fetched_cache = self.fetched_cache.lock().await;
             let remaining_posts = posts
                 .0
                 .into_iter()
-                .filter(|post| !published_cache.contains(&post.url))
+                .filter(|post| !fetched_cache.contains(&post.url))
                 .collect::<Vec<_>>();
 
             remaining_posts.iter().for_each(|post| {
-                assert!(published_cache.insert(post.url.clone()));
+                assert!(fetched_cache.insert(post.url.clone()));
             });
-            drop(published_cache);
+            drop(fetched_cache);
 
             if remaining_posts.is_empty() {
                 return None;
