@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{self as json};
 use spdlog::prelude::*;
 use tap::prelude::*;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 
 use super::{
     live_bilibili_com::BilibiliResponse, Fetcher, Notification, NotificationKind, PlatformName,
@@ -76,6 +76,7 @@ mod data {
 
 pub struct SpaceBilibiliComFetcher {
     params: PlatformSpaceBilibiliCom,
+    first_fetch: OnceCell<()>,
     published_cache: Mutex<HashSet<String>>,
 }
 
@@ -102,12 +103,23 @@ impl SpaceBilibiliComFetcher {
     pub fn new(params: PlatformSpaceBilibiliCom) -> Self {
         Self {
             params,
+            first_fetch: OnceCell::new(),
             published_cache: Mutex::new(HashSet::new()),
         }
     }
 
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
         let posts = fetch_space_bilibili_history(self.params.uid).await?;
+
+        // The initial full cache for `post_filter`
+        self.first_fetch
+            .get_or_init(|| async {
+                let mut published_cache = self.published_cache.lock().await;
+                posts.0.iter().for_each(|post| {
+                    assert!(published_cache.insert(post.url.clone()));
+                })
+            })
+            .await;
 
         Ok(Status {
             kind: StatusKind::Posts(posts),
