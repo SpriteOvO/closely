@@ -1,22 +1,32 @@
 use std::{borrow::Cow, collections::HashMap, env, fmt, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
+use once_cell::sync::OnceCell;
 use serde::Deserialize;
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Config {
     #[serde(with = "humantime_serde")]
     pub interval: Duration,
+    platform: Option<PlatformGlobal>,
     #[serde(default)]
     notify: HashMap<String, Arc<Notify>>,
     subscription: HashMap<String, Vec<Subscription>>,
 }
 
+static PLATFORM_GLOBAL: OnceCell<PlatformGlobal> = OnceCell::new();
+
 impl Config {
-    pub fn from_str(input: impl AsRef<str>) -> anyhow::Result<Self> {
-        let config = toml::from_str::<Self>(input.as_ref())?;
-        config.validate()?;
+    pub fn init(input: impl AsRef<str>) -> anyhow::Result<Self> {
+        let mut config = Self::from_str(input)?;
+        PLATFORM_GLOBAL
+            .set(config.platform.take().unwrap_or_default())
+            .map_err(|_| anyhow!("config was initialized before"))?;
         Ok(config)
+    }
+
+    pub fn platform_global() -> &'static PlatformGlobal {
+        PLATFORM_GLOBAL.get().expect("config was not initialized")
     }
 
     pub fn subscriptions(&self) -> impl Iterator<Item = (String, (Arc<Notify>, Platform))> + '_ {
@@ -35,6 +45,12 @@ impl Config {
 }
 
 impl Config {
+    fn from_str(input: impl AsRef<str>) -> anyhow::Result<Self> {
+        let config = toml::from_str::<Self>(input.as_ref())?;
+        config.validate()?;
+        Ok(config)
+    }
+
     fn validate(&self) -> anyhow::Result<()> {
         self.subscription
             .values()
@@ -44,6 +60,17 @@ impl Config {
             .then_some(())
             .ok_or_else(|| anyhow!("reference of notify not found"))
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Default, Deserialize)]
+pub struct PlatformGlobal {
+    #[serde(rename = "twitter.com")]
+    pub twitter_com: Option<PlatformGlobalTwitterCom>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct PlatformGlobalTwitterCom {
+    pub nitter_host: String,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -192,6 +219,9 @@ mod tests {
                 r#"
 interval = '1min'
 
+[platform."twitter.com"]
+nitter_host = "https://nitter.example.com/"
+
 [notify.meow]
 telegram = [ { id = 1234, thread_id = 123, token = "xxx" } ]
 
@@ -207,6 +237,11 @@ notify = "meow"
             .unwrap(),
             Config {
                 interval: Duration::from_secs(60), // 1min
+                platform: Some(PlatformGlobal {
+                    twitter_com: Some(PlatformGlobalTwitterCom {
+                        nitter_host: "https://nitter.example.com/".into()
+                    })
+                }),
                 notify: HashMap::from_iter([(
                     "meow".into(),
                     Arc::new(Notify::Telegram(vec![NotifyTelegram {

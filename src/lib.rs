@@ -12,7 +12,7 @@ use task::Task;
 use crate::config::Config;
 
 pub async fn run(config: impl AsRef<Path>) -> anyhow::Result<()> {
-    let config = Config::from_str(
+    let config = Config::init(
         tokio::fs::read_to_string(config)
             .await
             .map_err(|err| anyhow!("failed to read config file: {err}"))?,

@@ -9,15 +9,13 @@ use spdlog::prelude::*;
 
 use super::{Fetcher, StatusSourceUser};
 use crate::{
-    config::PlatformTwitterCom,
+    config::{Config, PlatformTwitterCom},
     platform::{
         PlatformName, Post, PostAttachment, PostAttachmentImage, Posts, Status, StatusKind,
         StatusSource,
     },
     prop,
 };
-
-const NITTER_FRONT_END: &str = "https://nitter.net/";
 
 #[derive(Debug)]
 struct TwitterCom;
@@ -89,6 +87,7 @@ struct Video {
 
 pub struct TwitterComFetcher {
     params: PlatformTwitterCom,
+    nitter_host: String,
 }
 
 impl Fetcher for TwitterComFetcher {
@@ -105,11 +104,20 @@ impl fmt::Display for TwitterComFetcher {
 
 impl TwitterComFetcher {
     pub fn new(params: PlatformTwitterCom) -> Self {
-        Self { params }
+        Self {
+            params,
+            nitter_host: Config::platform_global()
+                .twitter_com
+                .as_ref()
+                .map(|t| t.nitter_host.as_str())
+                .unwrap_or("https://nitter.net")
+                .trim_end_matches('/')
+                .into(),
+        }
     }
 
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
-        let status = fetch_twitter_status(&self.params.username).await?;
+        let status = fetch_twitter_status(&self.nitter_host, &self.params.username).await?;
 
         let posts = status
             .timeline
@@ -151,13 +159,16 @@ impl TwitterComFetcher {
     }
 }
 
-async fn fetch_twitter_status(username: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {
+async fn fetch_twitter_status(
+    nitter_host: &str,
+    username: impl AsRef<str>,
+) -> anyhow::Result<TwitterStatus> {
     let resp = reqwest::ClientBuilder::new()
         .gzip(true)
         .user_agent(prop::PACKAGE.user_agent)
         .build()
         .map_err(|err| anyhow!("failed to build client: {err}"))?
-        .get(format!("{NITTER_FRONT_END}{}", username.as_ref()))
+        .get(format!("{nitter_host}/{}", username.as_ref()))
         .header(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.5"))
         .send()
         .await
@@ -265,7 +276,9 @@ mod tests {
     #[tokio::test]
     async fn test_twitter_status() {
         let year_2024 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-        let status = fetch_twitter_status("nasa").await.unwrap();
+        let status = fetch_twitter_status("https://nitter.privacydev.net", "nasa")
+            .await
+            .unwrap();
 
         assert_eq!(status.fullname, "NASA");
 
