@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, env, fmt, sync::Arc, time::Duration};
+use std::{borrow::Cow, collections::HashMap, default, env, fmt, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use serde::Deserialize;
@@ -7,6 +7,8 @@ use serde::Deserialize;
 pub struct Config {
     #[serde(with = "humantime_serde")]
     pub interval: Duration,
+    #[serde(default)]
+    pub platform: PlatformGlobal,
     #[serde(default)]
     notify: HashMap<String, Arc<Notify>>,
     subscription: HashMap<String, Vec<Subscription>>,
@@ -44,6 +46,42 @@ impl Config {
             .then_some(())
             .ok_or_else(|| anyhow!("reference of notify not found"))
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Default, Deserialize)]
+pub struct PlatformGlobal {
+    #[serde(rename = "twitter.com")]
+    pub twitter: Option<PlatformGlobalTwitterCom>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct PlatformGlobalTwitterCom {
+    pub auth: PlatformGlobalTwitterComAuth,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct PlatformGlobalTwitterComAuth {
+    pub username: String,
+    #[serde(flatten)]
+    password: PlatformGlobalTwitterComAuthPassword,
+}
+
+impl PlatformGlobalTwitterComAuth {
+    pub fn password(&self) -> anyhow::Result<Cow<str>> {
+        match &self.password {
+            PlatformGlobalTwitterComAuthPassword::Password(token) => Ok(Cow::Borrowed(token)),
+            PlatformGlobalTwitterComAuthPassword::PasswordEnv(token_env) => {
+                Ok(Cow::Owned(env::var(token_env)?))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PlatformGlobalTwitterComAuthPassword {
+    Password(String),
+    PasswordEnv(String),
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -192,6 +230,9 @@ mod tests {
                 r#"
 interval = '1min'
 
+[platform."twitter.com"]
+auth = { username = "backend", password = "backendpaswd" }
+
 [notify.meow]
 telegram = [ { id = 1234, thread_id = 123, token = "xxx" } ]
 
@@ -207,6 +248,16 @@ notify = "meow"
             .unwrap(),
             Config {
                 interval: Duration::from_secs(60), // 1min
+                platform: PlatformGlobal {
+                    twitter: Some(PlatformGlobalTwitterCom {
+                        auth: PlatformGlobalTwitterComAuth {
+                            username: "backend".into(),
+                            password: PlatformGlobalTwitterComAuthPassword::Password(
+                                "backendpaswd".into()
+                            ),
+                        }
+                    })
+                },
                 notify: HashMap::from_iter([(
                     "meow".into(),
                     Arc::new(Notify::Telegram(vec![NotifyTelegram {

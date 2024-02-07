@@ -1,6 +1,6 @@
 pub(crate) mod live_bilibili_com;
 mod space_bilibili_com;
-mod twitter_com;
+pub(crate) mod twitter_com;
 
 use std::{
     fmt::{self, Display},

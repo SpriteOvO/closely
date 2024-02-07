@@ -1,23 +1,34 @@
-use std::{fmt, future::Future, marker::PhantomData, pin::Pin};
+use std::{
+    collections::HashMap,
+    fmt,
+    future::Future,
+    io::{self, Write},
+    marker::PhantomData,
+    pin::Pin,
+    str::FromStr,
+};
 
 use anyhow::{anyhow, bail};
 use chrono::NaiveDateTime;
+use oauth1::OAuthClientProvider;
 use once_cell::sync::Lazy;
-use reqwest::header::{HeaderValue, ACCEPT_LANGUAGE};
-use scraper::{Html, Selector};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT_LANGUAGE, AUTHORIZATION};
+use reqwest_oauth1 as oauth1;
+use serde::Deserialize;
+use serde_json::{self as json, json};
+use serde_qs as qs;
 use spdlog::prelude::*;
+use tokio::sync::OnceCell;
 
 use super::{Fetcher, StatusSourceUser};
 use crate::{
-    config::PlatformTwitterCom,
+    config::{PlatformGlobalTwitterCom, PlatformTwitterCom},
     platform::{
         PlatformName, Post, PostAttachment, PostAttachmentImage, Posts, Status, StatusKind,
         StatusSource,
     },
-    prop,
+    prop, util,
 };
-
-const NITTER_FRONT_END: &str = "https://nitter.net/";
 
 #[derive(Debug)]
 struct TwitterCom;
@@ -151,21 +162,56 @@ impl TwitterComFetcher {
     }
 }
 
-async fn fetch_twitter_status(username: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {
-    let resp = reqwest::ClientBuilder::new()
-        .gzip(true)
-        .user_agent(prop::PACKAGE.user_agent)
-        .build()
-        .map_err(|err| anyhow!("failed to build client: {err}"))?
-        .get(format!("{NITTER_FRONT_END}{}", username.as_ref()))
-        .header(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.5"))
+const API_ACTIVATE_GUEST_TOKEN: &str = "https://api.twitter.com/1.1/guest/activate.json";
+const API_TASK: &str = "https://api.twitter.com/1.1/onboarding/task.json";
+
+const API_GRAPHQL_TIMELINE: &str =
+    "https://api.twitter.com/graphql/3JNH4e9dq1BifLxAa3UMWg/UserWithProfileTweetsQueryV2";
+const API_GRAPHQL_USER_BY_SCREEN_NAME: &str =
+    "https://api.twitter.com/graphql/u7wQyGi6oExe8_TRWGMq4Q/UserResultByScreenNameQuery";
+
+const AUTH_BEARER: &str = "Bearer AAAAAAAAAAAAAAAAAAAAAFXzAwAAAAAAMHCxpeSDG1gLNLghVe8d74hl6k4%3DRUMF4xAQLsbeBhTSRrCiQpJtxoGWeyHrDb5te2jpGskWDFW82F";
+const OAUTH1_CONSUMER_KEY: &str = "3nVuSoBZnx6U4vzUxf5w";
+const OAUTH1_CONSUMER_SECRET: &str = "Bcs59EFbbsdF6Sl9Ng71smgStWEGwXXKSjYvPVt7qys";
+
+#[rustfmt::skip]
+static FEATURES: Lazy<HashMap<&'static str, bool>> = Lazy::new(|| {
+    HashMap::from_iter([
+        ("android_graphql_skip_api_media_color_palette", false),
+        ("blue_business_profile_image_shape_enabled", false),
+        ("creator_subscriptions_subscription_count_enabled", false),
+        ("creator_subscriptions_tweet_preview_api_enabled", true),
+        ("freedom_of_speech_not_reach_fetch_enabled", false),
+        ("longform_notetweets_consumption_enabled", true),
+        ("longform_notetweets_inline_media_enabled", false),
+        ("longform_notetweets_rich_text_read_enabled", false),
+        ("subscriptions_verification_info_enabled", true),
+        ("super_follow_badge_privacy_enabled", false),
+        ("super_follow_exclusive_tweet_notifications_enabled", false),
+        ("super_follow_tweet_api_enabled", false),
+        ("super_follow_user_api_enabled", false),
+        ("tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled", false),
+        ("tweetypie_unmention_optimization_enabled", false),
+        ("unified_cards_ad_metadata_container_dynamic_card_content_query_enabled", false),
+        ("withQuickPromoteEligibilityTweetFields", true),
+    ])
+});
+
+async fn graphql_get(endpoint: impl AsRef<str>) -> anyhow::Result<()> {
+    let auth = AUTH.get().expect("Twitter not logged in");
+    let secrets = oauth1::Secrets::new(OAUTH1_CONSUMER_KEY, OAUTH1_CONSUMER_SECRET)
+        .token(&auth.oauth_token, &auth.oauth_token_secret);
+
+    let resp = reqwest::Client::new()
+        .oauth1(secrets)
+        .get(format!("{}?{}", endpoint, qs::to_string(&*FEATURES)?))
         .send()
         .await
         .map_err(|err| anyhow!("failed to send request: {err}"))?;
 
     let status = resp.status();
     if !status.is_success() {
-        bail!("response status is not success: {resp:?}");
+        bail!("response status is not success: {:?}", resp);
     }
 
     let text = resp
@@ -173,87 +219,292 @@ async fn fetch_twitter_status(username: impl AsRef<str>) -> anyhow::Result<Twitt
         .await
         .map_err(|err| anyhow!("failed to obtain text from response: {err}"))?;
 
-    parse_nitter_html(text)
+    todo!("{}", text)
 }
 
-macro_rules! s {
-    ( $elem:ident.select($selector:literal)$(.attr($attr:literal))* ) => {{
-        static SELECTOR__: Lazy<Selector> = Lazy::new(|| Selector::parse($selector).unwrap());
-        $elem.select(&SELECTOR__)
-            .next()
-            $(.and_then(|a| a.attr($attr)))*
-            .ok_or_else(|| anyhow!("selector '{}' doesn't match any element", $selector))
-    }};
-    ( @SUB: $elem:expr,  $(,)? ) => { $elem };
-    ( $elem:ident.selects($selector:literal) ) => {{
-        static SELECTOR__: Lazy<Selector> = Lazy::new(|| Selector::parse($selector).unwrap());
-        $elem.select(&SELECTOR__)
-    }};
-    ( $elem:ident.contains($selector:literal) ) => {{
-        static SELECTOR__: Lazy<Selector> = Lazy::new(|| Selector::parse($selector).unwrap());
-        $elem.select(&SELECTOR__).next().is_some()
-    }};
+async fn user_id_from_screen_name(screen_name: impl AsRef<str>) -> u64 {
+    //
 }
 
-fn parse_nitter_html(html: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {
-    let html = Html::parse_document(html.as_ref());
+async fn fetch_twitter_status(username: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {
+    graphql_get(API_GRAPHQL_TIMELINE).await?;
+}
 
-    let mut timeline = vec![];
-    let fullname = s!(html.select(".profile-card-fullname").attr("title"))?;
+#[derive(Deserialize)]
+struct Auth {
+    oauth_token: String,
+    oauth_token_secret: String,
+    user: AuthUser,
+}
 
-    for timeline_item in s!(html.selects(".timeline-item")) {
-        let tweet_link =
-            s!(timeline_item.select(".tweet-link").attr("href"))?.trim_end_matches("#m");
-        let tweet_body = s!(timeline_item.select(".tweet-body"))?;
+#[derive(Deserialize)]
+struct AuthUser {
+    name: String,
+    screen_name: String,
+}
 
-        let is_pinned = s!(tweet_body.contains(".pinned"));
-        let is_retweet = s!(tweet_body.contains(".retweet-header"));
-        let is_quote = s!(tweet_body.contains(".quote"));
-        let tweet_date = s!(tweet_body.select(".tweet-date > a").attr("title"))?;
-        let tweet_content = s!(tweet_body.select(".tweet-content"))?.text().collect();
-        let attachment_images = s!(tweet_body.selects(".attachment.image > .still-image"))
-            .filter_map(|image| -> Option<Attachment> {
-                image
-                    .attr("href")
-                    .map(|url| Image { url: url.into() })
-                    .map(Attachment::Image)
-                    .or_else(|| {
-                        error!("[twitter.com] '{tweet_link}' has image without href");
-                        None
-                    })
-            });
-        let attachment_videos = s!(tweet_body.selects(".attachment.video-container > img"))
-            .filter_map(|video| -> Option<Attachment> {
-                Some(Attachment::Video(Video {
-                    preview_image_url: video.attr("src").unwrap().into(),
-                }))
-            });
+pub async fn twitter_login(
+    username: impl AsRef<str>,
+    password: impl AsRef<str>,
+) -> anyhow::Result<()> {
+    let (username, password) = (username.as_ref(), password.as_ref());
 
-        let tweet_date =
-            NaiveDateTime::parse_from_str(tweet_date.trim(), "%b %-d, %Y · %-I:%M %p UTC")
-                .map_err(|err| anyhow!("failed to parse tweet date: {err}"))?;
-
-        let tweet = Tweet {
-            url: tweet_link.into(),
-            is_retweet,
-            is_quote,
-            is_pinned,
-            date: tweet_date,
-            content: tweet_content,
-            attachments: attachment_images.chain(attachment_videos).collect(),
-        };
-
-        timeline.push(tweet);
+    let resp = reqwest::Client::new()
+        .post(API_ACTIVATE_GUEST_TOKEN)
+        .header(AUTHORIZATION, AUTH_BEARER)
+        .send()
+        .await
+        .map_err(|err| anyhow!("failed to request guest token: {err}"))?;
+    if !resp.status().is_success() {
+        bail!("response status of 'guest token' is not success: {resp:?}");
     }
 
-    // Pinned tweet is always the first tweet in the timeline, so let's sort the
-    // timeline by date.
-    timeline.sort_by(|lhs, rhs| rhs.date.cmp(&lhs.date));
+    #[derive(Deserialize)]
+    struct GuestTokenResp {
+        guest_token: String,
+    }
 
-    Ok(TwitterStatus {
-        timeline,
-        fullname: fullname.into(),
-    })
+    let guest_token = resp
+        .json::<GuestTokenResp>()
+        .await
+        .map_err(|err| anyhow!("failed to deserialize from 'guest token' response: {err}"))?
+        .guest_token;
+
+    trace!("guest_token: {guest_token}");
+
+    // https://github.com/seanmonstar/reqwest/issues/402
+    let header_name = |name: &'static str| HeaderName::from_str(&name.to_lowercase()).unwrap();
+
+    let client = reqwest::ClientBuilder::new()
+        .user_agent("TwitterAndroid/10.21.0-release.0 (310210000-r-0) ONEPLUS+A3010/9 (OnePlus;ONEPLUS+A3010;OnePlus;OnePlus3;0;;1;2016)")
+        .default_headers(HeaderMap::from_iter([
+            (AUTHORIZATION, (|| { let mut value = HeaderValue::from_static(AUTH_BEARER); value.set_sensitive(true); value })()),
+            (header_name("X-Twitter-API-Version"), HeaderValue::from_static("5")),
+            (header_name("X-Twitter-Client"), HeaderValue::from_static("TwitterAndroid")),
+            (header_name("X-Twitter-Client-Version"), HeaderValue::from_static("10.21.0-release.0")),
+            (header_name("OS-Version"), HeaderValue::from_static("28")),
+            (header_name("System-User-Agent"), HeaderValue::from_static("Dalvik/2.1.0 (Linux; U; Android 9; ONEPLUS A3010 Build/PKQ1.181203.001)")),
+            (header_name("X-Twitter-Active-User"), HeaderValue::from_static("yes")),
+            (header_name("X-Guest-Token"), HeaderValue::from_str(&guest_token)?),
+        ]))
+        .build()?;
+
+    // Task1
+
+    let resp = client
+        .post(API_TASK)
+        .query(&[
+            ("flow_name", "login"),
+            ("api_version", "1"),
+            ("known_device_token", ""),
+            ("sim_country_code", "us"),
+        ])
+        .json(&json!({
+            "flow_token": json::Value::Null,
+            "input_flow_data": {
+                "country_code": json::Value::Null,
+                "flow_context": {
+                    "referrer_context": {
+                        "referral_details": "utm_source=google-play&utm_medium=organic",
+                        "referrer_url": ""
+                    },
+                    "start_location": {
+                        "location": "deeplink"
+                    }
+                },
+                "requested_variant": json::Value::Null,
+                "target_user_id": 0
+            }
+        }))
+        .send()
+        .await
+        .map_err(|err| anyhow!("failed to request task1: {err}"))?;
+    if !resp.status().is_success() {
+        bail!("response status of 'task1' is not success: {resp:?}");
+    }
+
+    #[derive(Deserialize)]
+    struct TaskResp {
+        flow_token: String,
+        subtasks: Vec<json::Value>,
+    }
+
+    let att = resp
+        .headers()
+        .get("att")
+        .ok_or_else(|| anyhow!("header 'att' not found in task1 response"))?
+        .clone();
+
+    let flow_token = resp
+        .json::<TaskResp>()
+        .await
+        .map_err(|err| anyhow!("failed to deserialize from 'task1' response: {err}"))?
+        .flow_token;
+
+    // Task2
+
+    let resp = client
+        .post(API_TASK)
+        .header("att", att.clone())
+        .json(&json!({
+            "flow_token": flow_token,
+            "subtask_inputs": [
+                {
+                    "enter_text": {
+                        "suggestion_id": json::Value::Null,
+                        "text": username,
+                        "link": "next_link"
+                    },
+                    "subtask_id": "LoginEnterUserIdentifier"
+                }
+            ]
+        }))
+        .send()
+        .await
+        .map_err(|err| anyhow!("failed to request task2: {err}"))?;
+    if !resp.status().is_success() {
+        bail!("response status of 'task2' is not success: {resp:?}");
+    }
+
+    let flow_token = resp
+        .json::<TaskResp>()
+        .await
+        .map_err(|err| anyhow!("failed to deserialize from 'task2' response: {err}"))?
+        .flow_token;
+
+    // Task3
+
+    let resp = client
+        .post(API_TASK)
+        .header("att", att.clone())
+        .json(&json!({
+            "flow_token": flow_token,
+            "subtask_inputs": [
+                {
+                    "enter_password": {
+                        "password": password,
+                        "link": "next_link"
+                    },
+                    "subtask_id": "LoginEnterPassword"
+                }
+            ]
+        }))
+        .send()
+        .await
+        .map_err(|err| anyhow!("failed to request task3: {err}"))?;
+    if !resp.status().is_success() {
+        bail!("response status of 'task3' is not success: {resp:?}");
+    }
+
+    let flow_token = resp
+        .json::<TaskResp>()
+        .await
+        .map_err(|err| anyhow!("failed to deserialize from 'task3' response: {err}"))?
+        .flow_token;
+
+    // Task4
+
+    let resp = client
+        .post(API_TASK)
+        .header("att", att.clone())
+        .json(&json!({
+            "flow_token": flow_token,
+            "subtask_inputs": [
+                {
+                    "check_logged_in_account": {
+                        "link": "AccountDuplicationCheck_false"
+                    },
+                    "subtask_id": "AccountDuplicationCheck"
+                }
+            ]
+        }))
+        .send()
+        .await
+        .map_err(|err| anyhow!("failed to request task4: {err}"))?;
+    if !resp.status().is_success() {
+        bail!("response status of 'task4' is not success: {resp:?}");
+    }
+
+    let mut resp = resp
+        .json::<TaskResp>()
+        .await
+        .map_err(|err| anyhow!("failed to deserialize from 'task3' response: {err}"))?;
+    let flow_token = resp.flow_token;
+
+    let enter_text = resp
+        .subtasks
+        .iter_mut()
+        .find_map(|subtask| subtask.as_object_mut().unwrap().remove("enter_text"));
+
+    if let Some(enter_text) = enter_text {
+        #[derive(Deserialize)]
+        struct EnterText {
+            hint_text: String,
+        }
+        let enter_text = json::from_value::<EnterText>(enter_text)?;
+
+        print!("Twiiter is requesting '{}': ", enter_text.hint_text);
+
+        let input = util::read_input()?;
+
+        // Task5
+
+        let resp_inner = client
+            .post(API_TASK)
+            .header("att", att)
+            .json(&json!({
+                "flow_token": flow_token,
+                "subtask_inputs": [
+                    {
+                        "enter_text": {
+                            "suggestion_id": json::Value::Null,
+                            "text": input,
+                            "link": "next_link",
+                        },
+                        "subtask_id": "LoginAcid",
+                    }
+                ]
+            }))
+            .send()
+            .await
+            .map_err(|err| anyhow!("failed to request task5: {err}"))?;
+        if !resp_inner.status().is_success() {
+            bail!(
+                "response status of 'task5' is not success: {}",
+                resp_inner.text().await.unwrap()
+            );
+        }
+
+        resp = resp_inner
+            .json::<TaskResp>()
+            .await
+            .map_err(|err| anyhow!("failed to deserialize from 'task3' response: {err}"))?
+    };
+
+    let auth = resp
+        .subtasks
+        .into_iter()
+        .find_map(|subtask| {
+            // TODO: Potential upstream contribution https://github.com/serde-rs/json/issues/852
+            let subtask: Option<json::Map<String, json::Value>> = match subtask {
+                json::Value::Object(subtask) => Some(subtask),
+                _ => None,
+            };
+            subtask.and_then(|mut subtask| subtask.remove("open_account"))
+        })
+        .ok_or_else(|| anyhow!("auth not found in response"))?;
+
+    let auth = json::from_value(auth)?;
+    AUTH.set(auth)
+        .map_err(|_| anyhow!("twitter auth already set"))?;
+
+    Ok(())
+}
+
+static AUTH: OnceCell<Auth> = OnceCell::const_new();
+
+pub async fn init_from_config(config: &PlatformGlobalTwitterCom) -> anyhow::Result<()> {
+    twitter_login(&config.auth.username, config.auth.password()?).await
 }
 
 #[cfg(test)]
@@ -263,7 +514,14 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_twitter_status() {
+    async fn timeline() {
+        twitter_login(
+            env!("CLOSELY_TEST_TWITTER_USERNAME"),
+            env!("CLOSELY_TEST_TWITTER_PASSWORD"),
+        )
+        .await
+        .unwrap();
+
         let year_2024 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
         let status = fetch_twitter_status("nasa").await.unwrap();
 
