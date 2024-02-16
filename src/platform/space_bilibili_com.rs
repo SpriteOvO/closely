@@ -50,19 +50,29 @@ mod data {
     }
 
     #[derive(Debug, Deserialize)]
+    pub struct CardPostMedia {
+        pub item: CardPostMediaItem,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct CardPostMediaItem {
+        pub description: String,
+        pub pictures: Vec<CardPostMediaPicture>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct CardPostMediaPicture {
+        pub img_src: String, // URL
+    }
+
+    #[derive(Debug, Deserialize)]
     pub struct CardPostText {
         pub item: CardPostTextItem,
     }
 
     #[derive(Debug, Deserialize)]
     pub struct CardPostTextItem {
-        pub description: String,
-        pub pictures: Vec<CardPostTextPicture>,
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct CardPostTextPicture {
-        pub img_src: String, // URL
+        pub content: String,
     }
 
     #[derive(Debug, Deserialize)]
@@ -201,15 +211,15 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                         // TODO: Implement it after the common part of reposting is implemented
                         bail!("unimplemented")
                     }
-                    // Post text
+                    // Post media
                     2 => {
-                        let post_text = json::from_str::<data::CardPostText>(&card.card)?;
+                        let post_media = json::from_str::<data::CardPostMedia>(&card.card)?;
                         Ok(Post {
-                            content: post_text.item.description,
+                            content: post_media.item.description,
                             url: format!("https://t.bilibili.com/{}", card.desc.dynamic_id_str),
                             is_repost: false,
                             is_quote: false,
-                            attachments: post_text
+                            attachments: post_media
                                 .item
                                 .pictures
                                 .into_iter()
@@ -219,6 +229,17 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                                     })
                                 })
                                 .collect(),
+                        })
+                    }
+                    // Post text
+                    4 => {
+                        let post_media = json::from_str::<data::CardPostText>(&card.card)?;
+                        Ok(Post {
+                            content: post_media.item.content,
+                            url: format!("https://t.bilibili.com/{}", card.desc.dynamic_id_str),
+                            is_repost: false,
+                            is_quote: false,
+                            attachments: vec![],
                         })
                     }
                     // Publish video
