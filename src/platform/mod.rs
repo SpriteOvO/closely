@@ -93,12 +93,39 @@ impl fmt::Display for StatusKind {
 }
 
 #[derive(Debug)]
+pub struct User {
+    pub nickname: String,
+    pub profile_url: String,
+    pub avatar_url: String,
+}
+
+#[derive(Debug)]
 pub struct Post {
+    pub user: User,
     pub content: String,
     pub url: String,
-    pub is_repost: bool, // TODO: Include the source information
-    pub is_quote: bool,  // TODO: Include the source information
-    pub attachments: Vec<PostAttachment>,
+    pub repost_from: Option<RepostFrom>,
+    attachments: Vec<PostAttachment>,
+}
+
+#[derive(Debug)]
+pub enum RepostFrom {
+    // TODO: Remove this in the future
+    Legacy { is_repost: bool, is_quote: bool },
+    Recursion(Box<Post>),
+}
+
+impl Post {
+    pub fn attachments_recursive(&self) -> Vec<&PostAttachment> {
+        if let Some(RepostFrom::Recursion(repost_from)) = &self.repost_from {
+            self.attachments
+                .iter()
+                .chain(repost_from.attachments_recursive())
+                .collect()
+        } else {
+            self.attachments.iter().collect()
+        }
+    }
 }
 
 #[derive(Debug)]

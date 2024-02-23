@@ -9,9 +9,12 @@ use tokio::sync::{Mutex, OnceCell};
 
 use super::{
     live_bilibili_com::BilibiliResponse, Fetcher, Notification, NotificationKind, PlatformName,
-    Post, PostAttachment, PostAttachmentImage, Posts, Status, StatusKind, StatusSource,
+    Post, PostAttachment, PostAttachmentImage, Posts, Status, StatusKind, StatusSource, User,
 };
-use crate::{config::PlatformSpaceBilibiliCom, platform::PostsRef};
+use crate::{
+    config::PlatformSpaceBilibiliCom,
+    platform::{PostsRef, RepostFrom},
+};
 
 const SPACE_BILIBILI_COM_API: &str =
     "https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/space_history?host_uid=";
@@ -36,22 +39,47 @@ mod data {
         #[serde(rename = "type")]
         pub kind: u64,
         pub dynamic_id_str: String,
+        pub origin: Option<Box<Desc>>,
     }
+
+    //
 
     #[derive(Debug, Deserialize)]
     pub struct CardForwardPost {
         pub item: CardForwardPostItem,
         pub origin: String, // JSON serialized string
+        pub user: CardForwardPostUser,
     }
 
     #[derive(Debug, Deserialize)]
     pub struct CardForwardPostItem {
+        pub content: String,
         pub orig_type: u64,
     }
 
     #[derive(Debug, Deserialize)]
+    pub struct CardForwardPostUser {
+        pub face: String,
+        pub uid: u64,
+        pub uname: String,
+    }
+
+    impl From<CardForwardPostUser> for User {
+        fn from(value: CardForwardPostUser) -> Self {
+            Self {
+                nickname: value.uname,
+                profile_url: format!("https://space.bilibili.com/{}", value.uid),
+                avatar_url: value.face,
+            }
+        }
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
     pub struct CardPostMedia {
         pub item: CardPostMediaItem,
+        pub user: CardPostMediaUser,
     }
 
     #[derive(Debug, Deserialize)]
@@ -66,8 +94,28 @@ mod data {
     }
 
     #[derive(Debug, Deserialize)]
+    pub struct CardPostMediaUser {
+        pub head_url: String,
+        pub name: String,
+        pub uid: u64,
+    }
+
+    impl From<CardPostMediaUser> for User {
+        fn from(value: CardPostMediaUser) -> Self {
+            Self {
+                nickname: value.name,
+                profile_url: format!("https://space.bilibili.com/{}", value.uid),
+                avatar_url: value.head_url,
+            }
+        }
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
     pub struct CardPostText {
         pub item: CardPostTextItem,
+        pub user: CardPostTextUser,
     }
 
     #[derive(Debug, Deserialize)]
@@ -76,11 +124,48 @@ mod data {
     }
 
     #[derive(Debug, Deserialize)]
+    pub struct CardPostTextUser {
+        pub face: String,
+        pub uid: u64,
+        pub uname: String,
+    }
+
+    impl From<CardPostTextUser> for User {
+        fn from(value: CardPostTextUser) -> Self {
+            Self {
+                nickname: value.uname,
+                profile_url: format!("https://space.bilibili.com/{}", value.uid),
+                avatar_url: value.face,
+            }
+        }
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
     pub struct CardPublishVideo {
         pub desc: String, // Description of the video
-        pub pic: String,  // Image URL
+        pub owner: CardPublishVideoOwner,
+        pub pic: String, // Image URL
         pub title: String,
         pub short_link_v2: String, // URL
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct CardPublishVideoOwner {
+        pub face: String,
+        pub mid: u64,
+        pub name: String,
+    }
+
+    impl From<CardPublishVideoOwner> for User {
+        fn from(value: CardPublishVideoOwner) -> Self {
+            Self {
+                nickname: value.name,
+                profile_url: format!("https://space.bilibili.com/{}", value.mid),
+                avatar_url: value.face,
+            }
+        }
     }
 }
 
@@ -199,74 +284,84 @@ async fn fetch_space_bilibili_history(uid: u64) -> anyhow::Result<Posts> {
 }
 
 fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
+    fn parse_card(desc: &data::Desc, card: &str) -> anyhow::Result<Post> {
+        match desc.kind {
+            // Forward post
+            1 => {
+                let forward_post = json::from_str::<data::CardForwardPost>(card)?;
+                let Some(origin_desc) = &desc.origin else {
+                    bail!(
+                        "UNEXPECTED! forward post without origin. dynamic id: '{}'",
+                        desc.dynamic_id_str
+                    );
+                };
+                let repost_from = parse_card(origin_desc, &forward_post.origin)
+                    .map_err(|err| anyhow!("failed to parse origin card: {err}"))?;
+                Ok(Post {
+                    user: forward_post.user.into(),
+                    content: forward_post.item.content,
+                    url: format!("https://t.bilibili.com/{}", desc.dynamic_id_str),
+                    repost_from: Some(RepostFrom::Recursion(Box::new(repost_from))),
+                    attachments: vec![],
+                })
+            }
+            // Post media
+            2 => {
+                let post_media = json::from_str::<data::CardPostMedia>(card)?;
+                Ok(Post {
+                    user: post_media.user.into(),
+                    content: post_media.item.description,
+                    url: format!("https://t.bilibili.com/{}", desc.dynamic_id_str),
+                    repost_from: None,
+                    attachments: post_media
+                        .item
+                        .pictures
+                        .into_iter()
+                        .map(|picture| {
+                            PostAttachment::Image(PostAttachmentImage {
+                                media_url: picture.img_src,
+                            })
+                        })
+                        .collect(),
+                })
+            }
+            // Post text
+            4 => {
+                let post_media = json::from_str::<data::CardPostText>(card)?;
+                Ok(Post {
+                    user: post_media.user.into(),
+                    content: post_media.item.content,
+                    url: format!("https://t.bilibili.com/{}", desc.dynamic_id_str),
+                    repost_from: None,
+                    attachments: vec![],
+                })
+            }
+            // Publish video
+            8 => {
+                let publish_video = json::from_str::<data::CardPublishVideo>(card)?;
+                Ok(Post {
+                    user: publish_video.owner.into(),
+                    content: format!("投稿了视频 {}", publish_video.title),
+                    url: publish_video.short_link_v2,
+                    repost_from: None,
+                    attachments: vec![PostAttachment::Image(PostAttachmentImage {
+                        media_url: publish_video.pic,
+                    })],
+                })
+            }
+            _ => {
+                bail!("unknown card type: {}", desc.kind);
+            }
+        }
+    }
+
     let items = resp
         .cards
         .into_iter()
-        .filter_map(|card| -> Option<Post> {
-            (|| -> anyhow::Result<Post> {
-                match card.desc.kind {
-                    // Forward post
-                    1 => {
-                        let _card = json::from_str::<data::CardForwardPost>(&card.card)?;
-                        // TODO: Implement it after the common part of reposting is implemented
-                        bail!("unimplemented")
-                    }
-                    // Post media
-                    2 => {
-                        let post_media = json::from_str::<data::CardPostMedia>(&card.card)?;
-                        Ok(Post {
-                            content: post_media.item.description,
-                            url: format!("https://t.bilibili.com/{}", card.desc.dynamic_id_str),
-                            is_repost: false,
-                            is_quote: false,
-                            attachments: post_media
-                                .item
-                                .pictures
-                                .into_iter()
-                                .map(|picture| {
-                                    PostAttachment::Image(PostAttachmentImage {
-                                        media_url: picture.img_src,
-                                    })
-                                })
-                                .collect(),
-                        })
-                    }
-                    // Post text
-                    4 => {
-                        let post_media = json::from_str::<data::CardPostText>(&card.card)?;
-                        Ok(Post {
-                            content: post_media.item.content,
-                            url: format!("https://t.bilibili.com/{}", card.desc.dynamic_id_str),
-                            is_repost: false,
-                            is_quote: false,
-                            attachments: vec![],
-                        })
-                    }
-                    // Publish video
-                    8 => {
-                        let publish_video = json::from_str::<data::CardPublishVideo>(&card.card)?;
-                        Ok(Post {
-                            content: format!("投稿了视频 {}", publish_video.title),
-                            url: publish_video.short_link_v2,
-                            is_repost: false,
-                            is_quote: false,
-                            attachments: vec![PostAttachment::Image(PostAttachmentImage {
-                                media_url: publish_video.pic,
-                            })],
-                        })
-                    }
-                    _ => {
-                        bail!("unknown card type: {}", card.desc.kind);
-                    }
-                }
-            })()
-            .tap_err(|err| {
-                // TODO: See the above TODO
-                if err.to_string() != "unimplemented" {
-                    error!("failed to deserialize card: {err} for '{card:?}'")
-                }
-            })
-            .ok()
+        .filter_map(|card| {
+            parse_card(&card.desc, &card.card)
+                .tap_err(|err| error!("failed to deserialize card: {err} for '{card:?}'"))
+                .ok()
         })
         .collect();
 
@@ -307,10 +402,14 @@ mod tests {
         assert!(fetcher.post_filter(make_notification!()).await.is_none());
 
         posts.push(Post {
+            user: User {
+                nickname: "test display name".into(),
+                profile_url: "https://test.profile".into(),
+                avatar_url: "https://test.avatar".into(),
+            },
             content: "test1".into(),
             url: "https://test1".into(),
-            is_repost: false,
-            is_quote: false,
+            repost_from: None,
             attachments: vec![],
         });
 
@@ -327,10 +426,14 @@ mod tests {
         assert!(filtered.is_none());
 
         posts.push(Post {
+            user: User {
+                nickname: "test display name".into(),
+                profile_url: "https://test.profile".into(),
+                avatar_url: "https://test.avatar".into(),
+            },
             content: "test2".into(),
             url: "https://test2".into(),
-            is_repost: false,
-            is_quote: false,
+            repost_from: None,
             attachments: vec![],
         });
 

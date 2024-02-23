@@ -7,7 +7,7 @@ use reqwest::header::{HeaderValue, ACCEPT_LANGUAGE};
 use scraper::{Html, Selector};
 use spdlog::prelude::*;
 
-use super::{Fetcher, StatusSourceUser};
+use super::{Fetcher, RepostFrom, StatusSourceUser, User};
 use crate::{
     config::{Config, PlatformTwitterCom},
     platform::{
@@ -54,6 +54,7 @@ impl IncompleteUrl<NitterNet> {
 #[derive(Debug)]
 struct TwitterStatus {
     timeline: Vec<Tweet>,
+    avatar_url: IncompleteUrl<NitterNet>,
     fullname: String,
 }
 
@@ -123,10 +124,17 @@ impl TwitterComFetcher {
             .timeline
             .into_iter()
             .map(|tweet| Post {
+                user: User {
+                    nickname: status.fullname.clone(),
+                    profile_url: format!("https://twitter.com/{}", self.params.username),
+                    avatar_url: status.avatar_url.real_url(),
+                },
                 content: tweet.content,
                 url: tweet.url.real_url(),
-                is_repost: tweet.is_retweet,
-                is_quote: tweet.is_quote,
+                repost_from: Some(RepostFrom::Legacy {
+                    is_repost: tweet.is_retweet,
+                    is_quote: tweet.is_quote,
+                }),
                 attachments: tweet
                     .attachments
                     .into_iter()
@@ -210,6 +218,7 @@ fn parse_nitter_html(html: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {
     let html = Html::parse_document(html.as_ref());
 
     let mut timeline = vec![];
+    let avatar = s!(html.select(".profile-card-avatar").attr("href"))?;
     let fullname = s!(html.select(".profile-card-fullname").attr("title"))?;
 
     for timeline_item in s!(html.selects(".timeline-item")) {
@@ -263,6 +272,7 @@ fn parse_nitter_html(html: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {
 
     Ok(TwitterStatus {
         timeline,
+        avatar_url: avatar.into(),
         fullname: fullname.into(),
     })
 }
@@ -280,6 +290,10 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(
+            status.avatar_url.incomplete_url(),
+            "/pic/pbs.twimg.com%2Fprofile_images%2F1321163587679784960%2F0ZxKlEKB.jpg"
+        );
         assert_eq!(status.fullname, "NASA");
 
         let timeline_iter = || status.timeline.iter();

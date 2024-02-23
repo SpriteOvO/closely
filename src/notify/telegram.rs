@@ -1,3 +1,5 @@
+use std::{fmt::Write, ops::Range};
+
 use anyhow::{anyhow, bail};
 use serde::Deserialize;
 use serde_json::{self as json, json};
@@ -6,7 +8,8 @@ use spdlog::prelude::*;
 use crate::{
     config::{NotifyTelegram, NotifyTelegramChat},
     platform::{
-        LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, StatusSource,
+        LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, RepostFrom,
+        StatusSource,
     },
 };
 
@@ -125,18 +128,46 @@ pub async fn notify_post(
     post: &Post,
     source: &StatusSource,
 ) -> anyhow::Result<()> {
-    let content = format!(
-        "[{}] {}{}",
-        source.platform_name,
-        if post.is_repost {
-            "🔁 "
-        } else if post.is_quote {
-            "🔁💬 "
-        } else {
-            ""
-        },
-        post.content
-    );
+    let mut content = String::new();
+
+    let mut links = Vec::<(Range<usize>, &str)>::new();
+
+    write!(content, "[{}] ", source.platform_name)?;
+
+    match &post.repost_from {
+        Some(RepostFrom::Recursion(repost_from)) => {
+            if !post.content.is_empty() {
+                write!(content, "💬 {}\n\n", post.content)?;
+            }
+
+            content.write_str("🔁 ")?;
+
+            let nickname_begin = content.encode_utf16().count();
+            content.write_str(&repost_from.user.nickname)?;
+            links.push((
+                nickname_begin..content.encode_utf16().count(),
+                // In order for Telegram to display more relevant information about the post, we
+                // don't use `profile_url` here
+                //
+                // &repost_from.user.profile_url,
+                &repost_from.url,
+            ));
+
+            write!(content, ": {}", repost_from.content)?;
+        }
+        Some(RepostFrom::Legacy {
+            is_repost,
+            is_quote,
+        }) => {
+            if *is_repost {
+                content.write_str("🔁 ")?
+            } else if *is_quote {
+                content.write_str("🔁💬 ")?
+            }
+            content.write_str(&post.content)?
+        }
+        None => content.write_str(&post.content)?,
+    }
 
     let mut body = json!(
         {
@@ -149,7 +180,25 @@ pub async fn notify_post(
         }
     );
 
-    let num_attachments = post.attachments.len();
+    fn links_to_entities(links: Vec<(Range<usize>, &str)>) -> json::Value {
+        json::Value::Array(
+            links
+                .into_iter()
+                .map(|(range, url)| {
+                    json!({
+                        "type": "text_link",
+                        "offset": range.start,
+                        "length": range.end - range.start,
+                        "url": url,
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    let attachments = post.attachments_recursive();
+    let num_attachments = attachments.len();
+
     let method = match num_attachments {
         0 | 1 => {
             let body = body.as_object_mut().unwrap();
@@ -167,19 +216,23 @@ pub async fn notify_post(
 
             if num_attachments == 0 {
                 body.insert("text".into(), json!(content));
+                body.insert("entities".into(), links_to_entities(links));
                 "sendMessage"
             } else {
-                let attachment = post.attachments.first().unwrap();
+                let attachment = attachments.first().unwrap();
 
                 match attachment {
                     PostAttachment::Image(image) => {
                         body.insert("photo".into(), json!(image.media_url));
                         body.insert("caption".into(), json!(content));
+                        body.insert("caption_entities".into(), links_to_entities(links));
+                        // TODO: `sendAnimation` for single GIF?
                         "sendPhoto"
                     }
                     PostAttachment::Video(video) => {
                         body.insert("video".into(), json!(video.media_url));
                         body.insert("caption".into(), json!(content));
+                        body.insert("caption_entities".into(), links_to_entities(links));
                         "sendVideo"
                     }
                 }
@@ -188,24 +241,17 @@ pub async fn notify_post(
         _ => {
             let body = body.as_object_mut().unwrap();
 
-            let view_text = ">> View Post <<";
-            let (caption, entities) = (
-                format!("{}\n\n{view_text}", content),
-                json!([
-                    {
-                        "type": "text_link",
-                        "offset": content.encode_utf16().count() + "\n\n".encode_utf16().count(),
-                        "length": view_text.encode_utf16().count(),
-                        "url": post.url,
-                    }
-                ]),
-            );
+            content.write_str("\n\n")?;
+            let button_text_begin = content.encode_utf16().count();
+            content.write_str(">> View Post <<")?;
+            links.push((button_text_begin..content.encode_utf16().count(), &post.url));
 
-            let mut media = post
-                .attachments
+            let mut media = attachments
                 .iter()
                 .map(|attachment| match attachment {
                     PostAttachment::Image(image) => {
+                        // TODO: Mixing GIF in media group to send is not yet supported in Telegram,
+                        // add an overlay like video? (see comment in twitter.com implementation)
                         json!({
                             "type": "photo",
                             "media": image.media_url,
@@ -221,8 +267,8 @@ pub async fn notify_post(
                 .collect::<Vec<_>>();
 
             let first_media = media.first_mut().unwrap().as_object_mut().unwrap();
-            first_media.insert("caption".into(), json!(caption));
-            first_media.insert("caption_entities".into(), entities);
+            first_media.insert("caption".into(), json!(content));
+            first_media.insert("caption_entities".into(), links_to_entities(links));
 
             body.insert("media".into(), json!(media));
 
