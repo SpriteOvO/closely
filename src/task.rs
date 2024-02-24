@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use anyhow::anyhow;
 use spdlog::prelude::*;
@@ -13,17 +13,17 @@ use crate::{
 pub struct Task {
     name: String,
     interval: Duration,
-    notify: Arc<Notify>,
-    fetcher: Box<dyn platform::Fetcher + Send + Sync>,
+    notifier: Box<dyn notify::Notifier>,
+    fetcher: Box<dyn platform::Fetcher>,
     last_status: Option<Status>,
 }
 
 impl Task {
-    pub fn new(name: String, interval: Duration, notify: Arc<Notify>, platform: Platform) -> Self {
+    pub fn new(name: String, interval: Duration, notify: &Notify, platform: Platform) -> Self {
         Self {
             name,
             interval,
-            notify,
+            notifier: notify::notifier(notify),
             fetcher: platform::fetcher(platform),
             last_status: None,
         }
@@ -71,7 +71,7 @@ impl Task {
                 "'{}' needs to send a notification for '{}': '{notification}'",
                 self.name, self.fetcher
             );
-            notify::notify(&self.notify, &notification).await;
+            notify::notify(&*self.notifier, &notification).await;
         }
         self.last_status = Some(status);
 

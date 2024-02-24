@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, env, fmt, sync::Arc, time::Duration};
+use std::{borrow::Cow, collections::HashMap, env, fmt, time::Duration};
 
 use anyhow::anyhow;
 use once_cell::sync::OnceCell;
@@ -10,7 +10,7 @@ pub struct Config {
     pub interval: Duration,
     platform: Option<PlatformGlobal>,
     #[serde(default)]
-    notify: HashMap<String, Arc<Notify>>,
+    notify: HashMap<String, Notify>,
     subscription: HashMap<String, Vec<Subscription>>,
 }
 
@@ -29,13 +29,13 @@ impl Config {
         PLATFORM_GLOBAL.get().expect("config was not initialized")
     }
 
-    pub fn subscriptions(&self) -> impl Iterator<Item = (String, (Arc<Notify>, Platform))> + '_ {
+    pub fn subscriptions(&self) -> impl Iterator<Item = (String, (&Notify, Platform))> + '_ {
         self.subscription.iter().flat_map(|(name, subscriptions)| {
             subscriptions.iter().map(|subscription| {
                 (
                     name.clone(),
                     (
-                        Arc::clone(self.notify.get(&subscription.notify).unwrap()),
+                        self.notify.get(&subscription.notify).unwrap(),
                         subscription.platform.clone(),
                     ),
                 )
@@ -157,7 +157,7 @@ impl fmt::Display for Notify {
     }
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct NotifyTelegram {
     #[serde(flatten)]
     pub chat: NotifyTelegramChat,
@@ -185,7 +185,7 @@ impl NotifyTelegram {
     }
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NotifyTelegramChat {
     Id(i64),
@@ -201,7 +201,7 @@ impl fmt::Display for NotifyTelegramChat {
     }
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum NotifyTelegramToken {
     Token(String),
@@ -244,11 +244,11 @@ notify = "meow"
                 }),
                 notify: HashMap::from_iter([(
                     "meow".into(),
-                    Arc::new(Notify::Telegram(vec![NotifyTelegram {
+                    Notify::Telegram(vec![NotifyTelegram {
                         chat: NotifyTelegramChat::Id(1234),
                         thread_id: Some(123),
                         token: NotifyTelegramToken::Token("xxx".into()),
-                    }]))
+                    }])
                 )]),
                 subscription: HashMap::from_iter([(
                     "meow".into(),

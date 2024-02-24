@@ -214,7 +214,7 @@ impl<'a> fmt::Display for NotificationKind<'a> {
     }
 }
 
-pub trait Fetcher: Display {
+pub trait Fetcher: Display + Send + Sync {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>>;
 
     // "post" means "after" here
@@ -242,7 +242,7 @@ pub trait Fetcher: Display {
     }
 }
 
-pub fn fetcher(platform: Platform) -> Box<dyn Fetcher + Send + Sync> {
+pub fn fetcher(platform: Platform) -> Box<dyn Fetcher> {
     match platform {
         Platform::LiveBilibiliCom(p) => Box::new(LiveBilibiliComFetcher::new(p)),
         Platform::SpaceBilibiliCom(p) => Box::new(SpaceBilibiliComFetcher::new(p)),
