@@ -54,7 +54,7 @@ impl Status {
     pub fn needs_notify<'a>(&'a self, last_status: Option<&'a Status>) -> Option<Notification<'a>> {
         match (&self.kind, last_status.map(|s| &s.kind)) {
             (StatusKind::Live(live_status), Some(StatusKind::Live(last_live_status))) => {
-                (live_status.online && !last_live_status.online).then_some(Notification {
+                (live_status.online != last_live_status.online).then_some(Notification {
                     kind: NotificationKind::Live(live_status),
                     source: &self.source,
                 })

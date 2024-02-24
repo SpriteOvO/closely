@@ -4,6 +4,7 @@ use anyhow::{anyhow, bail};
 use serde::Deserialize;
 use serde_json::{self as json, json};
 use spdlog::prelude::*;
+use tokio::sync::Mutex;
 
 use super::Notifier;
 use crate::{
@@ -15,16 +16,20 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-struct TelegramResponse {
+struct TelegramResponse<R = TelegramResultDontCare> {
     ok: bool,
     #[allow(dead_code)]
     description: Option<String>,
-    #[allow(dead_code)]
-    result: Option<TelegramResponseResult>,
+    result: Option<R>,
 }
 
 #[derive(Deserialize)]
-struct TelegramResponseResult {}
+struct TelegramResultDontCare;
+
+#[derive(Deserialize)]
+struct TelegramResultMessage {
+    message_id: i64,
+}
 
 fn telegram_api(token: impl AsRef<str>, method: impl AsRef<str>) -> String {
     format!(
@@ -36,6 +41,7 @@ fn telegram_api(token: impl AsRef<str>, method: impl AsRef<str>) -> String {
 
 pub struct TelegramNotifier {
     params: config::NotifyTelegram,
+    last_live_message: Mutex<Option<SentMessage>>,
 }
 
 impl Notifier for TelegramNotifier {
@@ -49,7 +55,10 @@ impl Notifier for TelegramNotifier {
 
 impl TelegramNotifier {
     pub fn new(params: config::NotifyTelegram) -> Self {
-        Self { params }
+        Self {
+            params,
+            last_live_message: Mutex::new(None),
+        }
     }
 
     fn token(&self) -> anyhow::Result<Cow<'_, str>> {
@@ -74,9 +83,42 @@ impl TelegramNotifier {
         live_status: &LiveStatus,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
+        if live_status.online {
+            self.notify_live_online(live_status, source).await
+        } else {
+            self.notify_live_offline(live_status, source).await
+        }
+    }
+
+    fn make_live_caption(
+        &self,
+        live_status: &LiveStatus,
+        source: &StatusSource,
+    ) -> (String, Vec<json::Value>) {
+        let caption = format!(
+            "[{}] {} {}",
+            source.platform_name,
+            if live_status.online { "🟢" } else { "🟠" },
+            live_status.title
+        );
+        let caption_entities = vec![json!({
+            "type": "text_link",
+            "offset": 0,
+            "length": caption.encode_utf16().count(),
+            "url": live_status.live_url
+        })];
+        (caption, caption_entities)
+    }
+
+    async fn notify_live_online(
+        &self,
+        live_status: &LiveStatus,
+        source: &StatusSource,
+    ) -> anyhow::Result<()> {
         let token = self.token()?;
 
-        let title = format!("[{}] {}", source.platform_name, live_status.title);
+        let (caption, caption_entities) = self.make_live_caption(live_status, source);
+
         let body = json!(
             {
                 "chat_id": match &self.params.chat {
@@ -85,15 +127,8 @@ impl TelegramNotifier {
                 },
                 "message_thread_id": self.params.thread_id,
                 "photo": live_status.cover_image_url,
-                "caption": title,
-                "caption_entities": [
-                    {
-                        "type": "text_link",
-                        "offset": 0,
-                        "length": title.encode_utf16().count(),
-                        "url": live_status.live_url
-                    }
-                ]
+                "caption": caption,
+                "caption_entities": caption_entities
             }
         );
         let resp = reqwest::Client::new()
@@ -112,12 +147,63 @@ impl TelegramNotifier {
             .text()
             .await
             .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
-        let resp: TelegramResponse = json::from_str(&text)
+        let resp: TelegramResponse<TelegramResultMessage> = json::from_str(&text)
             .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
         if !resp.ok {
             bail!("response from Telegram contains error, response '{text}'");
         }
 
+        *self.last_live_message.lock().await = Some(SentMessage {
+            // The doc guarantees `result` to be present if `ok` == `true`
+            id: resp.result.unwrap().message_id,
+        });
+
+        Ok(())
+    }
+
+    async fn notify_live_offline(
+        &self,
+        live_status: &LiveStatus,
+        source: &StatusSource,
+    ) -> anyhow::Result<()> {
+        if let Some(last_live_message) = self.last_live_message.lock().await.take() {
+            let token = self.token()?;
+
+            let (caption, caption_entities) = self.make_live_caption(live_status, source);
+
+            let body = json!(
+                {
+                    "chat_id": match &self.params.chat {
+                        config::NotifyTelegramChat::Id(id) => json::Value::Number((*id).into()),
+                        config::NotifyTelegramChat::Username(username) => json::Value::String(format!("@{username}")),
+                    },
+                    "message_id": last_live_message.id,
+                    "caption": caption,
+                    "caption_entities": caption_entities
+                }
+            );
+            let resp = reqwest::Client::new()
+                .post(telegram_api(token, "editMessageCaption"))
+                .json(&body)
+                .send()
+                .await
+                .map_err(|err| anyhow!("failed to send request for Telegram: {err}"))?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                bail!("response from Telegram status is not success: {resp:?}");
+            }
+
+            let text = resp
+                .text()
+                .await
+                .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
+            let resp: TelegramResponse<TelegramResultMessage> = json::from_str(&text)
+                .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
+            if !resp.ok {
+                bail!("response from Telegram contains error, response '{text}'");
+            }
+        }
         Ok(())
     }
 
@@ -321,4 +407,8 @@ impl TelegramNotifier {
 
         Ok(())
     }
+}
+
+struct SentMessage {
+    id: i64,
 }
