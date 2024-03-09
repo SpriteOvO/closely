@@ -77,6 +77,33 @@ mod data {
     //
 
     #[derive(Debug, Deserialize)]
+    pub struct CardPublishArticle {
+        pub author: CardPublishArticleAuthor,
+        pub id: u64,
+        pub summary: String,
+        pub title: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct CardPublishArticleAuthor {
+        pub face: String,
+        pub mid: u64,
+        pub name: String,
+    }
+
+    impl From<CardPublishArticleAuthor> for User {
+        fn from(value: CardPublishArticleAuthor) -> Self {
+            Self {
+                nickname: value.name,
+                profile_url: format!("https://space.bilibili.com/{}", value.mid),
+                avatar_url: value.face,
+            }
+        }
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
     pub struct CardPostMedia {
         pub item: CardPostMediaItem,
         pub user: CardPostMediaUser,
@@ -347,6 +374,18 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                     attachments: vec![PostAttachment::Image(PostAttachmentImage {
                         media_url: publish_video.pic,
                     })],
+                })
+            }
+            // Publish article
+            64 => {
+                let publish_article = json::from_str::<data::CardPublishArticle>(card)?;
+                Ok(Post {
+                    user: publish_article.author.into(),
+                    // TODO: Add a link to the title
+                    content: format!("投稿了文章《{}》", publish_article.title),
+                    url: format!("https://www.bilibili.com/read/cv{}", publish_article.id),
+                    repost_from: None,
+                    attachments: vec![],
                 })
             }
             _ => {
