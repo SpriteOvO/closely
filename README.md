@@ -41,15 +41,15 @@ telegram = [ { id = 1145141919, token = "1234567890:AbCdEfGhiJkLmNoPq1R2s3T4u5V6
 # specify the platform and parameters
 platform = { url = "live.bilibili.com", uid = 6610851 }
 # reference to notify defined above, notifications will be pushed when the status changed
-notify = "Suzume"
+notify = ["Suzume"]
 
 [[subscription.Suzume]]
 platform = { url = "twitter.com", username = "suzumiyasuzume" }
-notify = "Suzume"
+notify = ["Suzume", "Personal"]
 
 [[subscription.CookieBacon]] # define a subscription with name `CookieBacon`
 platform = { url = "live.bilibili.com", uid = 14172231 }
-notify = "Personal"
+notify = ["Personal"]
 ```
 
 > [!NOTE]

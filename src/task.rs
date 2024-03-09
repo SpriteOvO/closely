@@ -13,17 +13,17 @@ use crate::{
 pub struct Task {
     name: String,
     interval: Duration,
-    notifier: Box<dyn notify::Notifier>,
+    notifiers: Vec<Box<dyn notify::Notifier>>,
     fetcher: Box<dyn platform::Fetcher>,
     last_status: Option<Status>,
 }
 
 impl Task {
-    pub fn new(name: String, interval: Duration, notify: &Notify, platform: Platform) -> Self {
+    pub fn new(name: String, interval: Duration, notify: Vec<&Notify>, platform: Platform) -> Self {
         Self {
             name,
             interval,
-            notifier: notify::notifier(notify),
+            notifiers: notify.into_iter().map(notify::notifier).collect(),
             fetcher: platform::fetcher(platform),
             last_status: None,
         }
@@ -71,7 +71,10 @@ impl Task {
                 "'{}' needs to send a notification for '{}': '{notification}'",
                 self.name, self.fetcher
             );
-            notify::notify(&*self.notifier, &notification).await;
+
+            for notifier in &self.notifiers {
+                notify::notify(&**notifier, &notification).await;
+            }
         }
         self.last_status = Some(status);
 

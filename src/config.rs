@@ -29,13 +29,17 @@ impl Config {
         PLATFORM_GLOBAL.get().expect("config was not initialized")
     }
 
-    pub fn subscriptions(&self) -> impl Iterator<Item = (String, (&Notify, Platform))> + '_ {
+    pub fn subscriptions(&self) -> impl Iterator<Item = (String, (Vec<&Notify>, Platform))> + '_ {
         self.subscription.iter().flat_map(|(name, subscriptions)| {
             subscriptions.iter().map(|subscription| {
                 (
                     name.clone(),
                     (
-                        self.notify.get(&subscription.notify).unwrap(),
+                        subscription
+                            .notify
+                            .iter()
+                            .map(|notify_ref| self.notify.get(notify_ref).unwrap())
+                            .collect(),
                         subscription.platform.clone(),
                     ),
                 )
@@ -55,7 +59,7 @@ impl Config {
         self.subscription
             .values()
             .flatten()
-            .map(|subscription| &subscription.notify)
+            .flat_map(|subscription| &subscription.notify)
             .all(|notify_ref| self.notify.get(notify_ref).is_some())
             .then_some(())
             .ok_or_else(|| anyhow!("reference of notify not found"))
@@ -76,7 +80,7 @@ pub struct PlatformGlobalTwitterCom {
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Subscription {
     pub platform: Platform,
-    notify: String,
+    notify: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -225,13 +229,16 @@ nitter_host = "https://nitter.example.com/"
 [notify.meow]
 telegram = [ { id = 1234, thread_id = 123, token = "xxx" } ]
 
+[notify.woof]
+telegram = [ { id = 5678, thread_id = 900, token = "yyy" } ]
+
 [[subscription.meow]]
 platform = { url = "live.bilibili.com", uid = 123456 }
-notify = "meow"
+notify = ["meow"]
 
 [[subscription.meow]]
 platform = { url = "twitter.com", username = "meowww" }
-notify = "meow"
+notify = ["meow", "woof"]
                 "#,
             )
             .unwrap(),
@@ -242,14 +249,24 @@ notify = "meow"
                         nitter_host: "https://nitter.example.com/".into()
                     })
                 }),
-                notify: HashMap::from_iter([(
-                    "meow".into(),
-                    Notify::Telegram(vec![NotifyTelegram {
-                        chat: NotifyTelegramChat::Id(1234),
-                        thread_id: Some(123),
-                        token: NotifyTelegramToken::Token("xxx".into()),
-                    }])
-                )]),
+                notify: HashMap::from_iter([
+                    (
+                        "meow".into(),
+                        Notify::Telegram(vec![NotifyTelegram {
+                            chat: NotifyTelegramChat::Id(1234),
+                            thread_id: Some(123),
+                            token: NotifyTelegramToken::Token("xxx".into()),
+                        }])
+                    ),
+                    (
+                        "woof".into(),
+                        Notify::Telegram(vec![NotifyTelegram {
+                            chat: NotifyTelegramChat::Id(5678),
+                            thread_id: Some(900),
+                            token: NotifyTelegramToken::Token("yyy".into()),
+                        }])
+                    )
+                ]),
                 subscription: HashMap::from_iter([(
                     "meow".into(),
                     vec![
@@ -257,18 +274,32 @@ notify = "meow"
                             platform: Platform::LiveBilibiliCom(PlatformLiveBilibiliCom {
                                 uid: 123456
                             }),
-                            notify: "meow".into(),
+                            notify: vec!["meow".into()],
                         },
                         Subscription {
                             platform: Platform::TwitterCom(PlatformTwitterCom {
                                 username: "meowww".into()
                             }),
-                            notify: "meow".into(),
+                            notify: vec!["meow".into(), "woof".into()],
                         }
                     ]
                 )]),
             }
         );
+
+        assert!(Config::from_str(
+            r#"
+interval = '1min'
+
+[notify.meow]
+telegram = [ { id = 1234, thread_id = 123, token = "xxx" } ]
+
+[[subscription.meow]]
+platform = { url = "live.bilibili.com", uid = 123456 }
+notify = ["meow"]
+                "#
+        )
+        .is_ok());
 
         assert_eq!(
             Config::from_str(
@@ -277,12 +308,30 @@ interval = '1min'
 
 [[subscription.meow]]
 platform = { url = "live.bilibili.com", uid = 123456 }
-notify = "meow"
+notify = ["meow"]
                 "#
             )
             .unwrap_err()
             .to_string(),
             "reference of notify not found"
-        )
+        );
+
+        assert_eq!(
+            Config::from_str(
+                r#"
+interval = '1min'
+
+[notify.meow]
+telegram = [ { id = 1234, thread_id = 123, token = "xxx" } ]
+
+[[subscription.meow]]
+platform = { url = "live.bilibili.com", uid = 123456 }
+notify = ["meow", "woof"]
+                "#
+            )
+            .unwrap_err()
+            .to_string(),
+            "reference of notify not found"
+        );
     }
 }
