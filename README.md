@@ -49,6 +49,7 @@ notify = ["Suzume", "Personal"]
 
 [[subscription.CookieBacon]] # define a subscription with name `CookieBacon`
 platform = { url = "live.bilibili.com", uid = 14172231 }
+interval = '30s' # optional, override the global interval value for this individual subscription
 notify = ["Personal"]
 ```
 

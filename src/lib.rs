@@ -18,9 +18,14 @@ pub async fn run(config: impl AsRef<Path>) -> anyhow::Result<()> {
             .map_err(|err| anyhow!("failed to read config file: {err}"))?,
     )?;
 
-    let tasks = config
-        .subscriptions()
-        .map(|(name, (notify, platform))| Task::new(name, config.interval, notify, platform));
+    let tasks = config.subscriptions().map(|(name, subscription)| {
+        Task::new(
+            name,
+            subscription.interval.unwrap_or(config.interval),
+            subscription.notify,
+            subscription.platform,
+        )
+    });
 
     task::run_tasks(tasks).await?.join_all().await;
 

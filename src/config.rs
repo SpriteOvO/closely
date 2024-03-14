@@ -11,7 +11,7 @@ pub struct Config {
     platform: Option<PlatformGlobal>,
     #[serde(default)]
     notify: HashMap<String, Notify>,
-    subscription: HashMap<String, Vec<Subscription>>,
+    subscription: HashMap<String, Vec<SubscriptionRaw>>,
 }
 
 static PLATFORM_GLOBAL: OnceCell<PlatformGlobal> = OnceCell::new();
@@ -29,19 +29,20 @@ impl Config {
         PLATFORM_GLOBAL.get().expect("config was not initialized")
     }
 
-    pub fn subscriptions(&self) -> impl Iterator<Item = (String, (Vec<&Notify>, Platform))> + '_ {
+    pub fn subscriptions(&self) -> impl Iterator<Item = (String, SubscriptionRef<'_>)> {
         self.subscription.iter().flat_map(|(name, subscriptions)| {
             subscriptions.iter().map(|subscription| {
                 (
                     name.clone(),
-                    (
-                        subscription
+                    SubscriptionRef {
+                        platform: &subscription.platform,
+                        interval: subscription.interval,
+                        notify: subscription
                             .notify
                             .iter()
                             .map(|notify_ref| self.notify.get(notify_ref).unwrap())
                             .collect(),
-                        subscription.platform.clone(),
-                    ),
+                    },
                 )
             })
         })
@@ -78,9 +79,18 @@ pub struct PlatformGlobalTwitterCom {
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
-pub struct Subscription {
+pub struct SubscriptionRaw {
     pub platform: Platform,
+    #[serde(default, with = "humantime_serde")]
+    pub interval: Option<Duration>,
     notify: Vec<String>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct SubscriptionRef<'a> {
+    pub platform: &'a Platform,
+    pub interval: Option<Duration>,
+    pub notify: Vec<&'a Notify>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -234,6 +244,7 @@ telegram = [ { id = 5678, thread_id = 900, token = "yyy" } ]
 
 [[subscription.meow]]
 platform = { url = "live.bilibili.com", uid = 123456 }
+interval = '30s'
 notify = ["meow"]
 
 [[subscription.meow]]
@@ -270,16 +281,18 @@ notify = ["meow", "woof"]
                 subscription: HashMap::from_iter([(
                     "meow".into(),
                     vec![
-                        Subscription {
+                        SubscriptionRaw {
                             platform: Platform::LiveBilibiliCom(PlatformLiveBilibiliCom {
                                 uid: 123456
                             }),
+                            interval: Some(Duration::from_secs(30)),
                             notify: vec!["meow".into()],
                         },
-                        Subscription {
+                        SubscriptionRaw {
                             platform: Platform::TwitterCom(PlatformTwitterCom {
                                 username: "meowww".into()
                             }),
+                            interval: None,
                             notify: vec!["meow".into(), "woof".into()],
                         }
                     ]

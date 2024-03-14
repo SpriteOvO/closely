@@ -242,11 +242,11 @@ pub trait Fetcher: Display + Send + Sync {
     }
 }
 
-pub fn fetcher(platform: Platform) -> Box<dyn Fetcher> {
+pub fn fetcher(platform: &Platform) -> Box<dyn Fetcher> {
     match platform {
-        Platform::LiveBilibiliCom(p) => Box::new(LiveBilibiliComFetcher::new(p)),
-        Platform::SpaceBilibiliCom(p) => Box::new(SpaceBilibiliComFetcher::new(p)),
-        Platform::TwitterCom(p) => Box::new(TwitterComFetcher::new(p)),
+        Platform::LiveBilibiliCom(p) => Box::new(LiveBilibiliComFetcher::new(p.clone())),
+        Platform::SpaceBilibiliCom(p) => Box::new(SpaceBilibiliComFetcher::new(p.clone())),
+        Platform::TwitterCom(p) => Box::new(TwitterComFetcher::new(p.clone())),
     }
 }
 
