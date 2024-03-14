@@ -54,7 +54,7 @@ notify = ["Personal"]
 ```
 
 > [!NOTE]
-> This project is in an initial development phase, ths configuration may frequently undergo breaking changes in releases.
+> This project is in an initial development phase, this configuration may frequently undergo breaking changes in releases.
 
 ### 2. Build and Run
 
