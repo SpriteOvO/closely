@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, env, fmt, time::Duration};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 
@@ -52,18 +52,28 @@ impl Config {
 impl Config {
     fn from_str(input: impl AsRef<str>) -> anyhow::Result<Self> {
         let config = toml::from_str::<Self>(input.as_ref())?;
-        config.validate()?;
+        config
+            .validate()
+            .map_err(|err| anyhow!("invalid configuration: {err}"))?;
         Ok(config)
     }
 
     fn validate(&self) -> anyhow::Result<()> {
+        // Validate notify ref
         self.subscription
             .values()
             .flatten()
             .flat_map(|subscription| &subscription.notify)
             .all(|notify_ref| self.notify.get(notify_ref).is_some())
             .then_some(())
-            .ok_or_else(|| anyhow!("reference of notify not found"))
+            .ok_or_else(|| anyhow!("reference of notify not found"))?;
+
+        // Validate notify
+        self.notify
+            .values()
+            .try_for_each(|notify| notify.validate())?;
+
+        Ok(())
     }
 }
 
@@ -155,6 +165,17 @@ pub enum Notify {
     Telegram(Vec<NotifyTelegram>),
 }
 
+impl Notify {
+    fn validate(&self) -> anyhow::Result<()> {
+        match self {
+            Notify::Telegram(v) => v
+                .iter()
+                .try_for_each(|notify_telegram| notify_telegram.validate())
+                .map_err(|err| anyhow!("[Telegram] {err}")),
+        }
+    }
+}
+
 impl fmt::Display for Notify {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -195,6 +216,16 @@ impl NotifyTelegram {
         match &self.token {
             NotifyTelegramToken::Token(token) => Ok(Cow::Borrowed(token)),
             NotifyTelegramToken::TokenEnv(token_env) => Ok(Cow::Owned(env::var(token_env)?)),
+        }
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        match &self.token {
+            NotifyTelegramToken::Token(_) => Ok(()),
+            NotifyTelegramToken::TokenEnv(token_env) => match env::var(token_env) {
+                Ok(_) => Ok(()),
+                Err(err) => bail!("{err} ({token_env})"),
+            },
         }
     }
 }
@@ -314,24 +345,21 @@ notify = ["meow"]
         )
         .is_ok());
 
-        assert_eq!(
-            Config::from_str(
-                r#"
+        assert!(Config::from_str(
+            r#"
 interval = '1min'
 
 [[subscription.meow]]
 platform = { url = "live.bilibili.com", uid = 123456 }
 notify = ["meow"]
                 "#
-            )
-            .unwrap_err()
-            .to_string(),
-            "reference of notify not found"
-        );
+        )
+        .unwrap_err()
+        .to_string()
+        .ends_with("reference of notify not found"));
 
-        assert_eq!(
-            Config::from_str(
-                r#"
+        assert!(Config::from_str(
+            r#"
 interval = '1min'
 
 [notify.meow]
@@ -341,10 +369,9 @@ telegram = [ { id = 1234, thread_id = 123, token = "xxx" } ]
 platform = { url = "live.bilibili.com", uid = 123456 }
 notify = ["meow", "woof"]
                 "#
-            )
-            .unwrap_err()
-            .to_string(),
-            "reference of notify not found"
-        );
+        )
+        .unwrap_err()
+        .to_string()
+        .ends_with("reference of notify not found"));
     }
 }
