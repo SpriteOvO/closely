@@ -368,7 +368,7 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                 let publish_video = json::from_str::<data::CardPublishVideo>(card)?;
                 Ok(Post {
                     user: publish_video.owner.into(),
-                    content: format!("投稿了视频 {}", publish_video.title),
+                    content: format!("投稿了视频《{}》", publish_video.title),
                     url: publish_video.short_link_v2,
                     repost_from: None,
                     attachments: vec![PostAttachment::Image(PostAttachmentImage {
