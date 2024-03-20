@@ -313,6 +313,18 @@ async fn fetch_space_bilibili_history(uid: u64) -> anyhow::Result<Posts> {
 fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
     fn parse_card(desc: &data::Desc, card: &str) -> anyhow::Result<Post> {
         match desc.kind {
+            // Deleted post
+            0 => Ok(Post {
+                user: User {
+                    nickname: "未知用户".into(),
+                    profile_url: "https://www.bilibili.com/".into(),
+                    avatar_url: "https://i0.hdslb.com/bfs/face/member/noface.jpg".into(),
+                },
+                content: "源动态已被作者删除".into(),
+                url: "https://www.bilibili.com/".into(),
+                repost_from: None,
+                attachments: vec![],
+            }),
             // Forward post
             1 => {
                 let forward_post = json::from_str::<data::CardForwardPost>(card)?;
