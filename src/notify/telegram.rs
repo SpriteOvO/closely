@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fmt::Write, future::Future, ops::Range, pin::Pin};
 
 use anyhow::{anyhow, bail};
-use serde::Deserialize;
+use serde::{de::IgnoredAny, Deserialize};
 use serde_json::{self as json, json};
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
@@ -16,15 +16,12 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-struct TelegramResponse<R = TelegramResultDontCare> {
+struct TelegramResponse<R = IgnoredAny> {
     ok: bool,
     #[allow(dead_code)]
     description: Option<String>,
     result: Option<R>,
 }
-
-#[derive(Deserialize)]
-struct TelegramResultDontCare;
 
 #[derive(Deserialize)]
 struct TelegramResultMessage {
