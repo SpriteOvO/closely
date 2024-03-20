@@ -40,6 +40,7 @@ mod data {
         pub kind: u64,
         pub dynamic_id_str: String,
         pub origin: Option<Box<Desc>>,
+        pub bvid: String, // Empty for non-video posts
     }
 
     //
@@ -175,7 +176,6 @@ mod data {
         pub owner: CardPublishVideoOwner,
         pub pic: String, // Image URL
         pub title: String,
-        pub short_link_v2: String, // URL
     }
 
     #[derive(Debug, Deserialize)]
@@ -369,7 +369,7 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                 Ok(Post {
                     user: publish_video.owner.into(),
                     content: format!("投稿了视频《{}》", publish_video.title),
-                    url: publish_video.short_link_v2,
+                    url: format!("https://www.bilibili.com/video/{}", desc.bvid),
                     repost_from: None,
                     attachments: vec![PostAttachment::Image(PostAttachmentImage {
                         media_url: publish_video.pic,
@@ -413,7 +413,10 @@ mod tests {
 
     #[tokio::test]
     async fn deser() {
-        fetch_space_bilibili_history(8047632).await.unwrap();
+        let history = fetch_space_bilibili_history(8047632).await.unwrap();
+
+        assert!(history.0.iter().all(|post| !post.url.is_empty()));
+        assert!(history.0.iter().all(|post| !post.content.is_empty()));
     }
 
     #[tokio::test]

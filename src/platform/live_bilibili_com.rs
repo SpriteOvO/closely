@@ -16,8 +16,6 @@ const LIVE_BILIBILI_COM_API: &str =
 pub(crate) struct BilibiliResponse<T> {
     pub(crate) code: i32,
     #[allow(dead_code)]
-    pub(crate) msg: String,
-    #[allow(dead_code)]
     pub(crate) message: String,
     pub(crate) data: T,
 }
