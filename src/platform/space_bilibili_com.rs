@@ -17,7 +17,7 @@ use crate::{
 };
 
 const SPACE_BILIBILI_COM_API: &str =
-    "https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/space_history?host_uid=";
+    "https://api.vc.bilibili.com/dynamic_svr/v2/dynamic_svr/space_history?host_uid=";
 
 mod data {
     use super::*;
@@ -40,7 +40,6 @@ mod data {
         pub kind: u64,
         pub dynamic_id_str: String,
         pub origin: Option<Box<Desc>>,
-        pub bvid: String, // Empty for non-video posts
     }
 
     //
@@ -176,6 +175,7 @@ mod data {
         pub owner: CardPublishVideoOwner,
         pub pic: String, // Image URL
         pub title: String,
+        pub short_link_v2: String, // URL
     }
 
     #[derive(Debug, Deserialize)]
@@ -381,7 +381,7 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                 Ok(Post {
                     user: publish_video.owner.into(),
                     content: format!("投稿了视频《{}》", publish_video.title),
-                    url: format!("https://www.bilibili.com/video/{}", desc.bvid),
+                    url: publish_video.short_link_v2,
                     repost_from: None,
                     attachments: vec![PostAttachment::Image(PostAttachmentImage {
                         media_url: publish_video.pic,
