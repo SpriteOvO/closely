@@ -19,12 +19,7 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn new(
-        name: String,
-        interval: Duration,
-        notify: Vec<&Notify>,
-        platform: &Platform,
-    ) -> Self {
+    pub fn new(name: String, interval: Duration, notify: Vec<Notify>, platform: &Platform) -> Self {
         Self {
             name,
             interval,

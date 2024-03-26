@@ -2,7 +2,6 @@ mod telegram;
 
 use std::{future::Future, pin::Pin};
 
-use anyhow::bail;
 use spdlog::prelude::*;
 
 use self::telegram::TelegramNotifier;
@@ -15,42 +14,9 @@ pub trait Notifier: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + '_>>;
 }
 
-struct NotifierVec(Vec<Box<dyn Notifier>>);
-
-impl Notifier for NotifierVec {
-    fn notify<'a>(
-        &'a self,
-        notification: &'a Notification<'_>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + '_>> {
-        Box::pin(self.notify_impl(notification))
-    }
-}
-
-impl NotifierVec {
-    async fn notify_impl(&self, notification: &Notification<'_>) -> anyhow::Result<()> {
-        let mut errors = 0_usize;
-
-        for notifier in &self.0 {
-            if let Err(err) = notifier.notify(notification).await {
-                error!("failed to notify with sub-notifier: {err}");
-                errors += 1;
-            }
-        }
-
-        if errors > 0 {
-            bail!("{errors} error(s) occurred, see above")
-        }
-        Ok(())
-    }
-}
-
-pub fn notifier(params: &config::Notify) -> Box<dyn Notifier> {
+pub fn notifier(params: config::Notify) -> Box<dyn Notifier> {
     match params {
-        config::Notify::Telegram(ps) => Box::new(NotifierVec(
-            ps.iter()
-                .map(|p| -> Box<dyn Notifier> { Box::new(TelegramNotifier::new(p.clone())) })
-                .collect(),
-        )),
+        config::Notify::Telegram(p) => Box::new(TelegramNotifier::new(p)),
     }
 }
 

@@ -30,12 +30,12 @@ Create a configuration file with the following example format:
 ```toml
 interval = '1min' # update interval for each subscription
 
-[notify.Personal] # define a target of notifications with name `Personal`
-# notifications will be pushed to 1 Telegram chat according to the given parameters
-telegram = [ { username = "my_follows", thread_id = 114, token_env = "PERSONAL_TELEGRAM_BOT_TOKEN" } ]
-
-[notify.Suzume] # define a target of notifications with name `Suzume`
-telegram = [ { id = 1145141919, token = "1234567890:AbCdEfGhiJkLmNoPq1R2s3T4u5V6w7X8y9z" } ]
+[notify]
+# define a target of notifications with name `Personal`
+# notifications will be pushed to Telegram chat `@my_follows` under thread ID `114`
+Personal = { platform = "Telegram", username = "my_follows", thread_id = 114, token_env = "PERSONAL_TELEGRAM_BOT_TOKEN" }
+# define a target of notifications with name `Suzume`
+Suzume = { platform = "Telegram", id = 1145141919, token = "1234567890:AbCdEfGhiJkLmNoPq1R2s3T4u5V6w7X8y9z" }
 
 [[subscription.Suzume]] # define a subscription with name `Suzume`
 # specify the platform and parameters
@@ -50,7 +50,8 @@ notify = ["Suzume", "Personal"]
 [[subscription.CookieBacon]] # define a subscription with name `CookieBacon`
 platform = { url = "live.bilibili.com", uid = 14172231 }
 interval = '30s' # optional, override the global interval value for this individual subscription
-notify = ["Personal"]
+# use `Personal` as the notification target, but with the parameter `thread_id = 514` overridden
+notify = [ { ref = "Personal", thread_id = 514 } ]
 ```
 
 > [!NOTE]

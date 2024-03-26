@@ -2,15 +2,15 @@ use std::{borrow::Cow, collections::HashMap, env, fmt, time::Duration};
 
 use anyhow::{anyhow, bail};
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize};
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Config {
     #[serde(with = "humantime_serde")]
     pub interval: Duration,
     platform: Option<PlatformGlobal>,
-    #[serde(default)]
-    notify: HashMap<String, Notify>,
+    #[serde(rename = "notify", default)]
+    notify_map: NotifyMap,
     subscription: HashMap<String, Vec<SubscriptionRaw>>,
 }
 
@@ -38,9 +38,9 @@ impl Config {
                         platform: &subscription.platform,
                         interval: subscription.interval,
                         notify: subscription
-                            .notify
+                            .notify_ref
                             .iter()
-                            .map(|notify_ref| self.notify.get(notify_ref).unwrap())
+                            .map(|notify_ref| self.notify_map.get_by_ref(notify_ref).unwrap())
                             .collect(),
                     },
                 )
@@ -63,15 +63,12 @@ impl Config {
         self.subscription
             .values()
             .flatten()
-            .flat_map(|subscription| &subscription.notify)
-            .all(|notify_ref| self.notify.get(notify_ref).is_some())
-            .then_some(())
-            .ok_or_else(|| anyhow!("reference of notify not found"))?;
+            .flat_map(|subscription| &subscription.notify_ref)
+            .map(|notify_ref| self.notify_map.get_by_ref(notify_ref))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        // Validate notify
-        self.notify
-            .values()
-            .try_for_each(|notify| notify.validate())?;
+        // Validate notify_map
+        self.notify_map.validate()?;
 
         Ok(())
     }
@@ -93,14 +90,15 @@ pub struct SubscriptionRaw {
     pub platform: Platform,
     #[serde(default, with = "humantime_serde")]
     pub interval: Option<Duration>,
-    notify: Vec<String>,
+    #[serde(rename = "notify")]
+    notify_ref: Vec<NotifyRef>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct SubscriptionRef<'a> {
     pub platform: &'a Platform,
     pub interval: Option<Duration>,
-    pub notify: Vec<&'a Notify>,
+    pub notify: Vec<Notify>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -160,18 +158,79 @@ impl fmt::Display for PlatformTwitterCom {
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(untagged)]
+pub enum NotifyRef {
+    Direct(String),
+    Override {
+        #[serde(rename = "ref")]
+        name: String,
+        #[serde(flatten)]
+        new: toml::Value,
+    },
+}
+
+impl NotifyRef {
+    fn name(&self) -> &str {
+        match self {
+            NotifyRef::Direct(name) => name,
+            NotifyRef::Override { name, .. } => name,
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Deserialize)]
+pub struct NotifyMap(#[serde(default)] HashMap<String, Notify>);
+
+impl NotifyMap {
+    fn get_by_ref(&self, notify_ref: &NotifyRef) -> anyhow::Result<Notify> {
+        let original = self
+            .0
+            .get(notify_ref.name())
+            .cloned()
+            .ok_or_else(|| anyhow!("reference of notify not found '{}'", notify_ref.name()))?;
+        match notify_ref {
+            NotifyRef::Direct(_name) => Ok(original),
+            NotifyRef::Override { name: _name, new } => original
+                .override_into(new.clone())
+                .map_err(|err| anyhow!("failed to override notify: {err}")),
+        }
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        self.0.values().try_for_each(|notify| notify.validate())
+    }
+}
+
+trait Overridable {
+    type Override: DeserializeOwned;
+
+    fn override_into(self, new: Self::Override) -> anyhow::Result<Self>
+    where
+        Self: Sized;
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(tag = "platform")]
 pub enum Notify {
-    Telegram(Vec<NotifyTelegram>),
+    Telegram(NotifyTelegram),
 }
 
 impl Notify {
     fn validate(&self) -> anyhow::Result<()> {
         match self {
-            Notify::Telegram(v) => v
-                .iter()
-                .try_for_each(|notify_telegram| notify_telegram.validate())
-                .map_err(|err| anyhow!("[Telegram] {err}")),
+            Notify::Telegram(v) => v.validate().map_err(|err| anyhow!("[Telegram] {err}")),
+        }
+    }
+
+    fn override_into(self, new: toml::Value) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        match self {
+            Notify::Telegram(n) => {
+                let new: <NotifyTelegram as Overridable>::Override = new.try_into()?;
+                Ok(Notify::Telegram(n.override_into(new)?))
+            }
         }
     }
 }
@@ -179,15 +238,7 @@ impl Notify {
 impl fmt::Display for Notify {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Notify::Telegram(notify_telegram) => {
-                for (i, notify_telegram) in notify_telegram.iter().enumerate() {
-                    if i != 0 {
-                        write!(f, ",")?;
-                    }
-                    write!(f, "{}", notify_telegram)?;
-                }
-                Ok(())
-            }
+            Notify::Telegram(notify_telegram) => write!(f, "{}", notify_telegram),
         }
     }
 }
@@ -231,6 +282,31 @@ impl NotifyTelegram {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotifyTelegramOverride {
+    #[serde(flatten)]
+    pub chat: Option<NotifyTelegramChat>,
+    pub thread_id: Option<i64>,
+    #[serde(flatten)]
+    token: Option<NotifyTelegramToken>,
+}
+
+impl Overridable for NotifyTelegram {
+    type Override = NotifyTelegramOverride;
+
+    fn override_into(self, new: Self::Override) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            chat: new.chat.unwrap_or(self.chat),
+            thread_id: new.thread_id.or(self.thread_id),
+            token: new.token.unwrap_or(self.token),
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NotifyTelegramChat {
     Id(i64),
@@ -267,11 +343,9 @@ interval = '1min'
 [platform."twitter.com"]
 nitter_host = "https://nitter.example.com/"
 
-[notify.meow]
-telegram = [ { id = 1234, thread_id = 123, token = "xxx" } ]
-
-[notify.woof]
-telegram = [ { id = 5678, thread_id = 900, token = "yyy" } ]
+[notify]
+meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
+woof = { platform = "Telegram", id = 5678, thread_id = 900, token = "yyy" }
 
 [[subscription.meow]]
 platform = { url = "live.bilibili.com", uid = 123456 }
@@ -281,6 +355,10 @@ notify = ["meow"]
 [[subscription.meow]]
 platform = { url = "twitter.com", username = "meowww" }
 notify = ["meow", "woof"]
+
+[[subscription.meow]]
+platform = { url = "twitter.com", username = "meowww2" }
+notify = ["meow", "woof", { ref = "woof", id = 123 }]
                 "#,
             )
             .unwrap(),
@@ -291,24 +369,24 @@ notify = ["meow", "woof"]
                         nitter_host: "https://nitter.example.com/".into()
                     })
                 }),
-                notify: HashMap::from_iter([
+                notify_map: NotifyMap(HashMap::from_iter([
                     (
                         "meow".into(),
-                        Notify::Telegram(vec![NotifyTelegram {
+                        Notify::Telegram(NotifyTelegram {
                             chat: NotifyTelegramChat::Id(1234),
                             thread_id: Some(123),
                             token: NotifyTelegramToken::Token("xxx".into()),
-                        }])
+                        })
                     ),
                     (
                         "woof".into(),
-                        Notify::Telegram(vec![NotifyTelegram {
+                        Notify::Telegram(NotifyTelegram {
                             chat: NotifyTelegramChat::Id(5678),
                             thread_id: Some(900),
                             token: NotifyTelegramToken::Token("yyy".into()),
-                        }])
+                        })
                     )
-                ]),
+                ])),
                 subscription: HashMap::from_iter([(
                     "meow".into(),
                     vec![
@@ -317,14 +395,34 @@ notify = ["meow", "woof"]
                                 uid: 123456
                             }),
                             interval: Some(Duration::from_secs(30)),
-                            notify: vec!["meow".into()],
+                            notify_ref: vec![NotifyRef::Direct("meow".into())],
                         },
                         SubscriptionRaw {
                             platform: Platform::TwitterCom(PlatformTwitterCom {
                                 username: "meowww".into()
                             }),
                             interval: None,
-                            notify: vec!["meow".into(), "woof".into()],
+                            notify_ref: vec![
+                                NotifyRef::Direct("meow".into()),
+                                NotifyRef::Direct("woof".into())
+                            ],
+                        },
+                        SubscriptionRaw {
+                            platform: Platform::TwitterCom(PlatformTwitterCom {
+                                username: "meowww2".into()
+                            }),
+                            interval: None,
+                            notify_ref: vec![
+                                NotifyRef::Direct("meow".into()),
+                                NotifyRef::Direct("woof".into()),
+                                NotifyRef::Override {
+                                    name: "woof".into(),
+                                    new: toml::Value::Table(toml::Table::from_iter([(
+                                        "id".into(),
+                                        toml::Value::Integer(123)
+                                    )]))
+                                }
+                            ],
                         }
                     ]
                 )]),
@@ -335,8 +433,8 @@ notify = ["meow", "woof"]
             r#"
 interval = '1min'
 
-[notify.meow]
-telegram = [ { id = 1234, thread_id = 123, token = "xxx" } ]
+[notify]
+meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 
 [[subscription.meow]]
 platform = { url = "live.bilibili.com", uid = 123456 }
@@ -356,14 +454,14 @@ notify = ["meow"]
         )
         .unwrap_err()
         .to_string()
-        .ends_with("reference of notify not found"));
+        .ends_with("reference of notify not found 'meow'"));
 
         assert!(Config::from_str(
             r#"
 interval = '1min'
 
-[notify.meow]
-telegram = [ { id = 1234, thread_id = 123, token = "xxx" } ]
+[notify]
+meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 
 [[subscription.meow]]
 platform = { url = "live.bilibili.com", uid = 123456 }
@@ -372,6 +470,49 @@ notify = ["meow", "woof"]
         )
         .unwrap_err()
         .to_string()
-        .ends_with("reference of notify not found"));
+        .ends_with("reference of notify not found 'woof'"));
+    }
+
+    #[test]
+    fn config_override() {
+        let config = Config::from_str(
+            r#"
+interval = '1min'
+
+[notify]
+meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
+woof = { platform = "Telegram", id = 5678, thread_id = 456, token = "yyy" }
+
+[[subscription.meow]]
+platform = { url = "live.bilibili.com", uid = 123456 }
+notify = ["meow", { ref = "woof", thread_id = 114 }]
+                "#,
+        )
+        .unwrap();
+
+        let subscriptions = config.subscriptions().collect::<Vec<_>>();
+
+        assert_eq!(
+            subscriptions,
+            vec![(
+                "meow".into(),
+                SubscriptionRef {
+                    platform: &Platform::LiveBilibiliCom(PlatformLiveBilibiliCom { uid: 123456 }),
+                    interval: None,
+                    notify: vec![
+                        Notify::Telegram(NotifyTelegram {
+                            chat: NotifyTelegramChat::Id(1234),
+                            thread_id: Some(123),
+                            token: NotifyTelegramToken::Token("xxx".into()),
+                        }),
+                        Notify::Telegram(NotifyTelegram {
+                            chat: NotifyTelegramChat::Id(5678),
+                            thread_id: Some(114),
+                            token: NotifyTelegramToken::Token("yyy".into()),
+                        })
+                    ],
+                }
+            ),]
+        );
     }
 }
