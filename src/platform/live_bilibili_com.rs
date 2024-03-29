@@ -17,7 +17,7 @@ pub(crate) struct BilibiliResponse<T> {
     pub(crate) code: i32,
     #[allow(dead_code)]
     pub(crate) message: String,
-    pub(crate) data: T,
+    pub(crate) data: Option<T>,
 }
 
 #[derive(Deserialize)]
@@ -99,7 +99,7 @@ async fn fetch_bilibili_live_info(uid: u64) -> anyhow::Result<BilibiliResponseDa
         bail!("response contains error, response '{text}'");
     }
 
-    resp.data.into_values().next().ok_or_else(|| {
+    resp.data.unwrap().into_values().next().ok_or_else(|| {
         anyhow!("UNEXPECTED! response with unexpected data array, response '{text}'")
     })
 }

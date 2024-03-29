@@ -1,6 +1,8 @@
-use std::{collections::HashSet, fmt, future::Future, pin::Pin};
+use std::{borrow::Cow, collections::HashSet, fmt, future::Future, pin::Pin};
 
 use anyhow::{anyhow, bail, Ok};
+use once_cell::sync::Lazy;
+use reqwest::header::{self, HeaderValue};
 use serde::Deserialize;
 use serde_json::{self as json};
 use spdlog::prelude::*;
@@ -16,183 +18,167 @@ use crate::{
     platform::{PostsRef, RepostFrom},
 };
 
-const SPACE_BILIBILI_COM_API: &str =
-    "https://api.vc.bilibili.com/dynamic_svr/v2/dynamic_svr/space_history?host_uid=";
-
 mod data {
     use super::*;
 
     #[derive(Debug, Deserialize)]
     pub struct SpaceHistory {
-        pub has_more: u64,
-        pub cards: Vec<Card>,
+        pub has_more: bool,
+        pub items: Vec<Item>,
     }
 
     #[derive(Debug, Deserialize)]
-    pub struct Card {
-        pub desc: Desc,
-        pub card: String, // JSON serialized string
+    pub struct Item {
+        pub id_str: String,
+        pub modules: Modules,
+        pub orig: Option<Box<Item>>,
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
+    pub struct Modules {
+        #[serde(rename = "module_author")]
+        pub author: ModuleAuthor,
+        #[serde(rename = "module_dynamic")]
+        pub dynamic: ModuleDynamic,
+    }
+
+    #[derive(Clone, Debug, Deserialize)]
+    #[serde(tag = "type")]
+    pub enum ModuleAuthor {
+        #[serde(rename = "AUTHOR_TYPE_NORMAL")]
+        Normal(ModuleAuthorNormal),
+    }
+
+    impl From<ModuleAuthor> for User {
+        fn from(value: ModuleAuthor) -> Self {
+            match value {
+                ModuleAuthor::Normal(normal) => Self {
+                    nickname: normal.name,
+                    profile_url: format!("https://space.bilibili.com/{}", normal.mid),
+                    avatar_url: normal.face,
+                },
+            }
+        }
+    }
+
+    #[derive(Clone, Debug, Deserialize)]
+    pub struct ModuleAuthorNormal {
+        pub face: String, // URL
+        pub mid: u64,
+        pub name: String,
+        pub pub_ts: u64,
     }
 
     #[derive(Debug, Deserialize)]
-    pub struct Desc {
+    pub struct ModuleDynamic {
+        pub desc: Option<RichText>,
+        pub major: Option<ModuleDynamicMajor>,
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
+    #[serde(tag = "type")]
+    pub enum ModuleDynamicMajor {
+        #[serde(rename = "MAJOR_TYPE_OPUS")]
+        Opus(ModuleDynamicMajorOpus),
+        #[serde(rename = "MAJOR_TYPE_ARCHIVE")]
+        Archive(ModuleDynamicMajorArchive),
+        #[serde(rename = "MAJOR_TYPE_ARTICLE")]
+        Article(ModuleDynamicMajorArticle),
+        #[serde(rename = "MAJOR_TYPE_DRAW")]
+        Draw(ModuleDynamicMajorDraw),
+        #[serde(rename = "MAJOR_TYPE_LIVE_RCMD")]
+        LiveRcmd, // We don't care about this item
+    }
+
+    impl ModuleDynamicMajor {
+        pub fn as_archive(&self) -> Option<&ModuleDynamicMajorArchiveInner> {
+            match self {
+                ModuleDynamicMajor::Archive(archive) => Some(&archive.archive),
+                _ => None,
+            }
+        }
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorOpus {
+        pub opus: ModuleDynamicMajorOpusInner,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorOpusInner {
+        pub pics: Vec<ModuleDynamicMajorOpusPic>,
+        pub summary: RichText,
+        pub title: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorOpusPic {
+        pub url: String,
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorArchive {
+        pub archive: ModuleDynamicMajorArchiveInner,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorArchiveInner {
+        pub aid: String,   // AV ID
+        pub bvid: String,  // BV ID
+        pub cover: String, // URL
+        pub desc: String,  // Description of the video
+        pub duration_text: String,
+        pub title: String, // Title of the video
         #[serde(rename = "type")]
-        pub kind: u64,
-        pub dynamic_id_str: String,
-        pub origin: Option<Box<Desc>>,
+        pub kind: u64, // Unknown
     }
 
     //
 
     #[derive(Debug, Deserialize)]
-    pub struct CardForwardPost {
-        pub item: CardForwardPostItem,
-        pub origin: String, // JSON serialized string
-        pub user: CardForwardPostUser,
+    pub struct ModuleDynamicMajorArticle {
+        pub article: ModuleDynamicMajorArticleInner,
     }
 
     #[derive(Debug, Deserialize)]
-    pub struct CardForwardPostItem {
-        pub content: String,
-        pub orig_type: u64,
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct CardForwardPostUser {
-        pub face: String,
-        pub uid: u64,
-        pub uname: String,
-    }
-
-    impl From<CardForwardPostUser> for User {
-        fn from(value: CardForwardPostUser) -> Self {
-            Self {
-                nickname: value.uname,
-                profile_url: format!("https://space.bilibili.com/{}", value.uid),
-                avatar_url: value.face,
-            }
-        }
-    }
-
-    //
-
-    #[derive(Debug, Deserialize)]
-    pub struct CardPublishArticle {
-        pub author: CardPublishArticleAuthor,
+    pub struct ModuleDynamicMajorArticleInner {
+        pub covers: Vec<String>, // URLs
+        pub desc: String,
         pub id: u64,
-        pub summary: String,
         pub title: String,
     }
 
+    //
+
     #[derive(Debug, Deserialize)]
-    pub struct CardPublishArticleAuthor {
-        pub face: String,
-        pub mid: u64,
-        pub name: String,
+    pub struct ModuleDynamicMajorDraw {
+        pub draw: ModuleDynamicMajorDrawInner,
     }
 
-    impl From<CardPublishArticleAuthor> for User {
-        fn from(value: CardPublishArticleAuthor) -> Self {
-            Self {
-                nickname: value.name,
-                profile_url: format!("https://space.bilibili.com/{}", value.mid),
-                avatar_url: value.face,
-            }
-        }
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorDrawInner {
+        pub items: Vec<ModuleDynamicMajorDrawItem>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorDrawItem {
+        pub src: String, // image URL
     }
 
     //
 
     #[derive(Debug, Deserialize)]
-    pub struct CardPostMedia {
-        pub item: CardPostMediaItem,
-        pub user: CardPostMediaUser,
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct CardPostMediaItem {
-        pub description: String,
-        pub pictures: Vec<CardPostMediaPicture>,
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct CardPostMediaPicture {
-        pub img_src: String, // URL
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct CardPostMediaUser {
-        pub head_url: String,
-        pub name: String,
-        pub uid: u64,
-    }
-
-    impl From<CardPostMediaUser> for User {
-        fn from(value: CardPostMediaUser) -> Self {
-            Self {
-                nickname: value.name,
-                profile_url: format!("https://space.bilibili.com/{}", value.uid),
-                avatar_url: value.head_url,
-            }
-        }
-    }
-
-    //
-
-    #[derive(Debug, Deserialize)]
-    pub struct CardPostText {
-        pub item: CardPostTextItem,
-        pub user: CardPostTextUser,
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct CardPostTextItem {
-        pub content: String,
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct CardPostTextUser {
-        pub face: String,
-        pub uid: u64,
-        pub uname: String,
-    }
-
-    impl From<CardPostTextUser> for User {
-        fn from(value: CardPostTextUser) -> Self {
-            Self {
-                nickname: value.uname,
-                profile_url: format!("https://space.bilibili.com/{}", value.uid),
-                avatar_url: value.face,
-            }
-        }
-    }
-
-    //
-
-    #[derive(Debug, Deserialize)]
-    pub struct CardPublishVideo {
-        pub desc: String, // Description of the video
-        pub owner: CardPublishVideoOwner,
-        pub pic: String, // Image URL
-        pub title: String,
-        pub short_link_v2: String, // URL
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct CardPublishVideoOwner {
-        pub face: String,
-        pub mid: u64,
-        pub name: String,
-    }
-
-    impl From<CardPublishVideoOwner> for User {
-        fn from(value: CardPublishVideoOwner) -> Self {
-            Self {
-                nickname: value.name,
-                profile_url: format!("https://space.bilibili.com/{}", value.mid),
-                avatar_url: value.face,
-            }
-        }
+    pub struct RichText {
+        // TODO: pub rich_text_nodes
+        pub text: String,
     }
 }
 
@@ -284,139 +270,226 @@ impl SpaceBilibiliComFetcher {
     }
 }
 
+#[allow(clippy::type_complexity)] // No, I don't think it's complex XD
+static GUEST_COOKIES: Lazy<Mutex<Option<Vec<(String, String)>>>> = Lazy::new(|| Mutex::new(None));
+
 async fn fetch_space_bilibili_history(uid: u64) -> anyhow::Result<Posts> {
-    let resp = reqwest::Client::new()
-        .get(format!("{SPACE_BILIBILI_COM_API}{}", uid))
-        .send()
-        .await
-        .map_err(|err| anyhow!("failed to send request: {err}"))?;
+    fetch_space_bilibili_history_impl(uid, true).await
+}
 
-    let status = resp.status();
-    if !status.is_success() {
-        bail!("response status is not success: {resp:?}");
-    }
+fn fetch_space_bilibili_history_impl(
+    uid: u64,
+    retry: bool,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<Posts>> + Send>> {
+    Box::pin(async move {
+        let mut guest_cookies = GUEST_COOKIES.lock().await;
+        if guest_cookies.is_none() {
+            *guest_cookies = Some(
+                obtain_guest_cookies()
+                    .await
+                    .map_err(|err| anyhow!("failed to obtain guest cookies: {err}"))?,
+            );
+        }
+        let cookies = guest_cookies
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|(name, value)| format!("{}={}", name, value))
+            .collect::<Vec<_>>()
+            .join("; ");
+        let resp = reqwest::Client::new()
+            .get(format!(
+                "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={}",
+                uid
+            ))
+            .header(header::COOKIE, HeaderValue::from_str(&cookies)?)
+            .send()
+            .await
+            .map_err(|err| anyhow!("failed to send request: {err}"))?;
 
-    let text = resp
-        .text()
-        .await
-        .map_err(|err| anyhow!("failed to obtain text from response: {err}"))?;
+        let status = resp.status();
+        if !status.is_success() {
+            bail!("response status is not success: {resp:?}");
+        }
 
-    let resp: BilibiliResponse<data::SpaceHistory> =
-        json::from_str(&text).map_err(|err| anyhow!("failed to deserialize response: {err}"))?;
-    if resp.code != 0 {
-        bail!("response contains error, response '{text}'");
-    }
+        let text = resp
+            .text()
+            .await
+            .map_err(|err| anyhow!("failed to obtain text from response: {err}"))?;
 
-    parse_response(resp.data)
+        let resp: BilibiliResponse<data::SpaceHistory> = json::from_str(&text)
+            .map_err(|err| anyhow!("failed to deserialize response: {err}"))?;
+
+        match resp.code {
+            0 => {} // Success
+            -352 => {
+                // Auth error
+                if retry {
+                    // Invalidate the guest cookies and retry
+                    *guest_cookies = None;
+                    drop(guest_cookies);
+                    warn!("bilibili guest token expired, retrying with new token");
+                    return fetch_space_bilibili_history_impl(uid, false).await;
+                } else {
+                    bail!("bilibili failed with token expired, and already retried once")
+                }
+            }
+            _ => bail!("response contains error, response '{text}'"),
+        }
+
+        parse_response(resp.data.unwrap())
+    })
 }
 
 fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
-    fn parse_card(desc: &data::Desc, card: &str) -> anyhow::Result<Post> {
-        match desc.kind {
-            // Deleted post
-            0 => Ok(Post {
-                user: User {
-                    nickname: "未知用户".into(),
-                    profile_url: "https://www.bilibili.com/".into(),
-                    avatar_url: "https://i0.hdslb.com/bfs/face/member/noface.jpg".into(),
-                },
-                content: "源动态已被作者删除".into(),
-                url: "https://www.bilibili.com/".into(),
-                repost_from: None,
-                attachments: vec![],
-            }),
-            // Forward post
-            1 => {
-                let forward_post = json::from_str::<data::CardForwardPost>(card)?;
-                let Some(origin_desc) = &desc.origin else {
-                    bail!(
-                        "UNEXPECTED! forward post without origin. dynamic id: '{}'",
-                        desc.dynamic_id_str
-                    );
-                };
-                let repost_from = parse_card(origin_desc, &forward_post.origin)
-                    .map_err(|err| anyhow!("failed to parse origin card: {err}"))?;
-                Ok(Post {
-                    user: forward_post.user.into(),
-                    content: forward_post.item.content,
-                    url: format!("https://t.bilibili.com/{}", desc.dynamic_id_str),
-                    repost_from: Some(RepostFrom::Recursion(Box::new(repost_from))),
-                    attachments: vec![],
+    fn parse_item(item: &data::Item) -> anyhow::Result<Post> {
+        debug_assert!(matches!(
+            item.modules
+                .dynamic
+                .major
+                .as_ref()
+                .and_then(|major| major.as_archive())
+                .map(|archive| archive.kind),
+            Some(1) | None
+        ));
+
+        let major_content =
+            item.modules
+                .dynamic
+                .major
+                .as_ref()
+                .and_then(|major| -> Option<Cow<str>> {
+                    match major {
+                        data::ModuleDynamicMajor::Opus(opus) => {
+                            Some(Cow::Borrowed(&opus.opus.summary.text))
+                        }
+                        data::ModuleDynamicMajor::Archive(archive) => Some(Cow::Owned(format!(
+                            "投稿了视频《{}》",
+                            archive.archive.title
+                        ))),
+                        data::ModuleDynamicMajor::Article(article) => Some(Cow::Owned(format!(
+                            "投稿了文章《{}》",
+                            article.article.title
+                        ))),
+                        data::ModuleDynamicMajor::Draw(_) => None,
+                        data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
+                    }
+                });
+        let content = match (&item.modules.dynamic.desc, major_content) {
+            (Some(desc), Some(major)) => format!("{}\n\n{}", desc.text, major),
+            (Some(desc), None) => desc.text.clone(),
+            (None, Some(major)) => major.into(),
+            (None, None) => bail!("item no content. item: {item:?}"),
+        };
+
+        let original = item
+            .orig
+            .as_ref()
+            .map(|orig| parse_item(orig))
+            .transpose()
+            .map_err(|err| anyhow!("failed to parse origin card: {err}"))?;
+
+        Ok(Post {
+            user: item.modules.author.clone().into(),
+            content,
+            url: item
+                .modules
+                .dynamic
+                .major
+                .as_ref()
+                .map(|major| match major {
+                    data::ModuleDynamicMajor::Opus(_) | data::ModuleDynamicMajor::Draw(_) => {
+                        format!("https://www.bilibili.com/opus/{}", item.id_str)
+                    }
+                    data::ModuleDynamicMajor::Archive(archive) => {
+                        format!("https://www.bilibili.com/video/{}", archive.archive.bvid)
+                    }
+                    data::ModuleDynamicMajor::Article(article) => {
+                        format!("https://www.bilibili.com/read/cv{}", article.article.id)
+                    }
+                    data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
                 })
-            }
-            // Post media
-            2 => {
-                let post_media = json::from_str::<data::CardPostMedia>(card)?;
-                Ok(Post {
-                    user: post_media.user.into(),
-                    content: post_media.item.description,
-                    url: format!("https://t.bilibili.com/{}", desc.dynamic_id_str),
-                    repost_from: None,
-                    attachments: post_media
-                        .item
-                        .pictures
-                        .into_iter()
-                        .map(|picture| {
+                .unwrap_or_else(|| format!("https://www.bilibili.com/opus/{}", item.id_str)),
+            repost_from: original.map(|original| RepostFrom::Recursion(Box::new(original))),
+            attachments: item
+                .modules
+                .dynamic
+                .major
+                .as_ref()
+                .map(|major| match major {
+                    data::ModuleDynamicMajor::Opus(opus) => opus
+                        .opus
+                        .pics
+                        .iter()
+                        .map(|pic| {
                             PostAttachment::Image(PostAttachmentImage {
-                                media_url: picture.img_src,
+                                media_url: pic.url.clone(),
                             })
                         })
                         .collect(),
+                    data::ModuleDynamicMajor::Archive(archive) => {
+                        vec![PostAttachment::Image(PostAttachmentImage {
+                            media_url: archive.archive.cover.clone(),
+                        })]
+                    }
+                    data::ModuleDynamicMajor::Article(article) => article
+                        .article
+                        .covers
+                        .iter()
+                        .map(|cover| {
+                            PostAttachment::Image(PostAttachmentImage {
+                                media_url: cover.clone(),
+                            })
+                        })
+                        .collect(),
+                    data::ModuleDynamicMajor::Draw(draw) => draw
+                        .draw
+                        .items
+                        .iter()
+                        .map(|item| {
+                            PostAttachment::Image(PostAttachmentImage {
+                                media_url: item.src.clone(),
+                            })
+                        })
+                        .collect(),
+                    data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
                 })
-            }
-            // Post text
-            4 => {
-                let post_media = json::from_str::<data::CardPostText>(card)?;
-                Ok(Post {
-                    user: post_media.user.into(),
-                    content: post_media.item.content,
-                    url: format!("https://t.bilibili.com/{}", desc.dynamic_id_str),
-                    repost_from: None,
-                    attachments: vec![],
-                })
-            }
-            // Publish video
-            8 => {
-                let publish_video = json::from_str::<data::CardPublishVideo>(card)?;
-                Ok(Post {
-                    user: publish_video.owner.into(),
-                    content: format!("投稿了视频《{}》", publish_video.title),
-                    url: publish_video.short_link_v2,
-                    repost_from: None,
-                    attachments: vec![PostAttachment::Image(PostAttachmentImage {
-                        media_url: publish_video.pic,
-                    })],
-                })
-            }
-            // Publish article
-            64 => {
-                let publish_article = json::from_str::<data::CardPublishArticle>(card)?;
-                Ok(Post {
-                    user: publish_article.author.into(),
-                    // TODO: Add a link to the title
-                    content: format!("投稿了文章《{}》", publish_article.title),
-                    url: format!("https://www.bilibili.com/read/cv{}", publish_article.id),
-                    repost_from: None,
-                    attachments: vec![],
-                })
-            }
-            _ => {
-                bail!("unknown card type: {}", desc.kind);
-            }
-        }
+                .unwrap_or_default(),
+        })
     }
 
     let items = resp
-        .cards
+        .items
         .into_iter()
-        .filter_map(|card| {
-            parse_card(&card.desc, &card.card)
-                .tap_err(|err| error!("failed to deserialize card: {err} for '{card:?}'"))
+        .filter(|item| {
+            !matches!(
+                item.modules.dynamic.major,
+                Some(data::ModuleDynamicMajor::LiveRcmd)
+            )
+        })
+        .filter_map(|item| {
+            parse_item(&item)
+                .tap_err(|err| error!("failed to deserialize item: {err} for '{item:?}'"))
                 .ok()
         })
         .collect();
 
     Ok(Posts(items))
+}
+
+async fn obtain_guest_cookies() -> anyhow::Result<Vec<(String, String)>> {
+    // Okay, I gave up on cracking the auth process
+    let browser = headless_chrome::Browser::default()?;
+    let tab = browser.new_tab()?;
+    tab.navigate_to("https://space.bilibili.com/8047632/dynamic")?;
+    tab.wait_until_navigated()?;
+
+    let kvs = tab
+        .get_cookies()?
+        .into_iter()
+        .map(|cookie| (cookie.name, cookie.value))
+        .collect();
+    Ok(kvs)
 }
 
 #[cfg(test)]
@@ -426,7 +499,10 @@ mod tests {
     #[tokio::test]
     async fn deser() {
         let history = fetch_space_bilibili_history(8047632).await.unwrap();
+        assert!(history.0.iter().all(|post| !post.url.is_empty()));
+        assert!(history.0.iter().all(|post| !post.content.is_empty()));
 
+        let history = fetch_space_bilibili_history(178362496).await.unwrap();
         assert!(history.0.iter().all(|post| !post.url.is_empty()));
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
     }
