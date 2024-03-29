@@ -137,7 +137,11 @@ impl TelegramNotifier {
 
         let status = resp.status();
         if !status.is_success() {
-            bail!("response from Telegram status is not success: {resp:?}");
+            bail!(
+                "response from Telegram status is not success. resp: {}, body: {}",
+                resp.text().await.unwrap_or_else(|_| "*no text*".into()),
+                body
+            );
         }
 
         let text = resp
@@ -188,7 +192,11 @@ impl TelegramNotifier {
 
             let status = resp.status();
             if !status.is_success() {
-                bail!("response from Telegram status is not success: {resp:?}");
+                bail!(
+                    "response from Telegram status is not success. resp: {}, body: {}",
+                    resp.text().await.unwrap_or_else(|_| "*no text*".into()),
+                    body
+                );
             }
 
             let text = resp
@@ -389,7 +397,11 @@ impl TelegramNotifier {
 
         let status = resp.status();
         if !status.is_success() {
-            bail!("response from Telegram status is not success: {resp:?}");
+            bail!(
+                "response from Telegram status is not success. resp: {}, body: {}",
+                resp.text().await.unwrap_or_else(|_| "*no text*".into()),
+                body
+            );
         }
 
         let text = resp
