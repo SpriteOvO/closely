@@ -479,7 +479,14 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
 
 async fn obtain_guest_cookies() -> anyhow::Result<Vec<(String, String)>> {
     // Okay, I gave up on cracking the auth process
-    let browser = headless_chrome::Browser::default()?;
+    use headless_chrome::{Browser, LaunchOptionsBuilder};
+
+    let browser = Browser::new(
+        LaunchOptionsBuilder::default()
+            // https://github.com/rust-headless-chrome/rust-headless-chrome/issues/267
+            .sandbox(false)
+            .build()?,
+    )?;
     let tab = browser.new_tab()?;
     tab.navigate_to("https://space.bilibili.com/8047632/dynamic")?;
     tab.wait_until_navigated()?;
