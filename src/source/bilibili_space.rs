@@ -10,12 +10,12 @@ use tap::prelude::*;
 use tokio::sync::{Mutex, OnceCell};
 
 use super::{
-    live_bilibili_com::BilibiliResponse, Fetcher, Notification, NotificationKind, PlatformName,
-    Post, PostAttachment, PostAttachmentImage, Posts, Status, StatusKind, StatusSource, User,
+    bilibili_live::Response, FetcherTrait, Notification, NotificationKind, Post, PostAttachment,
+    PostAttachmentImage, Posts, SourcePlatformName, Status, StatusKind, StatusSource, User,
 };
 use crate::{
-    config::PlatformSpaceBilibiliCom,
-    platform::{PostsRef, RepostFrom},
+    config::SourcePlatformBilibiliSpace,
+    source::{PostsRef, RepostFrom},
 };
 
 mod data {
@@ -182,13 +182,13 @@ mod data {
     }
 }
 
-pub struct SpaceBilibiliComFetcher {
-    params: PlatformSpaceBilibiliCom,
+pub struct Fetcher {
+    params: SourcePlatformBilibiliSpace,
     first_fetch: OnceCell<()>,
     fetched_cache: Mutex<HashSet<String>>,
 }
 
-impl Fetcher for SpaceBilibiliComFetcher {
+impl FetcherTrait for Fetcher {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
         Box::pin(self.fetch_status_impl())
     }
@@ -201,14 +201,14 @@ impl Fetcher for SpaceBilibiliComFetcher {
     }
 }
 
-impl fmt::Display for SpaceBilibiliComFetcher {
+impl fmt::Display for Fetcher {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.params)
     }
 }
 
-impl SpaceBilibiliComFetcher {
-    pub fn new(params: PlatformSpaceBilibiliCom) -> Self {
+impl Fetcher {
+    pub fn new(params: SourcePlatformBilibiliSpace) -> Self {
         Self {
             params,
             first_fetch: OnceCell::new(),
@@ -217,7 +217,7 @@ impl SpaceBilibiliComFetcher {
     }
 
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
-        let posts = fetch_space_bilibili_history(self.params.uid).await?;
+        let posts = fetch_space_history(self.params.uid).await?;
 
         // The initial full cache for `post_filter`
         self.first_fetch
@@ -232,7 +232,7 @@ impl SpaceBilibiliComFetcher {
         Ok(Status {
             kind: StatusKind::Posts(posts),
             source: StatusSource {
-                platform_name: PlatformName::SpaceBilibiliCom,
+                platform_name: SourcePlatformName::BilibiliSpace,
                 // TODO: User info is only contained in cards, not in a unique kv, implement it
                 // later if needed
                 user: None,
@@ -273,11 +273,11 @@ impl SpaceBilibiliComFetcher {
 #[allow(clippy::type_complexity)] // No, I don't think it's complex XD
 static GUEST_COOKIES: Lazy<Mutex<Option<Vec<(String, String)>>>> = Lazy::new(|| Mutex::new(None));
 
-async fn fetch_space_bilibili_history(uid: u64) -> anyhow::Result<Posts> {
-    fetch_space_bilibili_history_impl(uid, true).await
+async fn fetch_space_history(uid: u64) -> anyhow::Result<Posts> {
+    fetch_space_history_impl(uid, true).await
 }
 
-fn fetch_space_bilibili_history_impl(
+fn fetch_space_history_impl(
     uid: u64,
     retry: bool,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<Posts>> + Send>> {
@@ -317,7 +317,7 @@ fn fetch_space_bilibili_history_impl(
             .await
             .map_err(|err| anyhow!("failed to obtain text from response: {err}"))?;
 
-        let resp: BilibiliResponse<data::SpaceHistory> = json::from_str(&text)
+        let resp: Response<data::SpaceHistory> = json::from_str(&text)
             .map_err(|err| anyhow!("failed to deserialize response: {err}"))?;
 
         match resp.code {
@@ -329,7 +329,7 @@ fn fetch_space_bilibili_history_impl(
                     *guest_cookies = None;
                     drop(guest_cookies);
                     warn!("bilibili guest token expired, retrying with new token");
-                    return fetch_space_bilibili_history_impl(uid, false).await;
+                    return fetch_space_history_impl(uid, false).await;
                 } else {
                     bail!("bilibili failed with token expired, and already retried once")
                 }
@@ -505,21 +505,21 @@ mod tests {
 
     #[tokio::test]
     async fn deser() {
-        let history = fetch_space_bilibili_history(8047632).await.unwrap();
+        let history = fetch_space_history(8047632).await.unwrap();
         assert!(history.0.iter().all(|post| !post.url.is_empty()));
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
 
-        let history = fetch_space_bilibili_history(178362496).await.unwrap();
+        let history = fetch_space_history(178362496).await.unwrap();
         assert!(history.0.iter().all(|post| !post.url.is_empty()));
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
     }
 
     #[tokio::test]
     async fn dedup_published_videos() {
-        let fetcher = SpaceBilibiliComFetcher::new(PlatformSpaceBilibiliCom { uid: 1 });
+        let fetcher = Fetcher::new(SourcePlatformBilibiliSpace { uid: 1 });
 
         let source = StatusSource {
-            platform_name: PlatformName::SpaceBilibiliCom,
+            platform_name: SourcePlatformName::BilibiliSpace,
             user: None,
         };
         let mut posts = vec![];

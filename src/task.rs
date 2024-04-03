@@ -5,26 +5,31 @@ use spdlog::prelude::*;
 use tokio::time::MissedTickBehavior;
 
 use crate::{
-    config::{Notify, Platform},
+    config::{Notify, SourcePlatform},
     notify,
-    platform::{self, Status},
+    source::{self, Status},
 };
 
 pub struct Task {
     name: String,
     interval: Duration,
-    notifiers: Vec<Box<dyn notify::Notifier>>,
-    fetcher: Box<dyn platform::Fetcher>,
+    notifiers: Vec<Box<dyn notify::NotifierTrait>>,
+    fetcher: Box<dyn source::FetcherTrait>,
     last_status: Option<Status>,
 }
 
 impl Task {
-    pub fn new(name: String, interval: Duration, notify: Vec<Notify>, platform: &Platform) -> Self {
+    pub fn new(
+        name: String,
+        interval: Duration,
+        notify: Vec<Notify>,
+        platform: &SourcePlatform,
+    ) -> Self {
         Self {
             name,
             interval,
             notifiers: notify.into_iter().map(notify::notifier).collect(),
-            fetcher: platform::fetcher(platform),
+            fetcher: source::fetcher(platform),
             last_status: None,
         }
     }

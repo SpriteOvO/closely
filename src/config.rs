@@ -76,18 +76,18 @@ impl Config {
 
 #[derive(Clone, Debug, PartialEq, Default, Deserialize)]
 pub struct PlatformGlobal {
-    #[serde(rename = "twitter.com")]
-    pub twitter_com: Option<PlatformGlobalTwitterCom>,
+    #[serde(rename = "Twitter")]
+    pub twitter: Option<PlatformGlobalTwitter>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct PlatformGlobalTwitterCom {
+pub struct PlatformGlobalTwitter {
     pub nitter_host: String,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct SubscriptionRaw {
-    pub platform: Platform,
+    pub platform: SourcePlatform,
     #[serde(default, with = "humantime_serde")]
     pub interval: Option<Duration>,
     #[serde(rename = "notify")]
@@ -96,64 +96,64 @@ pub struct SubscriptionRaw {
 
 #[derive(Debug, PartialEq)]
 pub struct SubscriptionRef<'a> {
-    pub platform: &'a Platform,
+    pub platform: &'a SourcePlatform,
     pub interval: Option<Duration>,
     pub notify: Vec<Notify>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(tag = "url")]
+#[serde(tag = "name")]
 #[allow(clippy::enum_variant_names)]
-pub enum Platform {
-    #[serde(rename = "live.bilibili.com")]
-    LiveBilibiliCom(PlatformLiveBilibiliCom),
-    #[serde(rename = "space.bilibili.com")]
-    SpaceBilibiliCom(PlatformSpaceBilibiliCom),
-    #[serde(rename = "twitter.com")]
-    TwitterCom(PlatformTwitterCom),
+pub enum SourcePlatform {
+    #[serde(rename = "bilibili.live")]
+    BilibiliLive(SourcePlatformBilibiliLive),
+    #[serde(rename = "bilibili.space")]
+    BilibiliSpace(SourcePlatformBilibiliSpace),
+    #[serde(rename = "Twitter")]
+    Twitter(SourcePlatformTwitter),
     // Yea! PRs for supports of more platforms are welcome!
 }
 
-impl fmt::Display for Platform {
+impl fmt::Display for SourcePlatform {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Platform::LiveBilibiliCom(p) => write!(f, "{p}"),
-            Platform::SpaceBilibiliCom(p) => write!(f, "{p}"),
-            Platform::TwitterCom(p) => write!(f, "{p}"),
+            SourcePlatform::BilibiliLive(p) => write!(f, "{p}"),
+            SourcePlatform::BilibiliSpace(p) => write!(f, "{p}"),
+            SourcePlatform::Twitter(p) => write!(f, "{p}"),
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct PlatformLiveBilibiliCom {
+pub struct SourcePlatformBilibiliLive {
     pub uid: u64,
 }
 
-impl fmt::Display for PlatformLiveBilibiliCom {
+impl fmt::Display for SourcePlatformBilibiliLive {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "live.bilibili.com:{}", self.uid)
+        write!(f, "bilibili.live:{}", self.uid)
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct PlatformSpaceBilibiliCom {
+pub struct SourcePlatformBilibiliSpace {
     pub uid: u64,
 }
 
-impl fmt::Display for PlatformSpaceBilibiliCom {
+impl fmt::Display for SourcePlatformBilibiliSpace {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "space.bilibili.com:{}", self.uid)
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct PlatformTwitterCom {
+pub struct SourcePlatformTwitter {
     pub username: String,
 }
 
-impl fmt::Display for PlatformTwitterCom {
+impl fmt::Display for SourcePlatformTwitter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "twitter.com:{}", self.username)
+        write!(f, "Twitter:{}", self.username)
     }
 }
 
@@ -334,13 +334,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deser_config() {
+    fn deser() {
         assert_eq!(
             Config::from_str(
                 r#"
 interval = '1min'
 
-[platform."twitter.com"]
+[platform."Twitter"]
 nitter_host = "https://nitter.example.com/"
 
 [notify]
@@ -348,16 +348,16 @@ meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 woof = { platform = "Telegram", id = 5678, thread_id = 900, token = "yyy" }
 
 [[subscription.meow]]
-platform = { url = "live.bilibili.com", uid = 123456 }
+platform = { name = "bilibili.live", uid = 123456 }
 interval = '30s'
 notify = ["meow"]
 
 [[subscription.meow]]
-platform = { url = "twitter.com", username = "meowww" }
+platform = { name = "Twitter", username = "meowww" }
 notify = ["meow", "woof"]
 
 [[subscription.meow]]
-platform = { url = "twitter.com", username = "meowww2" }
+platform = { name = "Twitter", username = "meowww2" }
 notify = ["meow", "woof", { ref = "woof", id = 123 }]
                 "#,
             )
@@ -365,7 +365,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
             Config {
                 interval: Duration::from_secs(60), // 1min
                 platform: Some(PlatformGlobal {
-                    twitter_com: Some(PlatformGlobalTwitterCom {
+                    twitter: Some(PlatformGlobalTwitter {
                         nitter_host: "https://nitter.example.com/".into()
                     })
                 }),
@@ -391,14 +391,14 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                     "meow".into(),
                     vec![
                         SubscriptionRaw {
-                            platform: Platform::LiveBilibiliCom(PlatformLiveBilibiliCom {
+                            platform: SourcePlatform::BilibiliLive(SourcePlatformBilibiliLive {
                                 uid: 123456
                             }),
                             interval: Some(Duration::from_secs(30)),
                             notify_ref: vec![NotifyRef::Direct("meow".into())],
                         },
                         SubscriptionRaw {
-                            platform: Platform::TwitterCom(PlatformTwitterCom {
+                            platform: SourcePlatform::Twitter(SourcePlatformTwitter {
                                 username: "meowww".into()
                             }),
                             interval: None,
@@ -408,7 +408,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                             ],
                         },
                         SubscriptionRaw {
-                            platform: Platform::TwitterCom(PlatformTwitterCom {
+                            platform: SourcePlatform::Twitter(SourcePlatformTwitter {
                                 username: "meowww2".into()
                             }),
                             interval: None,
@@ -437,7 +437,7 @@ interval = '1min'
 meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 
 [[subscription.meow]]
-platform = { url = "live.bilibili.com", uid = 123456 }
+platform = { name = "bilibili.live", uid = 123456 }
 notify = ["meow"]
                 "#
         )
@@ -448,7 +448,7 @@ notify = ["meow"]
 interval = '1min'
 
 [[subscription.meow]]
-platform = { url = "live.bilibili.com", uid = 123456 }
+platform = { name = "bilibili.live", uid = 123456 }
 notify = ["meow"]
                 "#
         )
@@ -464,7 +464,7 @@ interval = '1min'
 meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 
 [[subscription.meow]]
-platform = { url = "live.bilibili.com", uid = 123456 }
+platform = { name = "bilibili.live", uid = 123456 }
 notify = ["meow", "woof"]
                 "#
         )
@@ -474,7 +474,7 @@ notify = ["meow", "woof"]
     }
 
     #[test]
-    fn config_override() {
+    fn option_override() {
         let config = Config::from_str(
             r#"
 interval = '1min'
@@ -484,7 +484,7 @@ meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 woof = { platform = "Telegram", id = 5678, thread_id = 456, token = "yyy" }
 
 [[subscription.meow]]
-platform = { url = "live.bilibili.com", uid = 123456 }
+platform = { name = "bilibili.live", uid = 123456 }
 notify = ["meow", { ref = "woof", thread_id = 114 }]
                 "#,
         )
@@ -497,7 +497,9 @@ notify = ["meow", { ref = "woof", thread_id = 114 }]
             vec![(
                 "meow".into(),
                 SubscriptionRef {
-                    platform: &Platform::LiveBilibiliCom(PlatformLiveBilibiliCom { uid: 123456 }),
+                    platform: &SourcePlatform::BilibiliLive(SourcePlatformBilibiliLive {
+                        uid: 123456
+                    }),
                     interval: None,
                     notify: vec![
                         Notify::Telegram(NotifyTelegram {

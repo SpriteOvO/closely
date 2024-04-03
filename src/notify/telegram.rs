@@ -6,10 +6,10 @@ use serde_json::{self as json, json};
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
 
-use super::Notifier;
+use super::NotifierTrait;
 use crate::{
     config,
-    platform::{
+    source::{
         LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, RepostFrom,
         StatusSource,
     },
@@ -36,12 +36,12 @@ fn telegram_api(token: impl AsRef<str>, method: impl AsRef<str>) -> String {
     )
 }
 
-pub struct TelegramNotifier {
+pub struct Notifier {
     params: config::NotifyTelegram,
     last_live_message: Mutex<Option<SentMessage>>,
 }
 
-impl Notifier for TelegramNotifier {
+impl NotifierTrait for Notifier {
     fn notify<'a>(
         &'a self,
         notification: &'a Notification<'_>,
@@ -50,7 +50,7 @@ impl Notifier for TelegramNotifier {
     }
 }
 
-impl TelegramNotifier {
+impl Notifier {
     pub fn new(params: config::NotifyTelegram) -> Self {
         Self {
             params,

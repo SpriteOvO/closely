@@ -7,14 +7,14 @@ use reqwest::header::{HeaderValue, ACCEPT_LANGUAGE};
 use scraper::{Html, Selector};
 use spdlog::prelude::*;
 
-use super::{Fetcher, RepostFrom, StatusSourceUser, User};
+use super::{FetcherTrait, RepostFrom, StatusSourceUser, User};
 use crate::{
-    config::{Config, PlatformTwitterCom},
-    platform::{
-        PlatformName, Post, PostAttachment, PostAttachmentImage, Posts, Status, StatusKind,
+    config::{Config, SourcePlatformTwitter},
+    prop,
+    source::{
+        Post, PostAttachment, PostAttachmentImage, Posts, SourcePlatformName, Status, StatusKind,
         StatusSource,
     },
-    prop,
 };
 
 #[derive(Debug)]
@@ -86,29 +86,29 @@ struct Video {
     preview_image_url: IncompleteUrl<NitterNet>,
 }
 
-pub struct TwitterComFetcher {
-    params: PlatformTwitterCom,
+pub struct Fetcher {
+    params: SourcePlatformTwitter,
     nitter_host: String,
 }
 
-impl Fetcher for TwitterComFetcher {
+impl FetcherTrait for Fetcher {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
         Box::pin(self.fetch_status_impl())
     }
 }
 
-impl fmt::Display for TwitterComFetcher {
+impl fmt::Display for Fetcher {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.params)
     }
 }
 
-impl TwitterComFetcher {
-    pub fn new(params: PlatformTwitterCom) -> Self {
+impl Fetcher {
+    pub fn new(params: SourcePlatformTwitter) -> Self {
         Self {
             params,
             nitter_host: Config::platform_global()
-                .twitter_com
+                .twitter
                 .as_ref()
                 .map(|t| t.nitter_host.as_str())
                 .unwrap_or("https://nitter.net")
@@ -157,7 +157,7 @@ impl TwitterComFetcher {
         Ok(Status {
             kind: StatusKind::Posts(Posts(posts)),
             source: StatusSource {
-                platform_name: PlatformName::TwitterCom,
+                platform_name: SourcePlatformName::Twitter,
                 user: Some(StatusSourceUser {
                     display_name: status.fullname,
                     profile_url: format!("https://twitter.com/{}", self.params.username),
@@ -238,7 +238,7 @@ fn parse_nitter_html(html: impl AsRef<str>) -> anyhow::Result<TwitterStatus> {
                     .map(|url| Image { url: url.into() })
                     .map(Attachment::Image)
                     .or_else(|| {
-                        error!("[twitter.com] '{tweet_link}' has image without href");
+                        error!("[Twitter] '{tweet_link}' has image without href");
                         None
                     })
             });
@@ -284,7 +284,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_twitter_status() {
+    async fn status() {
         let year_2024 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
         let status = fetch_twitter_status("https://nitter.privacydev.net", "nasa")
             .await

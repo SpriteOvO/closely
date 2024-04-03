@@ -15,7 +15,7 @@ Subscribe to updates from people you follow, from any platform to any platform.
 - Live streaming
   - [bilibili 直播 (live.bilibili.com)](https://live.bilibili.com/)
 
-### Notification
+### Notification target
 
 - [Telegram](https://telegram.org/)
 
@@ -39,16 +39,16 @@ Suzume = { platform = "Telegram", id = 1145141919, token = "1234567890:AbCdEfGhi
 
 [[subscription.Suzume]] # define a subscription with name `Suzume`
 # specify the platform and parameters
-platform = { url = "live.bilibili.com", uid = 6610851 }
+platform = { name = "bilibili.live", uid = 6610851 }
 # reference to notify defined above, notifications will be pushed when the status changed
 notify = ["Suzume"]
 
 [[subscription.Suzume]]
-platform = { url = "twitter.com", username = "suzumiyasuzume" }
+platform = { name = "Twitter", username = "suzumiyasuzume" }
 notify = ["Suzume", "Personal"]
 
 [[subscription.CookieBacon]] # define a subscription with name `CookieBacon`
-platform = { url = "live.bilibili.com", uid = 14172231 }
+platform = { name = "bilibili.live", uid = 14172231 }
 interval = '30s' # optional, override the global interval value for this individual subscription
 # use `Personal` as the notification target, but with the parameter `thread_id = 514` overridden
 notify = [ { ref = "Personal", thread_id = 514 } ]

@@ -1,6 +1,6 @@
-pub(crate) mod live_bilibili_com;
-mod space_bilibili_com;
-mod twitter_com;
+mod bilibili_live;
+mod bilibili_space;
+mod twitter;
 
 use std::{
     fmt::{self, Display},
@@ -8,33 +8,29 @@ use std::{
     pin::Pin,
 };
 
-use live_bilibili_com::LiveBilibiliComFetcher;
-use space_bilibili_com::SpaceBilibiliComFetcher;
-use twitter_com::TwitterComFetcher;
-
-use crate::config::Platform;
+use crate::config::SourcePlatform;
 
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
-pub enum PlatformName {
-    LiveBilibiliCom,
-    SpaceBilibiliCom,
-    TwitterCom,
+pub enum SourcePlatformName {
+    BilibiliLive,
+    BilibiliSpace,
+    Twitter,
 }
 
-impl fmt::Display for PlatformName {
+impl fmt::Display for SourcePlatformName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::LiveBilibiliCom => write!(f, "bilibili 直播"),
-            Self::SpaceBilibiliCom => write!(f, "bilibili 动态"),
-            Self::TwitterCom => write!(f, "Twitter"),
+            Self::BilibiliLive => write!(f, "bilibili 直播"),
+            Self::BilibiliSpace => write!(f, "bilibili 动态"),
+            Self::Twitter => write!(f, "Twitter"),
         }
     }
 }
 
 #[derive(Debug)]
 pub struct StatusSource {
-    pub platform_name: PlatformName,
+    pub platform_name: SourcePlatformName,
     pub user: Option<StatusSourceUser>,
 }
 
@@ -214,7 +210,7 @@ impl<'a> fmt::Display for NotificationKind<'a> {
     }
 }
 
-pub trait Fetcher: Display + Send + Sync {
+pub trait FetcherTrait: Display + Send + Sync {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>>;
 
     // "post" means "after" here
@@ -242,11 +238,11 @@ pub trait Fetcher: Display + Send + Sync {
     }
 }
 
-pub fn fetcher(platform: &Platform) -> Box<dyn Fetcher> {
+pub fn fetcher(platform: &SourcePlatform) -> Box<dyn FetcherTrait> {
     match platform {
-        Platform::LiveBilibiliCom(p) => Box::new(LiveBilibiliComFetcher::new(p.clone())),
-        Platform::SpaceBilibiliCom(p) => Box::new(SpaceBilibiliComFetcher::new(p.clone())),
-        Platform::TwitterCom(p) => Box::new(TwitterComFetcher::new(p.clone())),
+        SourcePlatform::BilibiliLive(p) => Box::new(bilibili_live::Fetcher::new(p.clone())),
+        SourcePlatform::BilibiliSpace(p) => Box::new(bilibili_space::Fetcher::new(p.clone())),
+        SourcePlatform::Twitter(p) => Box::new(twitter::Fetcher::new(p.clone())),
     }
 }
 
@@ -271,7 +267,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_vec_diff() {
+    fn vec_diff_valid() {
         assert_eq!(
             vec_diff(&[1, 2, 3], &[4, 2, 3, 4]).collect::<Vec<_>>(),
             [&1]
