@@ -36,6 +36,11 @@ fn telegram_api(token: impl AsRef<str>, method: impl AsRef<str>) -> String {
     )
 }
 
+enum Entity<'a> {
+    Link(&'a str),
+    Quote,
+}
+
 pub struct Notifier {
     params: config::NotifyTelegram,
     last_live_message: Mutex<Option<SentMessage>>,
@@ -241,30 +246,34 @@ impl Notifier {
     ) -> anyhow::Result<()> {
         let mut content = String::new();
 
-        let mut links = Vec::<(Range<usize>, &str)>::new();
+        let mut entities = Vec::<(Range<usize>, Entity)>::new();
 
         write!(content, "[{}] ", source.platform_name)?;
 
         match &post.repost_from {
             Some(RepostFrom::Recursion(repost_from)) => {
                 if !post.content.is_empty() {
-                    write!(content, "💬 {}\n\n", post.content)?;
+                    writeln!(content, "💬 {}", post.content)?;
                 }
 
+                let quote_begin = content.encode_utf16().count();
                 content.write_str("🔁 ")?;
 
                 let nickname_begin = content.encode_utf16().count();
                 content.write_str(&repost_from.user.nickname)?;
-                links.push((
+                entities.push((
                     nickname_begin..content.encode_utf16().count(),
-                    // In order for Telegram to display more relevant information about the post,
-                    // we don't use `profile_url` here
-                    //
-                    // &repost_from.user.profile_url,
-                    &repost_from.url,
+                    Entity::Link(
+                        // In order for Telegram to display more relevant information about the
+                        // post, we don't use `profile_url` here
+                        //
+                        // &repost_from.user.profile_url,
+                        &repost_from.url,
+                    ),
                 ));
 
                 write!(content, ": {}", repost_from.content)?;
+                entities.push((quote_begin..content.encode_utf16().count(), Entity::Quote));
             }
             Some(RepostFrom::Legacy {
                 is_repost,
@@ -291,17 +300,22 @@ impl Notifier {
             }
         );
 
-        fn links_to_entities(links: Vec<(Range<usize>, &str)>) -> json::Value {
+        fn entities_to_entities(entities: Vec<(Range<usize>, Entity)>) -> json::Value {
             json::Value::Array(
-                links
+                entities
                     .into_iter()
-                    .map(|(range, url)| {
-                        json!({
+                    .map(|(range, entity)| match entity {
+                        Entity::Link(url) => json!({
                             "type": "text_link",
                             "offset": range.start,
                             "length": range.end - range.start,
                             "url": url,
-                        })
+                        }),
+                        Entity::Quote => json!({
+                            "type": "blockquote",
+                            "offset": range.start,
+                            "length": range.end - range.start,
+                        }),
                     })
                     .collect(),
             )
@@ -327,7 +341,7 @@ impl Notifier {
 
                 if num_attachments == 0 {
                     body.insert("text".into(), json!(content));
-                    body.insert("entities".into(), links_to_entities(links));
+                    body.insert("entities".into(), entities_to_entities(entities));
                     "sendMessage"
                 } else {
                     let attachment = attachments.first().unwrap();
@@ -336,14 +350,14 @@ impl Notifier {
                         PostAttachment::Image(image) => {
                             body.insert("photo".into(), json!(image.media_url));
                             body.insert("caption".into(), json!(content));
-                            body.insert("caption_entities".into(), links_to_entities(links));
+                            body.insert("caption_entities".into(), entities_to_entities(entities));
                             // TODO: `sendAnimation` for single GIF?
                             "sendPhoto"
                         }
                         PostAttachment::Video(video) => {
                             body.insert("video".into(), json!(video.media_url));
                             body.insert("caption".into(), json!(content));
-                            body.insert("caption_entities".into(), links_to_entities(links));
+                            body.insert("caption_entities".into(), entities_to_entities(entities));
                             "sendVideo"
                         }
                     }
@@ -355,7 +369,10 @@ impl Notifier {
                 content.write_str("\n\n")?;
                 let button_text_begin = content.encode_utf16().count();
                 content.write_str(">> View Post <<")?;
-                links.push((button_text_begin..content.encode_utf16().count(), &post.url));
+                entities.push((
+                    button_text_begin..content.encode_utf16().count(),
+                    Entity::Link(&post.url),
+                ));
 
                 let mut media = attachments
                     .iter()
@@ -380,7 +397,7 @@ impl Notifier {
 
                 let first_media = media.first_mut().unwrap().as_object_mut().unwrap();
                 first_media.insert("caption".into(), json!(content));
-                first_media.insert("caption_entities".into(), links_to_entities(links));
+                first_media.insert("caption_entities".into(), entities_to_entities(entities));
 
                 body.insert("media".into(), json!(media));
 
