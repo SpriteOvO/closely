@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 
 use super::NotifierTrait;
 use crate::{
-    config,
+    config::{self, Config},
     source::{
         LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, RepostFrom,
         StatusSource,
@@ -63,9 +63,12 @@ impl Notifier {
         }
     }
 
-    fn token(&self) -> anyhow::Result<Cow<'_, str>> {
+    fn token(&self) -> anyhow::Result<Cow<str>> {
         self.params
-            .token()
+            .token
+            .as_ref()
+            .unwrap_or_else(|| &Config::platform_global().telegram.as_ref().unwrap().token)
+            .get()
             .map_err(|err| anyhow!("failed to read token for telegram: {err}"))
     }
 

@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, env, fmt, time::Duration};
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, ensure};
 use once_cell::sync::OnceCell;
 use serde::{de::DeserializeOwned, Deserialize};
 
@@ -59,6 +59,11 @@ impl Config {
     }
 
     fn validate(&self) -> anyhow::Result<()> {
+        // Validate platform_global
+        if let Some(platform) = &self.platform {
+            platform.validate()?;
+        }
+
         // Validate notify ref
         self.subscription
             .values()
@@ -68,7 +73,8 @@ impl Config {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Validate notify_map
-        self.notify_map.validate()?;
+        self.notify_map
+            .validate(self.platform.as_ref().unwrap_or(&PlatformGlobal::default()))?;
 
         Ok(())
     }
@@ -76,8 +82,25 @@ impl Config {
 
 #[derive(Clone, Debug, PartialEq, Default, Deserialize)]
 pub struct PlatformGlobal {
+    #[serde(rename = "Telegram")]
+    pub telegram: Option<PlatformGlobalTelegram>,
     #[serde(rename = "Twitter")]
     pub twitter: Option<PlatformGlobalTwitter>,
+}
+
+impl PlatformGlobal {
+    fn validate(&self) -> anyhow::Result<()> {
+        if let Some(telegram) = &self.telegram {
+            telegram.token.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct PlatformGlobalTelegram {
+    #[serde(flatten)]
+    pub token: TelegramToken,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -196,8 +219,10 @@ impl NotifyMap {
         }
     }
 
-    fn validate(&self) -> anyhow::Result<()> {
-        self.0.values().try_for_each(|notify| notify.validate())
+    fn validate(&self, global: &PlatformGlobal) -> anyhow::Result<()> {
+        self.0
+            .values()
+            .try_for_each(|notify| notify.validate(global))
     }
 }
 
@@ -216,9 +241,18 @@ pub enum Notify {
 }
 
 impl Notify {
-    fn validate(&self) -> anyhow::Result<()> {
+    fn validate(&self, global: &PlatformGlobal) -> anyhow::Result<()> {
         match self {
-            Notify::Telegram(v) => v.validate().map_err(|err| anyhow!("[Telegram] {err}")),
+            Notify::Telegram(v) => match &v.token {
+                Some(token) => token.validate().map_err(|err| anyhow!("[Telegram] {err}")),
+                None => {
+                    ensure!(
+                        global.telegram.is_some(),
+                        "[Telegram] both token in global and notify are missing"
+                    );
+                    Ok(())
+                }
+            },
         }
     }
 
@@ -249,7 +283,7 @@ pub struct NotifyTelegram {
     pub chat: NotifyTelegramChat,
     pub thread_id: Option<i64>,
     #[serde(flatten)]
-    token: NotifyTelegramToken,
+    pub token: Option<TelegramToken>,
 }
 
 impl fmt::Display for NotifyTelegram {
@@ -262,25 +296,6 @@ impl fmt::Display for NotifyTelegram {
     }
 }
 
-impl NotifyTelegram {
-    pub fn token(&self) -> anyhow::Result<Cow<str>> {
-        match &self.token {
-            NotifyTelegramToken::Token(token) => Ok(Cow::Borrowed(token)),
-            NotifyTelegramToken::TokenEnv(token_env) => Ok(Cow::Owned(env::var(token_env)?)),
-        }
-    }
-
-    fn validate(&self) -> anyhow::Result<()> {
-        match &self.token {
-            NotifyTelegramToken::Token(_) => Ok(()),
-            NotifyTelegramToken::TokenEnv(token_env) => match env::var(token_env) {
-                Ok(_) => Ok(()),
-                Err(err) => bail!("{err} ({token_env})"),
-            },
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NotifyTelegramOverride {
@@ -288,7 +303,7 @@ pub struct NotifyTelegramOverride {
     pub chat: Option<NotifyTelegramChat>,
     pub thread_id: Option<i64>,
     #[serde(flatten)]
-    token: Option<NotifyTelegramToken>,
+    token: Option<TelegramToken>,
 }
 
 impl Overridable for NotifyTelegram {
@@ -301,7 +316,7 @@ impl Overridable for NotifyTelegram {
         Ok(Self {
             chat: new.chat.unwrap_or(self.chat),
             thread_id: new.thread_id.or(self.thread_id),
-            token: new.token.unwrap_or(self.token),
+            token: new.token.or(self.token),
         })
     }
 }
@@ -324,9 +339,28 @@ impl fmt::Display for NotifyTelegramChat {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum NotifyTelegramToken {
+pub enum TelegramToken {
     Token(String),
     TokenEnv(String),
+}
+
+impl TelegramToken {
+    pub fn get(&self) -> anyhow::Result<Cow<str>> {
+        match &self {
+            Self::Token(token) => Ok(Cow::Borrowed(token)),
+            Self::TokenEnv(token_env) => Ok(Cow::Owned(env::var(token_env)?)),
+        }
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        match &self {
+            Self::Token(_) => Ok(()),
+            Self::TokenEnv(token_env) => match env::var(token_env) {
+                Ok(_) => Ok(()),
+                Err(err) => bail!("{err} ({token_env})"),
+            },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -340,12 +374,15 @@ mod tests {
                 r#"
 interval = '1min'
 
+[platform."Telegram"]
+token = "ttt"
+
 [platform."Twitter"]
 nitter_host = "https://nitter.example.com/"
 
 [notify]
 meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
-woof = { platform = "Telegram", id = 5678, thread_id = 900, token = "yyy" }
+woof = { platform = "Telegram", id = 5678, thread_id = 900 }
 
 [[subscription.meow]]
 platform = { name = "bilibili.live", uid = 123456 }
@@ -365,6 +402,9 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
             Config {
                 interval: Duration::from_secs(60), // 1min
                 platform: Some(PlatformGlobal {
+                    telegram: Some(PlatformGlobalTelegram {
+                        token: TelegramToken::Token("ttt".into())
+                    }),
                     twitter: Some(PlatformGlobalTwitter {
                         nitter_host: "https://nitter.example.com/".into()
                     })
@@ -375,7 +415,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                         Notify::Telegram(NotifyTelegram {
                             chat: NotifyTelegramChat::Id(1234),
                             thread_id: Some(123),
-                            token: NotifyTelegramToken::Token("xxx".into()),
+                            token: Some(TelegramToken::Token("xxx".into())),
                         })
                     ),
                     (
@@ -383,7 +423,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                         Notify::Telegram(NotifyTelegram {
                             chat: NotifyTelegramChat::Id(5678),
                             thread_id: Some(900),
-                            token: NotifyTelegramToken::Token("yyy".into()),
+                            token: None,
                         })
                     )
                 ])),
@@ -471,6 +511,22 @@ notify = ["meow", "woof"]
         .unwrap_err()
         .to_string()
         .ends_with("reference of notify not found 'woof'"));
+
+        assert!(Config::from_str(
+            r#"
+interval = '1min'
+
+[notify]
+meow = { platform = "Telegram", id = 1234, thread_id = 123 }
+
+[[subscription.meow]]
+platform = { name = "bilibili.live", uid = 123456 }
+notify = ["meow"]
+                "#
+        )
+        .unwrap_err()
+        .to_string()
+        .ends_with("both token in global and notify are missing"));
     }
 
     #[test]
@@ -505,12 +561,12 @@ notify = ["meow", { ref = "woof", thread_id = 114 }]
                         Notify::Telegram(NotifyTelegram {
                             chat: NotifyTelegramChat::Id(1234),
                             thread_id: Some(123),
-                            token: NotifyTelegramToken::Token("xxx".into()),
+                            token: Some(TelegramToken::Token("xxx".into())),
                         }),
                         Notify::Telegram(NotifyTelegram {
                             chat: NotifyTelegramChat::Id(5678),
                             thread_id: Some(114),
-                            token: NotifyTelegramToken::Token("yyy".into()),
+                            token: Some(TelegramToken::Token("yyy".into())),
                         })
                     ],
                 }
