@@ -36,6 +36,13 @@ fn telegram_api(token: impl AsRef<str>, method: impl AsRef<str>) -> String {
     )
 }
 
+fn telegram_chat_json(chat: &config::TelegramChat) -> json::Value {
+    match chat {
+        config::TelegramChat::Id(id) => json::Value::Number((*id).into()),
+        config::TelegramChat::Username(username) => json::Value::String(format!("@{username}")),
+    }
+}
+
 enum Entity<'a> {
     Link(&'a str),
     Quote,
@@ -76,8 +83,12 @@ impl Notifier {
         info!("notifying to '{}'", self.params);
 
         match &notification.kind {
-            NotificationKind::Live(live_status) => {
+            NotificationKind::LiveOnline(live_status) => {
                 self.notify_live(live_status, notification.source).await
+            }
+            NotificationKind::LiveTitle(live_status, old_title) => {
+                self.notify_live_title(live_status, old_title, notification.source)
+                    .await
             }
             NotificationKind::Posts(posts) => self.notify_posts(posts, notification.source).await,
         }
@@ -88,6 +99,11 @@ impl Notifier {
         live_status: &LiveStatus,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
+        if !self.params.notifications.live_online {
+            info!("live_online notification is disabled, skip notifying");
+            return Ok(());
+        }
+
         if live_status.online {
             self.notify_live_online(live_status, source).await
         } else {
@@ -126,10 +142,7 @@ impl Notifier {
 
         let body = json!(
             {
-                "chat_id": match &self.params.chat {
-                    config::NotifyTelegramChat::Id(id) => json::Value::Number((*id).into()),
-                    config::NotifyTelegramChat::Username(username) => json::Value::String(format!("@{username}")),
-                },
+                "chat_id": telegram_chat_json(&self.params.chat),
                 "message_thread_id": self.params.thread_id,
                 "photo": live_status.cover_image_url,
                 "caption": caption,
@@ -182,10 +195,7 @@ impl Notifier {
 
             let body = json!(
                 {
-                    "chat_id": match &self.params.chat {
-                        config::NotifyTelegramChat::Id(id) => json::Value::Number((*id).into()),
-                        config::NotifyTelegramChat::Username(username) => json::Value::String(format!("@{username}")),
-                    },
+                    "chat_id": telegram_chat_json(&self.params.chat),
                     "message_id": last_live_message.id,
                     "caption": caption,
                     "caption_entities": caption_entities
@@ -220,11 +230,76 @@ impl Notifier {
         Ok(())
     }
 
+    async fn notify_live_title(
+        &self,
+        live_status: &LiveStatus,
+        old_title: &str,
+        source: &StatusSource,
+    ) -> anyhow::Result<()> {
+        if !self.params.notifications.live_title {
+            info!("live_title notification is disabled, skip notifying");
+            return Ok(());
+        }
+        let token = self.token()?;
+
+        let text = format!(
+            "[{}] ✏️ {} ⬅️ {old_title}",
+            source.platform_name, live_status.title
+        );
+        let body = json!(
+            {
+                "chat_id": telegram_chat_json(&self.params.chat),
+                "message_thread_id": self.params.thread_id,
+                "text": text,
+                "entities": vec![json!({
+                    "type": "text_link",
+                    "offset": 0,
+                    "length": text.encode_utf16().count(),
+                    "url": live_status.live_url
+                })],
+                "link_preview_options": { "is_disabled": true },
+                // "disable_notification": true, // TODO: Make it configurable
+            }
+        );
+        let resp = reqwest::Client::new()
+            .post(telegram_api(token, "sendMessage"))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|err| anyhow!("failed to send request for Telegram: {err}"))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            bail!(
+                "response from Telegram status is not success. resp: {}, body: {}",
+                resp.text().await.unwrap_or_else(|_| "*no text*".into()),
+                body
+            );
+        }
+
+        let text = resp
+            .text()
+            .await
+            .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
+        let resp: TelegramResponse<TelegramResultMessage> = json::from_str(&text)
+            .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
+        if !resp.ok {
+            bail!("response from Telegram contains error, response '{text}'");
+        }
+
+        Ok(())
+    }
+
     async fn notify_posts(
         &self,
         posts: &PostsRef<'_>,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
+        if !self.params.notifications.post {
+            info!("post notification is disabled, skip notifying");
+            return Ok(());
+        }
+
         let token = self.token()?;
 
         let mut errors = vec![];
@@ -294,10 +369,7 @@ impl Notifier {
 
         let mut body = json!(
             {
-                "chat_id": match &self.params.chat {
-                    config::NotifyTelegramChat::Id(id) => json::Value::Number((*id).into()),
-                    config::NotifyTelegramChat::Username(username) => json::Value::String(format!("@{username}")),
-                },
+                "chat_id": telegram_chat_json(&self.params.chat),
                 "message_thread_id": self.params.thread_id,
                 "disable_notification": true, // TODO: Make it configurable
             }

@@ -67,18 +67,17 @@ impl Task {
             self.fetcher
         );
 
-        if let Some(notification) = self
-            .fetcher
-            .post_filter_opt(status.needs_notify(self.last_status.as_ref()))
-            .await
-        {
-            info!(
-                "'{}' needs to send a notification for '{}': '{notification}'",
-                self.name, self.fetcher
-            );
+        let notifications = status.generate_notifications(self.last_status.as_ref());
+        for notification in notifications {
+            if let Some(notification) = self.fetcher.post_filter(notification).await {
+                info!(
+                    "'{}' needs to send a notification for '{}': '{notification}'",
+                    self.name, self.fetcher
+                );
 
-            for notifier in &self.notifiers {
-                notify::notify(&**notifier, &notification).await;
+                for notifier in &self.notifiers {
+                    notify::notify(&**notifier, &notification).await;
+                }
             }
         }
         self.last_status = Some(status);

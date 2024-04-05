@@ -47,27 +47,40 @@ pub struct Status {
 }
 
 impl Status {
-    pub fn needs_notify<'a>(&'a self, last_status: Option<&'a Status>) -> Option<Notification<'a>> {
+    pub fn generate_notifications<'a>(
+        &'a self,
+        last_status: Option<&'a Status>,
+    ) -> Vec<Notification<'a>> {
         match (&self.kind, last_status.map(|s| &s.kind)) {
             (StatusKind::Live(live_status), Some(StatusKind::Live(last_live_status))) => {
-                (live_status.online != last_live_status.online).then_some(Notification {
-                    kind: NotificationKind::Live(live_status),
-                    source: &self.source,
-                })
+                let mut notifications = vec![];
+                if live_status.title != last_live_status.title {
+                    notifications.push(Notification {
+                        kind: NotificationKind::LiveTitle(live_status, &last_live_status.title),
+                        source: &self.source,
+                    })
+                }
+                if live_status.online != last_live_status.online {
+                    notifications.push(Notification {
+                        kind: NotificationKind::LiveOnline(live_status),
+                        source: &self.source,
+                    })
+                }
+                notifications
             }
             (StatusKind::Posts(posts), Some(StatusKind::Posts(last_posts))) => {
                 let new_posts =
                     vec_diff_by(&posts.0, &last_posts.0, |l, r| l.url == r.url).collect::<Vec<_>>();
                 if !new_posts.is_empty() {
-                    Some(Notification {
+                    vec![Notification {
                         kind: NotificationKind::Posts(PostsRef(new_posts)),
                         source: &self.source,
-                    })
+                    }]
                 } else {
-                    None
+                    vec![]
                 }
             }
-            (_, None) => None,
+            (_, None) => vec![],
             (_, _) => panic!("states mismatch"),
         }
     }
@@ -197,14 +210,18 @@ impl<'a> fmt::Display for Notification<'a> {
 
 #[derive(Debug)]
 pub enum NotificationKind<'a> {
-    Live(&'a LiveStatus),
+    LiveOnline(&'a LiveStatus),
+    LiveTitle(&'a LiveStatus, &'a str /* old title */),
     Posts(PostsRef<'a>),
 }
 
 impl<'a> fmt::Display for NotificationKind<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Live(live_status) => write!(f, "{}", live_status),
+            Self::LiveOnline(live_status) => write!(f, "{live_status}"),
+            Self::LiveTitle(live_status, old_title) => {
+                write!(f, "{live_status}, old title '{old_title}'")
+            }
             Self::Posts(posts) => write!(f, "{}", posts),
         }
     }
@@ -212,22 +229,6 @@ impl<'a> fmt::Display for NotificationKind<'a> {
 
 pub trait FetcherTrait: Display + Send + Sync {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>>;
-
-    // "post" means "after" here
-    fn post_filter_opt<'a>(
-        &'a self,
-        notification: Option<Notification<'a>>,
-    ) -> Pin<Box<dyn Future<Output = Option<Notification<'a>>> + Send + '_>>
-    where
-        Self: Sync,
-    {
-        Box::pin(async move {
-            match notification {
-                Some(n) => self.post_filter(n).await,
-                None => None,
-            }
-        })
-    }
 
     // "post" means "after" here
     fn post_filter<'a>(

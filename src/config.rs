@@ -2,7 +2,13 @@ use std::{borrow::Cow, collections::HashMap, env, fmt, time::Duration};
 
 use anyhow::{anyhow, bail, ensure};
 use once_cell::sync::OnceCell;
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{
+    de::{
+        value::{Error as SerdeValueError, MapDeserializer},
+        DeserializeOwned,
+    },
+    Deserialize,
+};
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Config {
@@ -180,6 +186,48 @@ impl fmt::Display for SourcePlatformTwitter {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Notifications {
+    #[serde(default = "default_true")]
+    pub live_online: bool,
+    #[serde(default = "default_false")]
+    pub live_title: bool,
+    #[serde(default = "default_true")]
+    pub post: bool,
+}
+
+impl Default for Notifications {
+    fn default() -> Self {
+        // https://stackoverflow.com/a/77858562
+        Self::deserialize(MapDeserializer::<_, SerdeValueError>::new(
+            std::iter::empty::<((), ())>(),
+        ))
+        .unwrap()
+    }
+}
+
+impl Overridable for Notifications {
+    type Override = NotificationsOverride;
+
+    fn override_into(self, new: Self::Override) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            live_online: new.live_online.unwrap_or(self.live_online),
+            live_title: new.live_title.unwrap_or(self.live_title),
+            post: new.post.unwrap_or(self.post),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct NotificationsOverride {
+    pub live_online: Option<bool>,
+    pub live_title: Option<bool>,
+    pub post: Option<bool>,
+}
+
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum NotifyRef {
@@ -229,7 +277,7 @@ impl NotifyMap {
 trait Overridable {
     type Override: DeserializeOwned;
 
-    fn override_into(self, new: Self::Override) -> anyhow::Result<Self>
+    fn override_into(self, new: Self::Override) -> Self
     where
         Self: Sized;
 }
@@ -263,7 +311,7 @@ impl Notify {
         match self {
             Notify::Telegram(n) => {
                 let new: <NotifyTelegram as Overridable>::Override = new.try_into()?;
-                Ok(Notify::Telegram(n.override_into(new)?))
+                Ok(Notify::Telegram(n.override_into(new)))
             }
         }
     }
@@ -279,8 +327,10 @@ impl fmt::Display for Notify {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct NotifyTelegram {
+    #[serde(default)]
+    pub notifications: Notifications,
     #[serde(flatten)]
-    pub chat: NotifyTelegramChat,
+    pub chat: TelegramChat,
     pub thread_id: Option<i64>,
     #[serde(flatten)]
     pub token: Option<TelegramToken>,
@@ -299,8 +349,9 @@ impl fmt::Display for NotifyTelegram {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NotifyTelegramOverride {
+    pub notifications: Option<NotificationsOverride>,
     #[serde(flatten)]
-    pub chat: Option<NotifyTelegramChat>,
+    pub chat: Option<TelegramChat>,
     pub thread_id: Option<i64>,
     #[serde(flatten)]
     token: Option<TelegramToken>,
@@ -309,30 +360,34 @@ pub struct NotifyTelegramOverride {
 impl Overridable for NotifyTelegram {
     type Override = NotifyTelegramOverride;
 
-    fn override_into(self, new: Self::Override) -> anyhow::Result<Self>
+    fn override_into(self, new: Self::Override) -> Self
     where
         Self: Sized,
     {
-        Ok(Self {
+        Self {
+            notifications: match new.notifications {
+                Some(notifications) => self.notifications.override_into(notifications),
+                None => self.notifications,
+            },
             chat: new.chat.unwrap_or(self.chat),
             thread_id: new.thread_id.or(self.thread_id),
             token: new.token.or(self.token),
-        })
+        }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum NotifyTelegramChat {
+pub enum TelegramChat {
     Id(i64),
     Username(String),
 }
 
-impl fmt::Display for NotifyTelegramChat {
+impl fmt::Display for TelegramChat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NotifyTelegramChat::Id(id) => write!(f, "{}", id),
-            NotifyTelegramChat::Username(username) => write!(f, "@{}", username),
+            TelegramChat::Id(id) => write!(f, "{}", id),
+            TelegramChat::Username(username) => write!(f, "@{}", username),
         }
     }
 }
@@ -363,6 +418,14 @@ impl TelegramToken {
     }
 }
 
+const fn default_true() -> bool {
+    true
+}
+
+const fn default_false() -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,7 +445,7 @@ nitter_host = "https://nitter.example.com/"
 
 [notify]
 meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
-woof = { platform = "Telegram", id = 5678, thread_id = 900 }
+woof = { platform = "Telegram", id = 5678, thread_id = 900, notifications = { post = false } }
 
 [[subscription.meow]]
 platform = { name = "bilibili.live", uid = 123456 }
@@ -413,7 +476,8 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                     (
                         "meow".into(),
                         Notify::Telegram(NotifyTelegram {
-                            chat: NotifyTelegramChat::Id(1234),
+                            notifications: Notifications::default(),
+                            chat: TelegramChat::Id(1234),
                             thread_id: Some(123),
                             token: Some(TelegramToken::Token("xxx".into())),
                         })
@@ -421,7 +485,12 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                     (
                         "woof".into(),
                         Notify::Telegram(NotifyTelegram {
-                            chat: NotifyTelegramChat::Id(5678),
+                            notifications: Notifications {
+                                live_online: true,
+                                live_title: false,
+                                post: false,
+                            },
+                            chat: TelegramChat::Id(5678),
                             thread_id: Some(900),
                             token: None,
                         })
@@ -541,7 +610,7 @@ woof = { platform = "Telegram", id = 5678, thread_id = 456, token = "yyy" }
 
 [[subscription.meow]]
 platform = { name = "bilibili.live", uid = 123456 }
-notify = ["meow", { ref = "woof", thread_id = 114 }]
+notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", notifications = { post = false } }]
                 "#,
         )
         .unwrap();
@@ -559,13 +628,24 @@ notify = ["meow", { ref = "woof", thread_id = 114 }]
                     interval: None,
                     notify: vec![
                         Notify::Telegram(NotifyTelegram {
-                            chat: NotifyTelegramChat::Id(1234),
+                            notifications: Notifications::default(),
+                            chat: TelegramChat::Id(1234),
                             thread_id: Some(123),
                             token: Some(TelegramToken::Token("xxx".into())),
                         }),
                         Notify::Telegram(NotifyTelegram {
-                            chat: NotifyTelegramChat::Id(5678),
+                            notifications: Notifications::default(),
+                            chat: TelegramChat::Id(5678),
                             thread_id: Some(114),
+                            token: Some(TelegramToken::Token("yyy".into())),
+                        }),
+                        Notify::Telegram(NotifyTelegram {
+                            notifications: Notifications {
+                                post: false,
+                                ..Default::default()
+                            },
+                            chat: TelegramChat::Id(5678),
+                            thread_id: Some(456),
                             token: Some(TelegramToken::Token("yyy".into())),
                         })
                     ],
