@@ -9,13 +9,13 @@ use spdlog::prelude::*;
 use tap::prelude::*;
 use tokio::sync::{Mutex, OnceCell};
 
-use super::{
-    bilibili_live::Response, FetcherTrait, Notification, NotificationKind, Post, PostAttachment,
-    PostAttachmentImage, Posts, SourcePlatformName, Status, StatusKind, StatusSource, User,
-};
+use super::Response;
 use crate::{
     config::SourcePlatformBilibiliSpace,
-    source::{PostsRef, RepostFrom},
+    source::{
+        FetcherTrait, Notification, NotificationKind, Post, PostAttachment, PostAttachmentImage,
+        Posts, PostsRef, RepostFrom, SourcePlatformName, Status, StatusKind, StatusSource, User,
+    },
 };
 
 mod data {

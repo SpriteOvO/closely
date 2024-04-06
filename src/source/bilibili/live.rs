@@ -4,22 +4,17 @@ use anyhow::{anyhow, bail};
 use serde::Deserialize;
 use serde_json::{self as json, json};
 
-use super::{
-    FetcherTrait, LiveStatus, SourcePlatformName, Status, StatusKind, StatusSource,
-    StatusSourceUser,
+use super::Response;
+use crate::{
+    config::SourcePlatformBilibiliLive,
+    source::{
+        FetcherTrait, LiveStatus, SourcePlatformName, Status, StatusKind, StatusSource,
+        StatusSourceUser,
+    },
 };
-use crate::config::SourcePlatformBilibiliLive;
 
 const BILIBILI_LIVE_API: &str =
     "https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids";
-
-#[derive(Deserialize)]
-pub(crate) struct Response<T> {
-    pub(crate) code: i32,
-    #[allow(dead_code)]
-    pub(crate) message: String,
-    pub(crate) data: Option<T>,
-}
 
 #[derive(Deserialize)]
 struct ResponseDataRoom {

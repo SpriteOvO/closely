@@ -16,7 +16,7 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-struct TelegramResponse<R = IgnoredAny> {
+struct Response<R = IgnoredAny> {
     ok: bool,
     #[allow(dead_code)]
     description: Option<String>,
@@ -24,7 +24,7 @@ struct TelegramResponse<R = IgnoredAny> {
 }
 
 #[derive(Deserialize)]
-struct TelegramResultMessage {
+struct ResultMessage {
     message_id: i64,
 }
 
@@ -169,7 +169,7 @@ impl Notifier {
             .text()
             .await
             .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
-        let resp: TelegramResponse<TelegramResultMessage> = json::from_str(&text)
+        let resp: Response<ResultMessage> = json::from_str(&text)
             .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
         if !resp.ok {
             bail!("response from Telegram contains error, response '{text}'");
@@ -221,7 +221,7 @@ impl Notifier {
                 .text()
                 .await
                 .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
-            let resp: TelegramResponse<TelegramResultMessage> = json::from_str(&text)
+            let resp: Response<ResultMessage> = json::from_str(&text)
                 .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
             if !resp.ok {
                 bail!("response from Telegram contains error, response '{text}'");
@@ -281,7 +281,7 @@ impl Notifier {
             .text()
             .await
             .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
-        let resp: TelegramResponse<TelegramResultMessage> = json::from_str(&text)
+        let resp: Response<ResultMessage> = json::from_str(&text)
             .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
         if !resp.ok {
             bail!("response from Telegram contains error, response '{text}'");
@@ -500,7 +500,7 @@ impl Notifier {
             .text()
             .await
             .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
-        let resp: TelegramResponse = json::from_str(&text)
+        let resp: Response = json::from_str(&text)
             .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
         if !resp.ok {
             bail!("response from Telegram contains error, response '{text}'");

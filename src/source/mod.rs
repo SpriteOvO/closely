@@ -1,5 +1,4 @@
-mod bilibili_live;
-mod bilibili_space;
+mod bilibili;
 mod twitter;
 
 use std::{
@@ -241,8 +240,8 @@ pub trait FetcherTrait: Display + Send + Sync {
 
 pub fn fetcher(platform: &SourcePlatform) -> Box<dyn FetcherTrait> {
     match platform {
-        SourcePlatform::BilibiliLive(p) => Box::new(bilibili_live::Fetcher::new(p.clone())),
-        SourcePlatform::BilibiliSpace(p) => Box::new(bilibili_space::Fetcher::new(p.clone())),
+        SourcePlatform::BilibiliLive(p) => Box::new(bilibili::live::Fetcher::new(p.clone())),
+        SourcePlatform::BilibiliSpace(p) => Box::new(bilibili::space::Fetcher::new(p.clone())),
         SourcePlatform::Twitter(p) => Box::new(twitter::Fetcher::new(p.clone())),
     }
 }
