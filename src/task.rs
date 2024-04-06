@@ -5,9 +5,8 @@ use spdlog::prelude::*;
 use tokio::time::MissedTickBehavior;
 
 use crate::{
-    config::{Notify, SourcePlatform},
     notify,
-    source::{self, Status},
+    source::{self, ConfigSourcePlatform, Status},
 };
 
 pub struct Task {
@@ -22,14 +21,14 @@ impl Task {
     pub fn new(
         name: String,
         interval: Duration,
-        notify: Vec<Notify>,
-        platform: &SourcePlatform,
+        notify: Vec<notify::ConfigNotify>,
+        source_platform: &ConfigSourcePlatform,
     ) -> Self {
         Self {
             name,
             interval,
             notifiers: notify.into_iter().map(notify::notifier).collect(),
-            fetcher: source::fetcher(platform),
+            fetcher: source::fetcher(source_platform),
             last_status: None,
         }
     }

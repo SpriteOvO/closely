@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Write, future::Future, ops::Range, pin::Pin};
+use std::{borrow::Cow, env, fmt, fmt::Write, future::Future, ops::Range, pin::Pin};
 
 use anyhow::{anyhow, bail};
 use serde::{de::IgnoredAny, Deserialize};
@@ -14,6 +14,105 @@ use crate::{
         StatusSource,
     },
 };
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ConfigGlobal {
+    #[serde(flatten)]
+    pub token: ConfigToken,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ConfigParams {
+    #[serde(default)]
+    pub notifications: config::Notifications,
+    #[serde(flatten)]
+    pub chat: ConfigChat,
+    pub thread_id: Option<i64>,
+    #[serde(flatten)]
+    pub token: Option<ConfigToken>,
+}
+
+impl fmt::Display for ConfigParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "telegram:{}", self.chat)?;
+        if let Some(thread_id) = self.thread_id {
+            write!(f, ":({})", thread_id)?;
+        }
+        Ok(())
+    }
+}
+
+impl config::Overridable for ConfigParams {
+    type Override = ConfigOverride;
+
+    fn override_into(self, new: Self::Override) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            notifications: match new.notifications {
+                Some(notifications) => self.notifications.override_into(notifications),
+                None => self.notifications,
+            },
+            chat: new.chat.unwrap_or(self.chat),
+            thread_id: new.thread_id.or(self.thread_id),
+            token: new.token.or(self.token),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigOverride {
+    pub notifications: Option<config::NotificationsOverride>,
+    #[serde(flatten)]
+    pub chat: Option<ConfigChat>,
+    pub thread_id: Option<i64>,
+    #[serde(flatten)]
+    token: Option<ConfigToken>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigToken {
+    Token(String),
+    TokenEnv(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigChat {
+    Id(i64),
+    Username(String),
+}
+
+impl fmt::Display for ConfigChat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ConfigChat::Id(id) => write!(f, "{}", id),
+            ConfigChat::Username(username) => write!(f, "@{}", username),
+        }
+    }
+}
+
+impl ConfigToken {
+    pub fn get(&self) -> anyhow::Result<Cow<str>> {
+        match &self {
+            Self::Token(token) => Ok(Cow::Borrowed(token)),
+            Self::TokenEnv(token_env) => Ok(Cow::Owned(env::var(token_env)?)),
+        }
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        match &self {
+            Self::Token(_) => Ok(()),
+            Self::TokenEnv(token_env) => match env::var(token_env) {
+                Ok(_) => Ok(()),
+                Err(err) => bail!("{err} ({token_env})"),
+            },
+        }
+    }
+}
 
 #[derive(Deserialize)]
 struct Response<R = IgnoredAny> {
@@ -36,10 +135,10 @@ fn telegram_api(token: impl AsRef<str>, method: impl AsRef<str>) -> String {
     )
 }
 
-fn telegram_chat_json(chat: &config::TelegramChat) -> json::Value {
+fn telegram_chat_json(chat: &ConfigChat) -> json::Value {
     match chat {
-        config::TelegramChat::Id(id) => json::Value::Number((*id).into()),
-        config::TelegramChat::Username(username) => json::Value::String(format!("@{username}")),
+        ConfigChat::Id(id) => json::Value::Number((*id).into()),
+        ConfigChat::Username(username) => json::Value::String(format!("@{username}")),
     }
 }
 
@@ -49,7 +148,7 @@ enum Entity<'a> {
 }
 
 pub struct Notifier {
-    params: config::NotifyTelegram,
+    params: ConfigParams,
     last_live_message: Mutex<Option<SentMessage>>,
 }
 
@@ -63,7 +162,7 @@ impl NotifierTrait for Notifier {
 }
 
 impl Notifier {
-    pub fn new(params: config::NotifyTelegram) -> Self {
+    pub fn new(params: ConfigParams) -> Self {
         Self {
             params,
             last_live_message: Mutex::new(None),

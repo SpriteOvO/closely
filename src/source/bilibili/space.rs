@@ -10,13 +10,21 @@ use tap::prelude::*;
 use tokio::sync::{Mutex, OnceCell};
 
 use super::Response;
-use crate::{
-    config::SourcePlatformBilibiliSpace,
-    source::{
-        FetcherTrait, Notification, NotificationKind, Post, PostAttachment, PostAttachmentImage,
-        Posts, PostsRef, RepostFrom, SourcePlatformName, Status, StatusKind, StatusSource, User,
-    },
+use crate::source::{
+    FetcherTrait, Notification, NotificationKind, Post, PostAttachment, PostAttachmentImage, Posts,
+    PostsRef, RepostFrom, SourcePlatformName, Status, StatusKind, StatusSource, User,
 };
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ConfigParams {
+    pub uid: u64,
+}
+
+impl fmt::Display for ConfigParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "space.bilibili.com:{}", self.uid)
+    }
+}
 
 mod data {
     use super::*;
@@ -183,7 +191,7 @@ mod data {
 }
 
 pub struct Fetcher {
-    params: SourcePlatformBilibiliSpace,
+    params: ConfigParams,
     first_fetch: OnceCell<()>,
     fetched_cache: Mutex<HashSet<String>>,
 }
@@ -208,7 +216,7 @@ impl fmt::Display for Fetcher {
 }
 
 impl Fetcher {
-    pub fn new(params: SourcePlatformBilibiliSpace) -> Self {
+    pub fn new(params: ConfigParams) -> Self {
         Self {
             params,
             first_fetch: OnceCell::new(),
@@ -516,7 +524,7 @@ mod tests {
 
     #[tokio::test]
     async fn dedup_published_videos() {
-        let fetcher = Fetcher::new(SourcePlatformBilibiliSpace { uid: 1 });
+        let fetcher = Fetcher::new(ConfigParams { uid: 1 });
 
         let source = StatusSource {
             platform_name: SourcePlatformName::BilibiliSpace,

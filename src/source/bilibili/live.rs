@@ -5,13 +5,21 @@ use serde::Deserialize;
 use serde_json::{self as json, json};
 
 use super::Response;
-use crate::{
-    config::SourcePlatformBilibiliLive,
-    source::{
-        FetcherTrait, LiveStatus, SourcePlatformName, Status, StatusKind, StatusSource,
-        StatusSourceUser,
-    },
+use crate::source::{
+    FetcherTrait, LiveStatus, SourcePlatformName, Status, StatusKind, StatusSource,
+    StatusSourceUser,
 };
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ConfigParams {
+    pub uid: u64,
+}
+
+impl fmt::Display for ConfigParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "bilibili.live:{}", self.uid)
+    }
+}
 
 const BILIBILI_LIVE_API: &str =
     "https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids";
@@ -28,7 +36,7 @@ struct ResponseDataRoom {
 }
 
 pub struct Fetcher {
-    params: SourcePlatformBilibiliLive,
+    params: ConfigParams,
 }
 
 impl FetcherTrait for Fetcher {
@@ -44,7 +52,7 @@ impl fmt::Display for Fetcher {
 }
 
 impl Fetcher {
-    pub fn new(params: SourcePlatformBilibiliLive) -> Self {
+    pub fn new(params: ConfigParams) -> Self {
         Self { params }
     }
 

@@ -5,17 +5,34 @@ use chrono::NaiveDateTime;
 use once_cell::sync::Lazy;
 use reqwest::header::{HeaderValue, ACCEPT_LANGUAGE};
 use scraper::{Html, Selector};
+use serde::Deserialize;
 use spdlog::prelude::*;
 
 use super::{FetcherTrait, RepostFrom, StatusSourceUser, User};
 use crate::{
-    config::{Config, SourcePlatformTwitter},
+    config::Config,
     prop,
     source::{
         Post, PostAttachment, PostAttachmentImage, Posts, SourcePlatformName, Status, StatusKind,
         StatusSource,
     },
 };
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ConfigGlobal {
+    pub nitter_host: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ConfigParams {
+    pub username: String,
+}
+
+impl fmt::Display for ConfigParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Twitter:{}", self.username)
+    }
+}
 
 #[derive(Debug)]
 struct TwitterCom;
@@ -87,7 +104,7 @@ struct Video {
 }
 
 pub struct Fetcher {
-    params: SourcePlatformTwitter,
+    params: ConfigParams,
     nitter_host: String,
 }
 
@@ -104,7 +121,7 @@ impl fmt::Display for Fetcher {
 }
 
 impl Fetcher {
-    pub fn new(params: SourcePlatformTwitter) -> Self {
+    pub fn new(params: ConfigParams) -> Self {
         Self {
             params,
             nitter_host: Config::platform_global()

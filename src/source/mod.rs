@@ -1,5 +1,5 @@
-mod bilibili;
-mod twitter;
+pub mod bilibili;
+pub mod twitter;
 
 use std::{
     fmt::{self, Display},
@@ -7,7 +7,29 @@ use std::{
     pin::Pin,
 };
 
-use crate::config::SourcePlatform;
+use serde::Deserialize;
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(tag = "name")]
+#[allow(clippy::enum_variant_names)]
+pub enum ConfigSourcePlatform {
+    #[serde(rename = "bilibili.live")]
+    BilibiliLive(bilibili::live::ConfigParams),
+    #[serde(rename = "bilibili.space")]
+    BilibiliSpace(bilibili::space::ConfigParams),
+    #[serde(rename = "Twitter")]
+    Twitter(twitter::ConfigParams),
+}
+
+impl fmt::Display for ConfigSourcePlatform {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ConfigSourcePlatform::BilibiliLive(p) => write!(f, "{p}"),
+            ConfigSourcePlatform::BilibiliSpace(p) => write!(f, "{p}"),
+            ConfigSourcePlatform::Twitter(p) => write!(f, "{p}"),
+        }
+    }
+}
 
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
@@ -238,11 +260,13 @@ pub trait FetcherTrait: Display + Send + Sync {
     }
 }
 
-pub fn fetcher(platform: &SourcePlatform) -> Box<dyn FetcherTrait> {
+pub fn fetcher(platform: &ConfigSourcePlatform) -> Box<dyn FetcherTrait> {
     match platform {
-        SourcePlatform::BilibiliLive(p) => Box::new(bilibili::live::Fetcher::new(p.clone())),
-        SourcePlatform::BilibiliSpace(p) => Box::new(bilibili::space::Fetcher::new(p.clone())),
-        SourcePlatform::Twitter(p) => Box::new(twitter::Fetcher::new(p.clone())),
+        ConfigSourcePlatform::BilibiliLive(p) => Box::new(bilibili::live::Fetcher::new(p.clone())),
+        ConfigSourcePlatform::BilibiliSpace(p) => {
+            Box::new(bilibili::space::Fetcher::new(p.clone()))
+        }
+        ConfigSourcePlatform::Twitter(p) => Box::new(twitter::Fetcher::new(p.clone())),
     }
 }
 

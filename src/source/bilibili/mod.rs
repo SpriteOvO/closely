@@ -1,5 +1,5 @@
-pub(super) mod live;
-pub(super) mod space;
+pub mod live;
+pub mod space;
 
 use serde::Deserialize;
 
