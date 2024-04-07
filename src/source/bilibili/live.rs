@@ -12,12 +12,12 @@ use crate::source::{
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
-    pub uid: u64,
+    pub user_id: u64,
 }
 
 impl fmt::Display for ConfigParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "bilibili.live:{}", self.uid)
+        write!(f, "bilibili.live:{}", self.user_id)
     }
 }
 
@@ -57,7 +57,7 @@ impl Fetcher {
     }
 
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
-        let data = fetch_live_info(self.params.uid).await?;
+        let data = fetch_live_info(self.params.user_id).await?;
 
         Ok(Status {
             kind: StatusKind::Live(LiveStatus {
@@ -71,15 +71,15 @@ impl Fetcher {
                 platform_name: SourcePlatformName::BilibiliLive,
                 user: Some(StatusSourceUser {
                     display_name: data.uname,
-                    profile_url: format!("https://space.bilibili.com/{}", self.params.uid),
+                    profile_url: format!("https://space.bilibili.com/{}", self.params.user_id),
                 }),
             },
         })
     }
 }
 
-async fn fetch_live_info(uid: u64) -> anyhow::Result<ResponseDataRoom> {
-    let body = json!({ "uids": [uid] });
+async fn fetch_live_info(user_id: u64) -> anyhow::Result<ResponseDataRoom> {
+    let body = json!({ "uids": [user_id] });
 
     let resp = reqwest::Client::new()
         .post(BILIBILI_LIVE_API)

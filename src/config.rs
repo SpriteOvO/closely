@@ -250,7 +250,7 @@ meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 woof = { platform = "Telegram", id = 5678, thread_id = 900, notifications = { post = false } }
 
 [[subscription.meow]]
-platform = { name = "bilibili.live", uid = 123456 }
+platform = { name = "bilibili.live", user_id = 123456 }
 interval = '30s'
 notify = ["meow"]
 
@@ -303,7 +303,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                     vec![
                         SubscriptionRaw {
                             platform: ConfigSourcePlatform::BilibiliLive(
-                                source::bilibili::live::ConfigParams { uid: 123456 }
+                                source::bilibili::live::ConfigParams { user_id: 123456 }
                             ),
                             interval: Some(Duration::from_secs(30)),
                             notify_ref: vec![NotifyRef::Direct("meow".into())],
@@ -352,7 +352,7 @@ interval = '1min'
 meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 
 [[subscription.meow]]
-platform = { name = "bilibili.live", uid = 123456 }
+platform = { name = "bilibili.live", user_id = 123456 }
 notify = ["meow"]
                 "#
         )
@@ -363,7 +363,7 @@ notify = ["meow"]
 interval = '1min'
 
 [[subscription.meow]]
-platform = { name = "bilibili.live", uid = 123456 }
+platform = { name = "bilibili.live", user_id = 123456 }
 notify = ["meow"]
                 "#
         )
@@ -379,7 +379,7 @@ interval = '1min'
 meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 
 [[subscription.meow]]
-platform = { name = "bilibili.live", uid = 123456 }
+platform = { name = "bilibili.live", user_id = 123456 }
 notify = ["meow", "woof"]
                 "#
         )
@@ -395,7 +395,7 @@ interval = '1min'
 meow = { platform = "Telegram", id = 1234, thread_id = 123 }
 
 [[subscription.meow]]
-platform = { name = "bilibili.live", uid = 123456 }
+platform = { name = "bilibili.live", user_id = 123456 }
 notify = ["meow"]
                 "#
         )
@@ -415,7 +415,7 @@ meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 woof = { platform = "Telegram", id = 5678, thread_id = 456, token = "yyy" }
 
 [[subscription.meow]]
-platform = { name = "bilibili.live", uid = 123456 }
+platform = { name = "bilibili.live", user_id = 123456 }
 notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", notifications = { post = false } }]
                 "#,
         )
@@ -429,7 +429,7 @@ notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", notificatio
                 "meow".into(),
                 SubscriptionRef {
                     platform: &ConfigSourcePlatform::BilibiliLive(
-                        source::bilibili::live::ConfigParams { uid: 123456 }
+                        source::bilibili::live::ConfigParams { user_id: 123456 }
                     ),
                     interval: None,
                     notify: vec![

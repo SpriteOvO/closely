@@ -17,12 +17,12 @@ use crate::source::{
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
-    pub uid: u64,
+    pub user_id: u64,
 }
 
 impl fmt::Display for ConfigParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "space.bilibili.com:{}", self.uid)
+        write!(f, "space.bilibili.com:{}", self.user_id)
     }
 }
 
@@ -225,7 +225,7 @@ impl Fetcher {
     }
 
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
-        let posts = fetch_space_history(self.params.uid).await?;
+        let posts = fetch_space_history(self.params.user_id).await?;
 
         // The initial full cache for `post_filter`
         self.first_fetch
@@ -281,12 +281,12 @@ impl Fetcher {
 #[allow(clippy::type_complexity)] // No, I don't think it's complex XD
 static GUEST_COOKIES: Lazy<Mutex<Option<Vec<(String, String)>>>> = Lazy::new(|| Mutex::new(None));
 
-async fn fetch_space_history(uid: u64) -> anyhow::Result<Posts> {
-    fetch_space_history_impl(uid, true).await
+async fn fetch_space_history(user_id: u64) -> anyhow::Result<Posts> {
+    fetch_space_history_impl(user_id, true).await
 }
 
 fn fetch_space_history_impl(
-    uid: u64,
+    user_id: u64,
     retry: bool,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<Posts>> + Send>> {
     Box::pin(async move {
@@ -308,7 +308,7 @@ fn fetch_space_history_impl(
         let resp = reqwest::Client::new()
             .get(format!(
                 "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={}",
-                uid
+                user_id
             ))
             .header(header::COOKIE, HeaderValue::from_str(&cookies)?)
             .send()
@@ -337,7 +337,7 @@ fn fetch_space_history_impl(
                     *guest_cookies = None;
                     drop(guest_cookies);
                     warn!("bilibili guest token expired, retrying with new token");
-                    return fetch_space_history_impl(uid, false).await;
+                    return fetch_space_history_impl(user_id, false).await;
                 } else {
                     bail!("bilibili failed with token expired, and already retried once")
                 }
@@ -524,7 +524,7 @@ mod tests {
 
     #[tokio::test]
     async fn dedup_published_videos() {
-        let fetcher = Fetcher::new(ConfigParams { uid: 1 });
+        let fetcher = Fetcher::new(ConfigParams { user_id: 1 });
 
         let source = StatusSource {
             platform_name: SourcePlatformName::BilibiliSpace,
