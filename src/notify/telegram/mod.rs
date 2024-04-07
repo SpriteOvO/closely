@@ -436,20 +436,24 @@ impl Notifier {
                 let quote_begin = content.encode_utf16().count();
                 content.write_str("🔁 ")?;
 
-                let nickname_begin = content.encode_utf16().count();
-                content.write_str(&repost_from.user.nickname)?;
-                entities.push((
-                    nickname_begin..content.encode_utf16().count(),
-                    Entity::Link(
-                        // In order for Telegram to display more relevant information about the
-                        // post, we don't use `profile_url` here
-                        //
-                        // &repost_from.user.profile_url,
-                        &repost_from.url,
-                    ),
-                ));
+                if let Some(user) = &repost_from.user {
+                    let nickname_begin = content.encode_utf16().count();
+                    content.write_str(&user.nickname)?;
+                    entities.push((
+                        nickname_begin..content.encode_utf16().count(),
+                        Entity::Link(
+                            // In order for Telegram to display more relevant information about the
+                            // post, we don't use `profile_url` here
+                            //
+                            // &repost_from.user.profile_url,
+                            &repost_from.url,
+                        ),
+                    ));
+                    write!(content, ": {}", repost_from.content)?;
+                } else {
+                    write!(content, "{}", repost_from.content)?;
+                }
 
-                write!(content, ": {}", repost_from.content)?;
                 entities.push((quote_begin..content.encode_utf16().count(), Entity::Quote));
             }
             Some(RepostFrom::Legacy {

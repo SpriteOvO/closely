@@ -1,5 +1,6 @@
 pub mod live;
 pub mod space;
+pub mod video;
 
 use serde::Deserialize;
 

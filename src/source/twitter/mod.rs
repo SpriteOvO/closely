@@ -141,11 +141,11 @@ impl Fetcher {
             .timeline
             .into_iter()
             .map(|tweet| Post {
-                user: User {
+                user: Some(User {
                     nickname: status.fullname.clone(),
                     profile_url: format!("https://twitter.com/{}", self.params.username),
                     avatar_url: status.avatar_url.real_url(),
-                },
+                }),
                 content: tweet.content,
                 url: tweet.url.real_url(),
                 repost_from: Some(RepostFrom::Legacy {

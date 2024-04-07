@@ -17,6 +17,8 @@ pub enum ConfigSourcePlatform {
     BilibiliLive(bilibili::live::ConfigParams),
     #[serde(rename = "bilibili.space")]
     BilibiliSpace(bilibili::space::ConfigParams),
+    #[serde(rename = "bilibili.video")]
+    BilibiliVideo(bilibili::video::ConfigParams),
     #[serde(rename = "Twitter")]
     Twitter(twitter::ConfigParams),
 }
@@ -26,6 +28,7 @@ impl fmt::Display for ConfigSourcePlatform {
         match self {
             ConfigSourcePlatform::BilibiliLive(p) => write!(f, "{p}"),
             ConfigSourcePlatform::BilibiliSpace(p) => write!(f, "{p}"),
+            ConfigSourcePlatform::BilibiliVideo(p) => write!(f, "{p}"),
             ConfigSourcePlatform::Twitter(p) => write!(f, "{p}"),
         }
     }
@@ -36,6 +39,7 @@ impl fmt::Display for ConfigSourcePlatform {
 pub enum SourcePlatformName {
     BilibiliLive,
     BilibiliSpace,
+    BilibiliVideo,
     Twitter,
 }
 
@@ -44,6 +48,7 @@ impl fmt::Display for SourcePlatformName {
         match self {
             Self::BilibiliLive => write!(f, "bilibili 直播"),
             Self::BilibiliSpace => write!(f, "bilibili 动态"),
+            Self::BilibiliVideo => write!(f, "bilibili 视频"),
             Self::Twitter => write!(f, "Twitter"),
         }
     }
@@ -131,7 +136,7 @@ pub struct User {
 
 #[derive(Debug)]
 pub struct Post {
-    pub user: User,
+    pub user: Option<User>,
     pub content: String,
     pub url: String,
     pub repost_from: Option<RepostFrom>,
@@ -265,6 +270,9 @@ pub fn fetcher(platform: &ConfigSourcePlatform) -> Box<dyn FetcherTrait> {
         ConfigSourcePlatform::BilibiliLive(p) => Box::new(bilibili::live::Fetcher::new(p.clone())),
         ConfigSourcePlatform::BilibiliSpace(p) => {
             Box::new(bilibili::space::Fetcher::new(p.clone()))
+        }
+        ConfigSourcePlatform::BilibiliVideo(p) => {
+            Box::new(bilibili::video::Fetcher::new(p.clone()))
         }
         ConfigSourcePlatform::Twitter(p) => Box::new(twitter::Fetcher::new(p.clone())),
     }

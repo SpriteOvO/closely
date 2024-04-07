@@ -10,7 +10,8 @@ Subscribe to updates from people you follow, from any platform to any platform.
 
 - Social media
   - [Twitter (twitter.com)](https://twitter.com/)
-  - [bilibili 动态 (space.bilibili.com)](https://space.bilibili.com/)
+  - [bilibili 动态 (t.bilibili.com)](https://t.bilibili.com/)
+  - [bilibili 视频 (space.bilibili.com)](https://space.bilibili.com/)
 
 - Live streaming
   - [bilibili 直播 (live.bilibili.com)](https://live.bilibili.com/)

@@ -398,7 +398,7 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
             .map_err(|err| anyhow!("failed to parse origin card: {err}"))?;
 
         Ok(Post {
-            user: item.modules.author.clone().into(),
+            user: Some(item.modules.author.clone().into()),
             content,
             url: item
                 .modules
@@ -547,11 +547,11 @@ mod tests {
         assert!(fetcher.post_filter(make_notification!()).await.is_none());
 
         posts.push(Post {
-            user: User {
+            user: Some(User {
                 nickname: "test display name".into(),
                 profile_url: "https://test.profile".into(),
                 avatar_url: "https://test.avatar".into(),
-            },
+            }),
             content: "test1".into(),
             url: "https://test1".into(),
             repost_from: None,
@@ -571,11 +571,11 @@ mod tests {
         assert!(filtered.is_none());
 
         posts.push(Post {
-            user: User {
+            user: Some(User {
                 nickname: "test display name".into(),
                 profile_url: "https://test.profile".into(),
                 avatar_url: "https://test.avatar".into(),
-            },
+            }),
             content: "test2".into(),
             url: "https://test2".into(),
             repost_from: None,
