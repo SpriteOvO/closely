@@ -1,4 +1,4 @@
-use std::{borrow::Cow, env, fmt, fmt::Write, future::Future, ops::Range, pin::Pin};
+use std::{borrow::Cow, fmt, fmt::Write, future::Future, ops::Range, pin::Pin};
 
 use anyhow::{anyhow, bail};
 use serde::{de::IgnoredAny, Deserialize};
@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 
 use super::NotifierTrait;
 use crate::{
-    config::{self, Config},
+    config::{self, AsSecretRef, Config, SecretRef},
     source::{
         LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, RepostFrom,
         StatusSource,
@@ -79,6 +79,15 @@ pub enum ConfigToken {
     TokenEnv(String),
 }
 
+impl AsSecretRef for ConfigToken {
+    fn as_secret_ref(&self) -> SecretRef {
+        match self {
+            ConfigToken::Token(token) => SecretRef::Lit(token),
+            ConfigToken::TokenEnv(var) => SecretRef::Env(var),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigChat {
@@ -91,25 +100,6 @@ impl fmt::Display for ConfigChat {
         match self {
             ConfigChat::Id(id) => write!(f, "{}", id),
             ConfigChat::Username(username) => write!(f, "@{}", username),
-        }
-    }
-}
-
-impl ConfigToken {
-    pub fn get(&self) -> anyhow::Result<Cow<str>> {
-        match &self {
-            Self::Token(token) => Ok(Cow::Borrowed(token)),
-            Self::TokenEnv(token_env) => Ok(Cow::Owned(env::var(token_env)?)),
-        }
-    }
-
-    pub fn validate(&self) -> anyhow::Result<()> {
-        match &self {
-            Self::Token(_) => Ok(()),
-            Self::TokenEnv(token_env) => match env::var(token_env) {
-                Ok(_) => Ok(()),
-                Err(err) => bail!("{err} ({token_env})"),
-            },
         }
     }
 }
@@ -174,6 +164,7 @@ impl Notifier {
             .token
             .as_ref()
             .unwrap_or_else(|| &Config::platform_global().telegram.as_ref().unwrap().token)
+            .as_secret_ref()
             .get()
             .map_err(|err| anyhow!("failed to read token for telegram: {err}"))
     }

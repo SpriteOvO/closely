@@ -7,7 +7,7 @@ use serde::Deserialize;
 use spdlog::prelude::*;
 
 use crate::{
-    config::{self, Overridable},
+    config::{self, AsSecretRef, Overridable},
     source::Notification,
 };
 
@@ -21,7 +21,10 @@ impl ConfigNotify {
     pub fn validate(&self, global: &config::PlatformGlobal) -> anyhow::Result<()> {
         match self {
             ConfigNotify::Telegram(v) => match &v.token {
-                Some(token) => token.validate().map_err(|err| anyhow!("[Telegram] {err}")),
+                Some(token) => token
+                    .as_secret_ref()
+                    .validate()
+                    .map_err(|err| anyhow!("[Telegram] {err}")),
                 None => {
                     ensure!(
                         global.telegram.is_some(),

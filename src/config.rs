@@ -1,6 +1,6 @@
-use std::{collections::HashMap, time::Duration};
+use std::{borrow::Cow, collections::HashMap, env, time::Duration};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use once_cell::sync::OnceCell;
 use serde::{
     de::{
@@ -102,7 +102,7 @@ pub struct PlatformGlobal {
 impl PlatformGlobal {
     fn validate(&self) -> anyhow::Result<()> {
         if let Some(telegram) = &self.telegram {
-            telegram.token.validate()?;
+            telegram.token.as_secret_ref().validate()?;
         }
         Ok(())
     }
@@ -209,6 +209,34 @@ impl NotifyMap {
         self.0
             .values()
             .try_for_each(|notify| notify.validate(global))
+    }
+}
+
+pub trait AsSecretRef {
+    fn as_secret_ref(&self) -> SecretRef;
+}
+
+pub enum SecretRef<'a> {
+    Lit(&'a str),
+    Env(&'a str),
+}
+
+impl<'a> SecretRef<'a> {
+    pub fn get(&self) -> anyhow::Result<Cow<'a, str>> {
+        match self {
+            Self::Lit(lit) => Ok(Cow::Borrowed(lit)),
+            Self::Env(key) => Ok(Cow::Owned(env::var(key)?)),
+        }
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        match self {
+            Self::Lit(_) => Ok(()),
+            Self::Env(key) => match env::var(key) {
+                Ok(_) => Ok(()),
+                Err(err) => bail!("{err} ({key})"),
+            },
+        }
     }
 }
 
