@@ -1,4 +1,11 @@
-use std::{borrow::Cow, fmt, fmt::Write, future::Future, ops::Range, pin::Pin};
+use std::{
+    borrow::Cow,
+    collections::VecDeque,
+    fmt::{self, Write},
+    future::Future,
+    ops::Range,
+    pin::Pin,
+};
 
 use anyhow::{anyhow, bail};
 use serde::{de::IgnoredAny, Deserialize};
@@ -176,8 +183,8 @@ impl Notifier {
             NotificationKind::LiveOnline(live_status) => {
                 self.notify_live(live_status, notification.source).await
             }
-            NotificationKind::LiveTitle(live_status, old_title) => {
-                self.notify_live_title(live_status, old_title, notification.source)
+            NotificationKind::LiveTitle(live_status, _old_title) => {
+                self.notify_live_title(live_status, notification.source)
                     .await
             }
             NotificationKind::Posts(posts) => self.notify_posts(posts, notification.source).await,
@@ -201,8 +208,9 @@ impl Notifier {
         }
     }
 
-    fn make_live_caption(
+    fn make_live_caption<'a>(
         &self,
+        title_history: impl IntoIterator<Item = &'a String>,
         live_status: &LiveStatus,
         source: &StatusSource,
     ) -> (String, Vec<json::Value>) {
@@ -210,7 +218,7 @@ impl Notifier {
             "[{}] {} {}",
             source.platform_name,
             if live_status.online { "🟢" } else { "🟠" },
-            live_status.title
+            itertools::join(title_history, " ⬅️ "),
         );
         let caption_entities = vec![json!({
             "type": "text_link",
@@ -228,7 +236,9 @@ impl Notifier {
     ) -> anyhow::Result<()> {
         let token = self.token()?;
 
-        let (caption, caption_entities) = self.make_live_caption(live_status, source);
+        let title_history = VecDeque::from([live_status.title.clone()]);
+        let (caption, caption_entities) =
+            self.make_live_caption(&title_history, live_status, source);
 
         let body = json!(
             {
@@ -268,6 +278,7 @@ impl Notifier {
         *self.last_live_message.lock().await = Some(SentMessage {
             // The doc guarantees `result` to be present if `ok` == `true`
             id: resp.result.unwrap().message_id,
+            title_history,
         });
 
         Ok(())
@@ -281,7 +292,8 @@ impl Notifier {
         if let Some(last_live_message) = self.last_live_message.lock().await.take() {
             let token = self.token()?;
 
-            let (caption, caption_entities) = self.make_live_caption(live_status, source);
+            let (caption, caption_entities) =
+                self.make_live_caption(&last_live_message.title_history, live_status, source);
 
             let body = json!(
                 {
@@ -323,19 +335,27 @@ impl Notifier {
     async fn notify_live_title(
         &self,
         live_status: &LiveStatus,
-        old_title: &str,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
+        // Update the last message
+        self.notify_live_title_update(live_status, source).await?;
+
+        // Send a new message
         if !self.params.notifications.live_title {
             info!("live_title notification is disabled, skip notifying");
             return Ok(());
         }
+        self.notify_live_title_send(live_status, source).await
+    }
+
+    async fn notify_live_title_send(
+        &self,
+        live_status: &LiveStatus,
+        source: &StatusSource,
+    ) -> anyhow::Result<()> {
         let token = self.token()?;
 
-        let text = format!(
-            "[{}] ✏️ {} ⬅️ {old_title}",
-            source.platform_name, live_status.title
-        );
+        let text = format!("[{}] ✏️ {}", source.platform_name, live_status.title);
         let body = json!(
             {
                 "chat_id": telegram_chat_json(&self.params.chat),
@@ -377,6 +397,58 @@ impl Notifier {
             bail!("response from Telegram contains error, response '{text}'");
         }
 
+        Ok(())
+    }
+
+    async fn notify_live_title_update(
+        &self,
+        live_status: &LiveStatus,
+        source: &StatusSource,
+    ) -> anyhow::Result<()> {
+        if let Some(last_live_message) = self.last_live_message.lock().await.as_mut() {
+            let token = self.token()?;
+
+            last_live_message
+                .title_history
+                .push_front(live_status.title.clone());
+
+            let (caption, caption_entities) =
+                self.make_live_caption(&last_live_message.title_history, live_status, source);
+
+            let body = json!(
+                {
+                    "chat_id": telegram_chat_json(&self.params.chat),
+                    "message_id": last_live_message.id,
+                    "caption": caption,
+                    "caption_entities": caption_entities
+                }
+            );
+            let resp = reqwest::Client::new()
+                .post(telegram_api(token, "editMessageCaption"))
+                .json(&body)
+                .send()
+                .await
+                .map_err(|err| anyhow!("failed to send request for Telegram: {err}"))?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                bail!(
+                    "response from Telegram status is not success. resp: {}, body: {}",
+                    resp.text().await.unwrap_or_else(|_| "*no text*".into()),
+                    body
+                );
+            }
+
+            let text = resp
+                .text()
+                .await
+                .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
+            let resp: Response<ResultMessage> = json::from_str(&text)
+                .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
+            if !resp.ok {
+                bail!("response from Telegram contains error, response '{text}'");
+            }
+        }
         Ok(())
     }
 
@@ -606,4 +678,6 @@ impl Notifier {
 
 struct SentMessage {
     id: i64,
+    // The first is the current title, the last is the oldest title
+    title_history: VecDeque<String>,
 }
