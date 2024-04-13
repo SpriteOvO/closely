@@ -2,7 +2,7 @@ pub mod telegram;
 
 use std::{fmt, future::Future, pin::Pin};
 
-use anyhow::{anyhow, ensure};
+use anyhow::{anyhow, bail};
 use serde::Deserialize;
 use spdlog::prelude::*;
 
@@ -25,13 +25,14 @@ impl ConfigNotify {
                     .as_secret_ref()
                     .validate()
                     .map_err(|err| anyhow!("[Telegram] {err}")),
-                None => {
-                    ensure!(
-                        global.telegram.is_some(),
-                        "[Telegram] both token in global and notify are missing"
-                    );
-                    Ok(())
-                }
+                None => match &global.telegram {
+                    Some(global_telegram) => global_telegram
+                        .token
+                        .as_secret_ref()
+                        .validate()
+                        .map_err(|err| anyhow!("[Telegram] {err}")),
+                    None => bail!("[Telegram] both token in global and notify are missing"),
+                },
             },
         }
     }
