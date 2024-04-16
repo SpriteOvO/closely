@@ -112,6 +112,8 @@ mod data {
         Article(ModuleDynamicMajorArticle),
         #[serde(rename = "MAJOR_TYPE_DRAW")]
         Draw(ModuleDynamicMajorDraw),
+        #[serde(rename = "MAJOR_TYPE_COMMON")]
+        Common(ModuleDynamicMajorCommon),
         #[serde(rename = "MAJOR_TYPE_PGC")]
         Pgc(ModuleDynamicMajorPgc),
         #[serde(rename = "MAJOR_TYPE_LIVE_RCMD")]
@@ -195,6 +197,21 @@ mod data {
     #[derive(Debug, Deserialize)]
     pub struct ModuleDynamicMajorDrawItem {
         pub src: String, // image URL
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorCommon {
+        pub common: ModuleDynamicMajorCommonInner,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorCommonInner {
+        pub cover: String, // URL
+        pub desc: String,
+        pub jump_url: String,
+        pub title: String,
     }
 
     //
@@ -410,6 +427,10 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                             article.article.title
                         ))),
                         data::ModuleDynamicMajor::Draw(_) => None,
+                        data::ModuleDynamicMajor::Common(common) => Some(Cow::Owned(format!(
+                            "{} - {}",
+                            common.common.title, common.common.desc
+                        ))),
                         data::ModuleDynamicMajor::Pgc(pgc) => {
                             Some(Cow::Owned(format!("番剧《{}》", pgc.pgc.title)))
                         }
@@ -439,7 +460,9 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                 .major
                 .as_ref()
                 .map(|major| match major {
-                    data::ModuleDynamicMajor::Opus(_) | data::ModuleDynamicMajor::Draw(_) => {
+                    data::ModuleDynamicMajor::Opus(_)
+                    | data::ModuleDynamicMajor::Draw(_)
+                    | data::ModuleDynamicMajor::Common(_) => {
                         format!("https://www.bilibili.com/opus/{}", item.id_str)
                     }
                     data::ModuleDynamicMajor::Archive(archive) => {
@@ -496,6 +519,11 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                             })
                         })
                         .collect(),
+                    data::ModuleDynamicMajor::Common(common) => {
+                        vec![PostAttachment::Image(PostAttachmentImage {
+                            media_url: common.common.cover.clone(),
+                        })]
+                    }
                     data::ModuleDynamicMajor::Pgc(pgc) => {
                         vec![PostAttachment::Image(PostAttachmentImage {
                             media_url: pgc.pgc.cover.clone(),
