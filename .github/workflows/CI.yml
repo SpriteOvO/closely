@@ -44,8 +44,10 @@ jobs:
       run: rustup toolchain install stable
     - name: Restore cargo caches
       uses: Swatinem/rust-cache@v2
-    - name: Run tests
-      run: cargo test --verbose
+    - name: Run check with default features
+      run: cargo check --verbose
+    - name: Run tests with all features
+      run: cargo test --all-features --verbose
 
   clippy:
     runs-on: ubuntu-latest

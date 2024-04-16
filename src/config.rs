@@ -1,4 +1,6 @@
-use std::{borrow::Cow, collections::HashMap, env, time::Duration};
+use std::{
+    borrow::Cow, collections::HashMap, env, error::Error as StdError, str::FromStr, time::Duration,
+};
 
 use anyhow::{anyhow, bail};
 use once_cell::sync::OnceCell;
@@ -9,6 +11,7 @@ use serde::{
     },
     Deserialize,
 };
+use spdlog::prelude::*;
 
 use crate::{
     notify,
@@ -28,11 +31,12 @@ pub struct Config {
 static PLATFORM_GLOBAL: OnceCell<PlatformGlobal> = OnceCell::new();
 
 impl Config {
-    pub fn init(input: impl AsRef<str>) -> anyhow::Result<Self> {
+    pub async fn init(input: impl AsRef<str>) -> anyhow::Result<Self> {
         let mut config = Self::from_str(input)?;
         PLATFORM_GLOBAL
             .set(config.platform.take().unwrap_or_default())
             .map_err(|_| anyhow!("config was initialized before"))?;
+        PLATFORM_GLOBAL.get().unwrap().init().await?;
         Ok(config)
     }
 
@@ -93,6 +97,9 @@ impl Config {
 
 #[derive(Clone, Debug, PartialEq, Default, Deserialize)]
 pub struct PlatformGlobal {
+    #[cfg(feature = "qq")]
+    #[serde(rename = "QQ")]
+    pub qq: Option<notify::qq::ConfigGlobal>,
     #[serde(rename = "Telegram")]
     pub telegram: Option<notify::telegram::ConfigGlobal>,
     #[serde(rename = "Twitter")]
@@ -100,7 +107,20 @@ pub struct PlatformGlobal {
 }
 
 impl PlatformGlobal {
+    async fn init(&self) -> anyhow::Result<()> {
+        #[cfg(feature = "qq")]
+        if let Some(qq) = &self.qq {
+            info!("Initializing QQ...");
+            qq.init().await?;
+        }
+        Ok(())
+    }
+
     fn validate(&self) -> anyhow::Result<()> {
+        #[cfg(feature = "qq")]
+        if let Some(qq) = &self.qq {
+            qq.login.validate()?;
+        }
         if let Some(telegram) = &self.telegram {
             telegram.token.as_secret_ref().validate()?;
         }
@@ -212,23 +232,16 @@ impl NotifyMap {
     }
 }
 
-pub trait AsSecretRef {
-    fn as_secret_ref(&self) -> SecretRef;
+pub trait AsSecretRef<'a, T = &'a str> {
+    fn as_secret_ref(&'a self) -> SecretRef<'_, T>;
 }
 
-pub enum SecretRef<'a> {
-    Lit(&'a str),
+pub enum SecretRef<'a, T = &'a str> {
+    Lit(T),
     Env(&'a str),
 }
 
-impl<'a> SecretRef<'a> {
-    pub fn get(&self) -> anyhow::Result<Cow<'a, str>> {
-        match self {
-            Self::Lit(lit) => Ok(Cow::Borrowed(lit)),
-            Self::Env(key) => Ok(Cow::Owned(env::var(key)?)),
-        }
-    }
-
+impl<T> SecretRef<'_, T> {
     pub fn validate(&self) -> anyhow::Result<()> {
         match self {
             Self::Lit(_) => Ok(()),
@@ -238,6 +251,79 @@ impl<'a> SecretRef<'a> {
             },
         }
     }
+}
+
+impl<'a> SecretRef<'a, &'a str> {
+    pub fn get_str(&self) -> anyhow::Result<Cow<'a, str>> {
+        match self {
+            Self::Lit(lit) => Ok(Cow::Borrowed(lit)),
+            Self::Env(key) => Ok(Cow::Owned(env::var(key)?)),
+        }
+    }
+}
+
+impl<T: Copy + FromStr> SecretRef<'_, T>
+where
+    <T as FromStr>::Err: StdError + Send + Sync + 'static,
+{
+    pub fn get_parse_copy(&self) -> anyhow::Result<T> {
+        match self {
+            Self::Lit(lit) => Ok(*lit),
+            Self::Env(key) => Ok(env::var(key)?.parse()?),
+        }
+    }
+}
+
+impl<T: ToOwned> SecretRef<'_, T>
+where
+    <T as ToOwned>::Owned: FromStr,
+    <<T as ToOwned>::Owned as FromStr>::Err: StdError + Send + Sync + 'static,
+{
+    pub fn get_parse_cow(&self) -> anyhow::Result<Cow<T>> {
+        match self {
+            Self::Lit(lit) => Ok(Cow::Borrowed(lit)),
+            Self::Env(key) => Ok(Cow::Owned(env::var(key)?.parse()?)),
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! secret_enum {
+    ( $($(#[$attr:meta])* $vis:vis enum $name:ident { $field:ident($type:ident)$(,)? })+ ) => {
+        $(
+            paste::paste! {
+                $(#[$attr])* $vis enum $name {
+                    $field($type),
+                    [<$field Env>](String),
+                }
+            }
+            secret_enum!(@IMPL($type) => $name, $field);
+        )+
+    };
+    ( @IMPL(String) => $name:ident, $field:ident ) => {
+        impl $crate::config::AsSecretRef<'_> for $name {
+            fn as_secret_ref(&self) -> $crate::config::SecretRef {
+                paste::paste! {
+                    match self {
+                        Self::$field(value) => $crate::config::SecretRef::Lit(value),
+                        Self::[<$field Env>](key) => $crate::config::SecretRef::Env(key),
+                    }
+                }
+            }
+        }
+    };
+    ( @IMPL($type:ty) => $name:ident, $field:ident ) => {
+        impl $crate::config::AsSecretRef<'_, $type> for $name {
+            fn as_secret_ref(&self) -> $crate::config::SecretRef<'_, $type> {
+                paste::paste! {
+                    match self {
+                        Self::$field(value) => $crate::config::SecretRef::Lit(*value),
+                        Self::[<$field Env>](key) => $crate::config::SecretRef::Env(key),
+                    }
+                }
+            }
+        }
+    };
 }
 
 pub trait Overridable {
@@ -258,6 +344,8 @@ const fn default_false() -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     #[test]
@@ -267,10 +355,14 @@ mod tests {
                 r#"
 interval = '1min'
 
-[platform."Telegram"]
+[platform.QQ]
+login = { account = 123456, password = "xyz" }
+lagrange = { binary_path = "/tmp/lagrange", http_port = 8000, sign_server = "https://example.com/" }
+
+[platform.Telegram]
 token = "ttt"
 
-[platform."Twitter"]
+[platform.Twitter]
 nitter_host = "https://nitter.example.com/"
 
 [notify]
@@ -295,6 +387,17 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
             Config {
                 interval: Duration::from_secs(60), // 1min
                 platform: Some(PlatformGlobal {
+                    qq: Some(notify::qq::ConfigGlobal {
+                        login: notify::qq::ConfigLogin {
+                            account: notify::qq::ConfigAccount::Account(123456),
+                            password: notify::qq::ConfigPassword::Password("xyz".into())
+                        },
+                        lagrange: notify::qq::lagrange::ConfigLagrange {
+                            binary_path: PathBuf::from("/tmp/lagrange"),
+                            http_port: 8000,
+                            sign_server: "https://example.com/".into(),
+                        }
+                    }),
                     telegram: Some(notify::telegram::ConfigGlobal {
                         token: notify::telegram::ConfigToken::Token("ttt".into())
                     }),

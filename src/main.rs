@@ -1,10 +1,8 @@
-mod cli;
-
 use std::{fs, path::Path, process::exit, sync::Arc};
 
 use anyhow::anyhow;
 use clap::Parser;
-use closely::prop;
+use closely::{cli, prop};
 use spdlog::{
     prelude::*,
     sink::{RotatingFileSink, RotationPolicy},
@@ -69,5 +67,5 @@ fn setup_logger(verbose: bool, log_dir: Option<&Path>) -> anyhow::Result<()> {
 }
 
 async fn run(args: cli::Args) -> anyhow::Result<()> {
-    closely::run(&args.config).await
+    closely::run(args).await
 }

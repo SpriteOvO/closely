@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-#[derive(clap::Parser)]
+#[derive(clap::Parser, Debug)]
 #[command(version)]
 pub struct Args {
     #[arg(long)]

@@ -107,7 +107,9 @@ pub async fn run_tasks(tasks: impl IntoIterator<Item = Task>) -> anyhow::Result<
                 task.run().await;
             })
         })
-        .collect();
+        .collect::<Vec<_>>();
+
+    info!("{} tasks are running", join_handles.len());
 
     Ok(Runner { join_handles })
 }

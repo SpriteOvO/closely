@@ -15,7 +15,8 @@ use tokio::sync::Mutex;
 
 use super::NotifierTrait;
 use crate::{
-    config::{self, AsSecretRef, Config, SecretRef},
+    config::{self, AsSecretRef, Config},
+    secret_enum,
     source::{
         LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, RepostFrom,
         StatusSource,
@@ -37,6 +38,18 @@ pub struct ConfigParams {
     pub thread_id: Option<i64>,
     #[serde(flatten)]
     pub token: Option<ConfigToken>,
+}
+
+impl ConfigParams {
+    pub fn validate(&self, global: &config::PlatformGlobal) -> anyhow::Result<()> {
+        match &self.token {
+            Some(token) => token.as_secret_ref().validate(),
+            None => match &global.telegram {
+                Some(global_telegram) => global_telegram.token.as_secret_ref().validate(),
+                None => bail!("both token in global and notify are missing"),
+            },
+        }
+    }
 }
 
 impl fmt::Display for ConfigParams {
@@ -79,19 +92,11 @@ pub struct ConfigOverride {
     token: Option<ConfigToken>,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ConfigToken {
-    Token(String),
-    TokenEnv(String),
-}
-
-impl AsSecretRef for ConfigToken {
-    fn as_secret_ref(&self) -> SecretRef {
-        match self {
-            ConfigToken::Token(token) => SecretRef::Lit(token),
-            ConfigToken::TokenEnv(var) => SecretRef::Env(var),
-        }
+secret_enum! {
+    #[derive(Clone, Debug, PartialEq, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ConfigToken {
+        Token(String),
     }
 }
 
@@ -172,7 +177,7 @@ impl Notifier {
             .as_ref()
             .unwrap_or_else(|| &Config::platform_global().telegram.as_ref().unwrap().token)
             .as_secret_ref()
-            .get()
+            .get_str()
             .map_err(|err| anyhow!("failed to read token for telegram: {err}"))
     }
 

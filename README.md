@@ -18,6 +18,7 @@ Subscribe to updates from people you follow, from any platform to any platform.
 
 ### Notification target
 
+- [QQ](https://im.qq.com/)
 - [Telegram](https://telegram.org/)
 
 Yea! PRs for support of more platforms are welcome!
