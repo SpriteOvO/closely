@@ -57,6 +57,8 @@ mod data {
     pub enum ModuleAuthor {
         #[serde(rename = "AUTHOR_TYPE_NORMAL")]
         Normal(ModuleAuthorNormal),
+        #[serde(rename = "AUTHOR_TYPE_PGC")]
+        Pgc(ModuleAuthorPgc),
     }
 
     impl From<ModuleAuthor> for User {
@@ -66,6 +68,11 @@ mod data {
                     nickname: normal.name,
                     profile_url: format!("https://space.bilibili.com/{}", normal.mid),
                     avatar_url: normal.face,
+                },
+                ModuleAuthor::Pgc(pgc) => Self {
+                    nickname: pgc.name,
+                    profile_url: format!("https://bangumi.bilibili.com/anime/{}", pgc.mid),
+                    avatar_url: pgc.face,
                 },
             }
         }
@@ -77,6 +84,13 @@ mod data {
         pub mid: u64,
         pub name: String,
         pub pub_ts: u64,
+    }
+
+    #[derive(Clone, Debug, Deserialize)]
+    pub struct ModuleAuthorPgc {
+        pub face: String, // URL
+        pub mid: u64,
+        pub name: String,
     }
 
     #[derive(Debug, Deserialize)]
@@ -98,6 +112,8 @@ mod data {
         Article(ModuleDynamicMajorArticle),
         #[serde(rename = "MAJOR_TYPE_DRAW")]
         Draw(ModuleDynamicMajorDraw),
+        #[serde(rename = "MAJOR_TYPE_PGC")]
+        Pgc(ModuleDynamicMajorPgc),
         #[serde(rename = "MAJOR_TYPE_LIVE_RCMD")]
         LiveRcmd, // We don't care about this item
     }
@@ -179,6 +195,20 @@ mod data {
     #[derive(Debug, Deserialize)]
     pub struct ModuleDynamicMajorDrawItem {
         pub src: String, // image URL
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorPgc {
+        pub pgc: ModuleDynamicMajorPgcInner,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorPgcInner {
+        pub cover: String, // URL
+        pub epid: u64,
+        pub title: String,
     }
 
     //
@@ -380,6 +410,9 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                             article.article.title
                         ))),
                         data::ModuleDynamicMajor::Draw(_) => None,
+                        data::ModuleDynamicMajor::Pgc(pgc) => {
+                            Some(Cow::Owned(format!("番剧《{}》", pgc.pgc.title)))
+                        }
                         data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
                     }
                 });
@@ -414,6 +447,9 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                     }
                     data::ModuleDynamicMajor::Article(article) => {
                         format!("https://www.bilibili.com/read/cv{}", article.article.id)
+                    }
+                    data::ModuleDynamicMajor::Pgc(pgc) => {
+                        format!("https://www.bilibili.com/bangumi/play/ep{}", pgc.pgc.epid)
                     }
                     data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
                 })
@@ -460,6 +496,11 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                             })
                         })
                         .collect(),
+                    data::ModuleDynamicMajor::Pgc(pgc) => {
+                        vec![PostAttachment::Image(PostAttachmentImage {
+                            media_url: pgc.pgc.cover.clone(),
+                        })]
+                    }
                     data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
                 })
                 .unwrap_or_default(),
