@@ -514,7 +514,7 @@ impl Notifier {
                             // post, we don't use `profile_url` here
                             //
                             // &repost_from.user.profile_url,
-                            &repost_from.url,
+                            &repost_from.urls.major().url,
                         ),
                     ));
                     write!(content, ": {}", repost_from.content)?;
@@ -574,16 +574,19 @@ impl Notifier {
             0 | 1 => {
                 let body = body.as_object_mut().unwrap();
 
-                // Button "View Post"
-                body.insert(
-                    "reply_markup".into(),
-                    json!({
-                        "inline_keyboard": [[{
-                            "text": "View Post",
-                            "url": post.url,
-                        }]]
-                    }),
-                );
+                // Jump buttons
+                let buttons = post
+                    .urls
+                    .iter()
+                    .into_iter()
+                    .map(|url| {
+                        json!({
+                            "text": url.display,
+                            "url": url.url,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                body.insert("reply_markup".into(), json!({"inline_keyboard": [buttons]}));
 
                 if num_attachments == 0 {
                     body.insert("text".into(), json!(content));
@@ -613,12 +616,20 @@ impl Notifier {
                 let body = body.as_object_mut().unwrap();
 
                 content.write_str("\n\n")?;
-                let button_text_begin = content.encode_utf16().count();
-                content.write_str(">> View Post <<")?;
-                entities.push((
-                    button_text_begin..content.encode_utf16().count(),
-                    Entity::Link(&post.url),
-                ));
+
+                // Jump buttons
+                let mut iter = post.urls.iter().into_iter().peekable();
+                while let Some(url) = iter.next() {
+                    let button_text_begin = content.encode_utf16().count();
+                    write!(content, ">> {} <<", url.display)?;
+                    entities.push((
+                        button_text_begin..content.encode_utf16().count(),
+                        Entity::Link(&url.url),
+                    ));
+                    if iter.peek().is_some() {
+                        content.write_str(" | ")?;
+                    }
+                }
 
                 let mut media = attachments
                     .iter()

@@ -11,8 +11,9 @@ use tokio::sync::{Mutex, OnceCell};
 
 use super::Response;
 use crate::source::{
-    FetcherTrait, Notification, NotificationKind, Post, PostAttachment, PostAttachmentImage, Posts,
-    PostsRef, RepostFrom, SourcePlatformName, Status, StatusKind, StatusSource, User,
+    FetcherTrait, Notification, NotificationKind, Post, PostAttachment, PostAttachmentImage,
+    PostPlatformUniqueId, PostUrl, PostUrls, Posts, PostsRef, RepostFrom, SourcePlatformName,
+    Status, StatusKind, StatusSource, User,
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -240,7 +241,7 @@ mod data {
 pub struct Fetcher {
     params: ConfigParams,
     first_fetch: OnceCell<()>,
-    fetched_cache: Mutex<HashSet<String>>,
+    fetched_cache: Mutex<HashSet<PostPlatformUniqueId>>,
 }
 
 impl FetcherTrait for Fetcher {
@@ -279,7 +280,7 @@ impl Fetcher {
             .get_or_init(|| async {
                 let mut published_cache = self.fetched_cache.lock().await;
                 posts.0.iter().for_each(|post| {
-                    assert!(published_cache.insert(post.url.clone()));
+                    assert!(published_cache.insert(post.platform_unique_id()));
                 })
             })
             .await;
@@ -308,11 +309,11 @@ impl Fetcher {
             let remaining_posts = posts
                 .0
                 .into_iter()
-                .filter(|post| !fetched_cache.contains(&post.url))
+                .filter(|post| !fetched_cache.contains(&post.platform_unique_id()))
                 .collect::<Vec<_>>();
 
             remaining_posts.iter().for_each(|post| {
-                assert!(fetched_cache.insert(post.url.clone()));
+                assert!(fetched_cache.insert(post.platform_unique_id()));
             });
             drop(fetched_cache);
 
@@ -451,32 +452,39 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
             .transpose()
             .map_err(|err| anyhow!("failed to parse origin card: {err}"))?;
 
+        let mut urls = vec![PostUrl {
+            url: format!("https://www.bilibili.com/opus/{}", item.id_str),
+            display: "查看动态".into(),
+        }];
+        item.modules
+            .dynamic
+            .major
+            .as_ref()
+            .inspect(|major| match major {
+                data::ModuleDynamicMajor::Opus(_)
+                | data::ModuleDynamicMajor::Draw(_)
+                | data::ModuleDynamicMajor::Common(_) => {
+                    // No need to add extra URLs
+                }
+                data::ModuleDynamicMajor::Archive(archive) => urls.push(PostUrl {
+                    url: format!("https://www.bilibili.com/video/{}", archive.archive.bvid),
+                    display: "查看视频".into(),
+                }),
+                data::ModuleDynamicMajor::Article(article) => urls.push(PostUrl {
+                    url: format!("https://www.bilibili.com/read/cv{}", article.article.id),
+                    display: "查看文章".into(),
+                }),
+                data::ModuleDynamicMajor::Pgc(pgc) => urls.push(PostUrl {
+                    url: format!("https://www.bilibili.com/bangumi/play/ep{}", pgc.pgc.epid),
+                    display: "查看文章".into(),
+                }),
+                data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
+            });
+
         Ok(Post {
             user: Some(item.modules.author.clone().into()),
             content,
-            url: item
-                .modules
-                .dynamic
-                .major
-                .as_ref()
-                .map(|major| match major {
-                    data::ModuleDynamicMajor::Opus(_)
-                    | data::ModuleDynamicMajor::Draw(_)
-                    | data::ModuleDynamicMajor::Common(_) => {
-                        format!("https://www.bilibili.com/opus/{}", item.id_str)
-                    }
-                    data::ModuleDynamicMajor::Archive(archive) => {
-                        format!("https://www.bilibili.com/video/{}", archive.archive.bvid)
-                    }
-                    data::ModuleDynamicMajor::Article(article) => {
-                        format!("https://www.bilibili.com/read/cv{}", article.article.id)
-                    }
-                    data::ModuleDynamicMajor::Pgc(pgc) => {
-                        format!("https://www.bilibili.com/bangumi/play/ep{}", pgc.pgc.epid)
-                    }
-                    data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
-                })
-                .unwrap_or_else(|| format!("https://www.bilibili.com/opus/{}", item.id_str)),
+            urls: PostUrls::from_iter(urls)?,
             repost_from: original.map(|original| RepostFrom::Recursion(Box::new(original))),
             attachments: item
                 .modules
@@ -583,11 +591,17 @@ mod tests {
     #[tokio::test]
     async fn deser() {
         let history = fetch_space_history(8047632).await.unwrap();
-        assert!(history.0.iter().all(|post| !post.url.is_empty()));
+        assert!(history
+            .0
+            .iter()
+            .all(|post| !post.urls.major().url.is_empty()));
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
 
         let history = fetch_space_history(178362496).await.unwrap();
-        assert!(history.0.iter().all(|post| !post.url.is_empty()));
+        assert!(history
+            .0
+            .iter()
+            .all(|post| !post.urls.major().url.is_empty()));
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
     }
 
@@ -622,7 +636,11 @@ mod tests {
                 avatar_url: "https://test.avatar".into(),
             }),
             content: "test1".into(),
-            url: "https://test1".into(),
+            urls: PostUrls::from_iter([PostUrl {
+                url: "https://test1".into(),
+                display: "View".into(),
+            }])
+            .unwrap(),
             repost_from: None,
             attachments: vec![],
         });
@@ -646,7 +664,11 @@ mod tests {
                 avatar_url: "https://test.avatar".into(),
             }),
             content: "test2".into(),
-            url: "https://test2".into(),
+            urls: PostUrls::from_iter([PostUrl {
+                url: "https://test2".into(),
+                display: "View".into(),
+            }])
+            .unwrap(),
             repost_from: None,
             attachments: vec![],
         });

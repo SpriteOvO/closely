@@ -8,7 +8,7 @@ use scraper::{Html, Selector};
 use serde::Deserialize;
 use spdlog::prelude::*;
 
-use super::{FetcherTrait, RepostFrom, StatusSourceUser, User};
+use super::{FetcherTrait, PostUrl, RepostFrom, StatusSourceUser, User};
 use crate::{
     config::Config,
     prop,
@@ -147,7 +147,11 @@ impl Fetcher {
                     avatar_url: status.avatar_url.real_url(),
                 }),
                 content: tweet.content,
-                url: tweet.url.real_url(),
+                urls: PostUrl {
+                    url: tweet.url.real_url(),
+                    display: "View Tweet".into(),
+                }
+                .into(),
                 repost_from: Some(RepostFrom::Legacy {
                     is_repost: tweet.is_retweet,
                     is_quote: tweet.is_quote,

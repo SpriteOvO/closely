@@ -6,8 +6,8 @@ use serde_json as json;
 
 use super::Response;
 use crate::source::{
-    FetcherTrait, Post, PostAttachment, PostAttachmentImage, Posts, SourcePlatformName, Status,
-    StatusKind, StatusSource,
+    FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostUrl, Posts, SourcePlatformName,
+    Status, StatusKind, StatusSource,
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -112,7 +112,11 @@ fn parse_response(resp: data::SeriesArchives) -> anyhow::Result<Posts> {
         .map(|archive| Post {
             user: None,
             content: archive.title,
-            url: format!("https://www.bilibili.com/video/{}", archive.bvid),
+            urls: PostUrl {
+                url: format!("https://www.bilibili.com/video/{}", archive.bvid),
+                display: "查看视频".into(),
+            }
+            .into(),
             repost_from: None,
             attachments: vec![PostAttachment::Image(PostAttachmentImage {
                 media_url: archive.pic,
@@ -131,7 +135,10 @@ mod tests {
     async fn deser() {
         let videos = fetch_series_archives(522384919, 3747026).await.unwrap();
 
-        assert!(videos.0.iter().all(|post| !post.url.is_empty()));
+        assert!(videos
+            .0
+            .iter()
+            .all(|post| !post.urls.major().url.is_empty()));
         assert!(videos.0.iter().all(|post| !post.content.is_empty()));
     }
 }

@@ -285,7 +285,10 @@ impl Notifier {
             }
             None => content.write_str(&post.content)?,
         }
-        write!(content, "\n\n{}", post.url)?;
+        content.write_str("\n")?;
+        for url in post.urls.iter().into_iter() {
+            write!(content, "\n{}: {}", url.display, url.url)?;
+        }
 
         let images = post
             .attachments_recursive()

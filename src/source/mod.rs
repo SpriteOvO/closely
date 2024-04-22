@@ -7,6 +7,7 @@ use std::{
     pin::Pin,
 };
 
+use anyhow::ensure;
 use serde::Deserialize;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -95,8 +96,10 @@ impl Status {
                 notifications
             }
             (StatusKind::Posts(posts), Some(StatusKind::Posts(last_posts))) => {
-                let new_posts =
-                    vec_diff_by(&posts.0, &last_posts.0, |l, r| l.url == r.url).collect::<Vec<_>>();
+                let new_posts = vec_diff_by(&posts.0, &last_posts.0, |l, r| {
+                    l.platform_unique_id() == r.platform_unique_id()
+                })
+                .collect::<Vec<_>>();
                 if !new_posts.is_empty() {
                     vec![Notification {
                         kind: NotificationKind::Posts(PostsRef(new_posts)),
@@ -134,13 +137,57 @@ pub struct User {
     pub avatar_url: String,
 }
 
+#[derive(Debug, Eq, PartialEq, Hash)]
+pub struct PostPlatformUniqueId(String);
+
 #[derive(Debug)]
 pub struct Post {
     pub user: Option<User>,
     pub content: String,
-    pub url: String,
+    pub urls: PostUrls,
     pub repost_from: Option<RepostFrom>,
     attachments: Vec<PostAttachment>,
+}
+
+impl Post {
+    pub fn platform_unique_id(&self) -> PostPlatformUniqueId {
+        PostPlatformUniqueId(self.urls.major().url.clone())
+    }
+}
+
+#[derive(Debug)]
+pub struct PostUrls(Vec<PostUrl>);
+
+impl PostUrls {
+    pub fn new(url: PostUrl) -> Self {
+        Self(vec![url])
+    }
+
+    pub fn from_iter(urls: impl IntoIterator<Item = PostUrl>) -> anyhow::Result<Self> {
+        let urls = urls.into_iter().collect::<Vec<_>>();
+        ensure!(!urls.is_empty(), "urls must not be empty");
+        Ok(Self(urls))
+    }
+
+    pub fn major(&self) -> &PostUrl {
+        self.0.first().unwrap()
+    }
+
+    pub fn iter(&self) -> impl IntoIterator<Item = &PostUrl> {
+        self.0.iter()
+    }
+}
+
+impl From<PostUrl> for PostUrls {
+    fn from(url: PostUrl) -> Self {
+        Self::new(url)
+    }
+}
+
+#[derive(Debug)]
+pub struct PostUrl {
+    pub url: String,
+    pub display: String,
 }
 
 #[derive(Debug)]
@@ -163,19 +210,19 @@ impl Post {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum PostAttachment {
     Image(PostAttachmentImage),
     #[allow(dead_code)]
     Video(PostAttachmentVideo),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PostAttachmentImage {
     pub media_url: String,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PostAttachmentVideo {
     pub media_url: String,
 }
@@ -209,7 +256,11 @@ pub struct Posts(Vec<Post>);
 
 impl fmt::Display for Posts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0.iter().map(|p| &p.url))
+        write!(
+            f,
+            "{:?}",
+            self.0.iter().map(|p| p.urls.major()).collect::<Vec<_>>()
+        )
     }
 }
 
@@ -218,7 +269,11 @@ pub struct PostsRef<'a>(pub Vec<&'a Post>);
 
 impl fmt::Display for PostsRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0.iter().map(|p| &p.url))
+        write!(
+            f,
+            "{:?}",
+            self.0.iter().map(|p| p.urls.major()).collect::<Vec<_>>()
+        )
     }
 }
 
