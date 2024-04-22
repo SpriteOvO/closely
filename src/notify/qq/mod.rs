@@ -35,7 +35,6 @@ impl ConfigGlobal {
             .await
             .map_err(|err| anyhow!("failed to launch core: {err}"))?;
 
-        // TODO: before login?
         let version = core
             .version_info_retry_timeout(Duration::from_secs(5))
             .await?;
