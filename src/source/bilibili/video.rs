@@ -5,9 +5,12 @@ use serde::Deserialize;
 use serde_json as json;
 
 use super::Response;
-use crate::source::{
-    FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostUrl, Posts, SourcePlatformName,
-    Status, StatusKind, StatusSource,
+use crate::{
+    platform::{PlatformMetadata, PlatformTrait},
+    source::{
+        FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostUrl, Posts, Status,
+        StatusKind, StatusSource,
+    },
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -48,6 +51,14 @@ pub struct Fetcher {
     params: ConfigParams,
 }
 
+impl PlatformTrait for Fetcher {
+    fn metadata(&self) -> PlatformMetadata {
+        PlatformMetadata {
+            display_name: "bilibili 视频",
+        }
+    }
+}
+
 impl FetcherTrait for Fetcher {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
         Box::pin(self.fetch_status_impl())
@@ -71,7 +82,7 @@ impl Fetcher {
         Ok(Status {
             kind: StatusKind::Posts(videos),
             source: StatusSource {
-                platform_name: SourcePlatformName::BilibiliVideo,
+                platform: self.metadata(),
                 user: None,
             },
         })

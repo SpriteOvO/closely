@@ -5,9 +5,9 @@ use serde::Deserialize;
 use serde_json::{self as json, json};
 
 use super::Response;
-use crate::source::{
-    FetcherTrait, LiveStatus, SourcePlatformName, Status, StatusKind, StatusSource,
-    StatusSourceUser,
+use crate::{
+    platform::{PlatformMetadata, PlatformTrait},
+    source::{FetcherTrait, LiveStatus, Status, StatusKind, StatusSource, StatusSourceUser},
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -39,6 +39,14 @@ pub struct Fetcher {
     params: ConfigParams,
 }
 
+impl PlatformTrait for Fetcher {
+    fn metadata(&self) -> PlatformMetadata {
+        PlatformMetadata {
+            display_name: "bilibili 直播",
+        }
+    }
+}
+
 impl FetcherTrait for Fetcher {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
         Box::pin(self.fetch_status_impl())
@@ -68,7 +76,7 @@ impl Fetcher {
                 live_url: format!("https://live.bilibili.com/{}", data.room_id),
             }),
             source: StatusSource {
-                platform_name: SourcePlatformName::BilibiliLive,
+                platform: self.metadata(),
                 user: Some(StatusSourceUser {
                     display_name: data.uname,
                     profile_url: format!("https://space.bilibili.com/{}", self.params.user_id),

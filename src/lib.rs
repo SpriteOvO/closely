@@ -1,6 +1,7 @@
 pub mod cli;
 mod config;
 mod notify;
+mod platform;
 pub mod prop;
 mod source;
 mod task;

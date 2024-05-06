@@ -16,6 +16,7 @@ use tokio::sync::OnceCell;
 use super::NotifierTrait;
 use crate::{
     config::{self, AsSecretRef},
+    platform::{PlatformMetadata, PlatformTrait},
     secret_enum,
     source::{
         LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, RepostFrom,
@@ -147,6 +148,12 @@ pub struct Notifier {
     params: ConfigParams,
 }
 
+impl PlatformTrait for Notifier {
+    fn metadata(&self) -> PlatformMetadata {
+        PlatformMetadata { display_name: "QQ" }
+    }
+}
+
 impl NotifierTrait for Notifier {
     fn notify<'a>(
         &'a self,
@@ -191,7 +198,7 @@ impl Notifier {
                 .image(&live_status.cover_image_url)
                 .text(format!(
                     "[{}] 🟢 {}\n{}",
-                    source.platform_name, live_status.title, live_status.live_url
+                    source.platform.display_name, live_status.title, live_status.live_url
                 ))
                 .build();
 
@@ -217,7 +224,7 @@ impl Notifier {
 
         let message = lagrange::Message::text(format!(
             "[{}] ✏️ {}",
-            source.platform_name, live_status.title
+            source.platform.display_name, live_status.title
         ));
 
         BACKEND
@@ -256,7 +263,7 @@ impl Notifier {
     async fn notify_post(&self, post: &Post, source: &StatusSource) -> anyhow::Result<()> {
         let mut content = String::new();
 
-        write!(content, "[{}] ", source.platform_name)?;
+        write!(content, "[{}] ", source.platform.display_name)?;
 
         match &post.repost_from {
             Some(RepostFrom::Recursion(repost_from)) => {

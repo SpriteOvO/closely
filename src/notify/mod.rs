@@ -10,6 +10,7 @@ use spdlog::prelude::*;
 
 use crate::{
     config::{self, Overridable},
+    platform::PlatformTrait,
     source::Notification,
 };
 
@@ -61,7 +62,7 @@ impl fmt::Display for ConfigNotify {
     }
 }
 
-pub trait NotifierTrait: Send + Sync {
+pub trait NotifierTrait: PlatformTrait {
     fn notify<'a>(
         &'a self,
         notification: &'a Notification<'_>,

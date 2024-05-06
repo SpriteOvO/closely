@@ -10,10 +10,13 @@ use tap::prelude::*;
 use tokio::sync::{Mutex, OnceCell};
 
 use super::Response;
-use crate::source::{
-    FetcherTrait, Notification, NotificationKind, Post, PostAttachment, PostAttachmentImage,
-    PostPlatformUniqueId, PostUrl, PostUrls, Posts, PostsRef, RepostFrom, SourcePlatformName,
-    Status, StatusKind, StatusSource, User,
+use crate::{
+    platform::{PlatformMetadata, PlatformTrait},
+    source::{
+        FetcherTrait, Notification, NotificationKind, Post, PostAttachment, PostAttachmentImage,
+        PostPlatformUniqueId, PostUrl, PostUrls, Posts, PostsRef, RepostFrom, Status, StatusKind,
+        StatusSource, User,
+    },
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -244,6 +247,14 @@ pub struct Fetcher {
     fetched_cache: Mutex<HashSet<PostPlatformUniqueId>>,
 }
 
+impl PlatformTrait for Fetcher {
+    fn metadata(&self) -> PlatformMetadata {
+        PlatformMetadata {
+            display_name: "bilibili 动态",
+        }
+    }
+}
+
 impl FetcherTrait for Fetcher {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
         Box::pin(self.fetch_status_impl())
@@ -288,7 +299,7 @@ impl Fetcher {
         Ok(Status {
             kind: StatusKind::Posts(posts),
             source: StatusSource {
-                platform_name: SourcePlatformName::BilibiliSpace,
+                platform: self.metadata(),
                 // TODO: User info is only contained in cards, not in a unique kv, implement it
                 // later if needed
                 user: None,
@@ -610,7 +621,9 @@ mod tests {
         let fetcher = Fetcher::new(ConfigParams { user_id: 1 });
 
         let source = StatusSource {
-            platform_name: SourcePlatformName::BilibiliSpace,
+            platform: PlatformMetadata {
+                display_name: "test.platform",
+            },
             user: None,
         };
         let mut posts = vec![];

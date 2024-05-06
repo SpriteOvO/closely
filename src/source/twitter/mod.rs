@@ -11,11 +11,9 @@ use spdlog::prelude::*;
 use super::{FetcherTrait, PostUrl, RepostFrom, StatusSourceUser, User};
 use crate::{
     config::Config,
+    platform::{PlatformMetadata, PlatformTrait},
     prop,
-    source::{
-        Post, PostAttachment, PostAttachmentImage, Posts, SourcePlatformName, Status, StatusKind,
-        StatusSource,
-    },
+    source::{Post, PostAttachment, PostAttachmentImage, Posts, Status, StatusKind, StatusSource},
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -108,6 +106,14 @@ pub struct Fetcher {
     nitter_host: String,
 }
 
+impl PlatformTrait for Fetcher {
+    fn metadata(&self) -> PlatformMetadata {
+        PlatformMetadata {
+            display_name: "Twitter",
+        }
+    }
+}
+
 impl FetcherTrait for Fetcher {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
         Box::pin(self.fetch_status_impl())
@@ -178,7 +184,7 @@ impl Fetcher {
         Ok(Status {
             kind: StatusKind::Posts(Posts(posts)),
             source: StatusSource {
-                platform_name: SourcePlatformName::Twitter,
+                platform: self.metadata(),
                 user: Some(StatusSourceUser {
                     display_name: status.fullname,
                     profile_url: format!("https://twitter.com/{}", self.params.username),

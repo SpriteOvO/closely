@@ -10,6 +10,8 @@ use std::{
 use anyhow::ensure;
 use serde::Deserialize;
 
+use crate::platform::{PlatformMetadata, PlatformTrait};
+
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(tag = "name")]
 #[allow(clippy::enum_variant_names)]
@@ -36,28 +38,8 @@ impl fmt::Display for ConfigSourcePlatform {
 }
 
 #[derive(Debug)]
-#[allow(clippy::enum_variant_names)]
-pub enum SourcePlatformName {
-    BilibiliLive,
-    BilibiliSpace,
-    BilibiliVideo,
-    Twitter,
-}
-
-impl fmt::Display for SourcePlatformName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BilibiliLive => write!(f, "bilibili 直播"),
-            Self::BilibiliSpace => write!(f, "bilibili 动态"),
-            Self::BilibiliVideo => write!(f, "bilibili 视频"),
-            Self::Twitter => write!(f, "Twitter"),
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct StatusSource {
-    pub platform_name: SourcePlatformName,
+    pub platform: PlatformMetadata,
     pub user: Option<StatusSourceUser>,
 }
 
@@ -308,7 +290,7 @@ impl<'a> fmt::Display for NotificationKind<'a> {
     }
 }
 
-pub trait FetcherTrait: Display + Send + Sync {
+pub trait FetcherTrait: PlatformTrait + Display {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>>;
 
     // "post" means "after" here

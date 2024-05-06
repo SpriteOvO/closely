@@ -16,6 +16,7 @@ use tokio::sync::Mutex;
 use super::NotifierTrait;
 use crate::{
     config::{self, AsSecretRef, Config},
+    platform::{PlatformMetadata, PlatformTrait},
     secret_enum,
     source::{
         LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, RepostFrom,
@@ -154,6 +155,14 @@ pub struct Notifier {
     last_live_message: Mutex<Option<SentMessage>>,
 }
 
+impl PlatformTrait for Notifier {
+    fn metadata(&self) -> PlatformMetadata {
+        PlatformMetadata {
+            display_name: "Telegram",
+        }
+    }
+}
+
 impl NotifierTrait for Notifier {
     fn notify<'a>(
         &'a self,
@@ -221,7 +230,7 @@ impl Notifier {
     ) -> (String, Vec<json::Value>) {
         let caption = format!(
             "[{}] {} {}",
-            source.platform_name,
+            source.platform.display_name,
             if live_status.online { "🟢" } else { "🟠" },
             itertools::join(title_history, " ⬅️ "),
         );
@@ -360,7 +369,7 @@ impl Notifier {
     ) -> anyhow::Result<()> {
         let token = self.token()?;
 
-        let text = format!("[{}] ✏️ {}", source.platform_name, live_status.title);
+        let text = format!("[{}] ✏️ {}", source.platform.display_name, live_status.title);
         let body = json!(
             {
                 "chat_id": telegram_chat_json(&self.params.chat),
@@ -493,7 +502,7 @@ impl Notifier {
 
         let mut entities = Vec::<(Range<usize>, Entity)>::new();
 
-        write!(content, "[{}] ", source.platform_name)?;
+        write!(content, "[{}] ", source.platform.display_name)?;
 
         match &post.repost_from {
             Some(RepostFrom::Recursion(repost_from)) => {
