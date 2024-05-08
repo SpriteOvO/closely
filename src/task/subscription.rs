@@ -1,15 +1,16 @@
-use std::time::Duration;
+use std::{pin::Pin, time::Duration};
 
 use anyhow::anyhow;
 use spdlog::prelude::*;
 use tokio::time::MissedTickBehavior;
 
+use super::{Task, TaskKind};
 use crate::{
     notify,
     source::{self, ConfigSourcePlatform, Status},
 };
 
-pub struct Task {
+pub struct TaskSubscription {
     name: String,
     interval: Duration,
     notifiers: Vec<Box<dyn notify::NotifierTrait>>,
@@ -17,7 +18,7 @@ pub struct Task {
     last_status: Option<Status>,
 }
 
-impl Task {
+impl TaskSubscription {
     pub fn new(
         name: String,
         interval: Duration,
@@ -33,7 +34,7 @@ impl Task {
         }
     }
 
-    pub async fn run(mut self) {
+    async fn run_impl(&mut self) {
         let mut interval = tokio::time::interval(self.interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
@@ -48,9 +49,7 @@ impl Task {
             trace!("subscription '{}' updated once", self.name);
         }
     }
-}
 
-impl Task {
     async fn run_once(&mut self) -> anyhow::Result<()> {
         let status = self.fetcher.fetch_status().await.map_err(|err| {
             anyhow!(
@@ -85,31 +84,12 @@ impl Task {
     }
 }
 
-pub struct Runner {
-    join_handles: Vec<tokio::task::JoinHandle<()>>,
-}
-
-impl Runner {
-    pub async fn join_all(self) {
-        for join_handle in self.join_handles {
-            if let Err(err) = join_handle.await {
-                error!("failed to join task: {err}");
-            }
-        }
+impl Task for TaskSubscription {
+    fn kind(&self) -> TaskKind {
+        TaskKind::Poll
     }
-}
 
-pub async fn run_tasks(tasks: impl IntoIterator<Item = Task>) -> anyhow::Result<Runner> {
-    let join_handles = tasks
-        .into_iter()
-        .map(|task| {
-            tokio::spawn(async move {
-                task.run().await;
-            })
-        })
-        .collect::<Vec<_>>();
-
-    info!("{} tasks are running", join_handles.len());
-
-    Ok(Runner { join_handles })
+    fn run(&mut self) -> Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(self.run_impl())
+    }
 }

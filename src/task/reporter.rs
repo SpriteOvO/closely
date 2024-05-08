@@ -1,0 +1,63 @@
+use std::{future::Future, pin::Pin};
+
+use anyhow::ensure;
+use spdlog::prelude::*;
+use tokio::time::MissedTickBehavior;
+
+use super::{Task, TaskKind};
+use crate::reporter::{ConfigHeartbeat, ConfigHeartbeatKind, ReporterParams};
+
+pub struct TaskReporter {
+    params: ReporterParams,
+}
+
+impl TaskReporter {
+    pub fn new(params: ReporterParams) -> Self {
+        Self { params }
+    }
+
+    async fn run_impl(&mut self) {
+        let heartbeat = self.params.heartbeat.as_ref().unwrap();
+
+        let mut interval = tokio::time::interval(heartbeat.interval);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+        loop {
+            interval.tick().await;
+            if let Err(err) = Self::run_once(heartbeat).await {
+                error!("error occurred while sending heartbeat: {err}");
+            } else {
+                trace!("heartbeat sent once");
+            }
+        }
+    }
+
+    async fn run_once(heartbeat: &ConfigHeartbeat) -> anyhow::Result<()> {
+        match &heartbeat.kind {
+            ConfigHeartbeatKind::HttpGet(http_get) => {
+                let response = reqwest::get(http_get.url()).await?;
+                let status = response.status();
+                ensure!(
+                    status.is_success(),
+                    "heartbeat server responds unsuccessful status '{status}'. response: {response:?}"
+                );
+                Ok(())
+            }
+        }
+    }
+}
+
+impl Task for TaskReporter {
+    fn kind(&self) -> TaskKind {
+        match self.params.heartbeat {
+            Some(_) => TaskKind::Poll,
+            None => TaskKind::Noop,
+        }
+    }
+
+    fn run(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(self.run_impl())
+    }
+}
+
+// TODO: Mock a server to test it

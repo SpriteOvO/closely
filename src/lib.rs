@@ -3,12 +3,13 @@ mod config;
 mod notify;
 mod platform;
 pub mod prop;
+mod reporter;
 mod source;
 mod task;
 
 use anyhow::anyhow;
 use once_cell::sync::OnceCell;
-use task::Task;
+use task::{Task, TaskReporter, TaskSubscription};
 
 use crate::config::Config;
 
@@ -30,14 +31,18 @@ pub async fn run(args: cli::Args) -> anyhow::Result<()> {
     )
     .await?;
 
-    let tasks = config.subscriptions().map(|(name, subscription)| {
-        Task::new(
+    let subscription_tasks = config.subscriptions().map(|(name, subscription)| {
+        Box::new(TaskSubscription::new(
             name,
             subscription.interval.unwrap_or(config.interval),
             subscription.notify,
             subscription.platform,
-        )
+        )) as Box<dyn Task>
     });
+    let reporter_task = config
+        .reporter()
+        .map(|params| Box::new(TaskReporter::new(params)) as Box<dyn Task>);
+    let tasks = reporter_task.into_iter().chain(subscription_tasks);
 
     task::run_tasks(tasks).await?.join_all().await;
 

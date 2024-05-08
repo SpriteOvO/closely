@@ -15,6 +15,7 @@ use spdlog::prelude::*;
 
 use crate::{
     notify,
+    reporter::{ConfigReporterRaw, ReporterParams},
     source::{self, ConfigSourcePlatform},
 };
 
@@ -22,6 +23,7 @@ use crate::{
 pub struct Config {
     #[serde(with = "humantime_serde")]
     pub interval: Duration,
+    reporter: Option<ConfigReporterRaw>,
     platform: Option<PlatformGlobal>,
     #[serde(rename = "notify", default)]
     notify_map: NotifyMap,
@@ -62,6 +64,10 @@ impl Config {
             })
         })
     }
+
+    pub fn reporter(&self) -> Option<ReporterParams> {
+        self.reporter.as_ref().map(|r| r.reporter(&self.notify_map))
+    }
 }
 
 impl Config {
@@ -77,6 +83,11 @@ impl Config {
         // Validate platform_global
         if let Some(platform) = &self.platform {
             platform.validate()?;
+        }
+
+        // Validate reporter
+        if let Some(reporter) = &self.reporter {
+            reporter.validate(&self.notify_map)?;
         }
 
         // Validate notify ref
@@ -211,7 +222,7 @@ impl NotifyRef {
 pub struct NotifyMap(#[serde(default)] HashMap<String, notify::ConfigNotify>);
 
 impl NotifyMap {
-    fn get_by_ref(&self, notify_ref: &NotifyRef) -> anyhow::Result<notify::ConfigNotify> {
+    pub fn get_by_ref(&self, notify_ref: &NotifyRef) -> anyhow::Result<notify::ConfigNotify> {
         let original = self
             .0
             .get(notify_ref.name())
@@ -347,6 +358,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::reporter::{ConfigHeartbeat, ConfigHeartbeatHttpGet, ConfigHeartbeatKind};
 
     #[test]
     fn deser() {
@@ -354,6 +366,7 @@ mod tests {
             Config::from_str(
                 r#"
 interval = '1min'
+reporter = { notify = ["meow"], heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
 
 [platform.QQ]
 login = { account = 123456, password = "xyz" }
@@ -386,6 +399,15 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
             .unwrap(),
             Config {
                 interval: Duration::from_secs(60), // 1min
+                reporter: Some(ConfigReporterRaw {
+                    notify_ref: vec![NotifyRef::Direct("meow".into())],
+                    heartbeat: Some(ConfigHeartbeat {
+                        kind: ConfigHeartbeatKind::HttpGet(ConfigHeartbeatHttpGet {
+                            url: "https://example.com/".into(),
+                        }),
+                        interval: Duration::from_secs(60),
+                    }),
+                }),
                 platform: Some(PlatformGlobal {
                     qq: Some(notify::qq::ConfigGlobal {
                         login: notify::qq::ConfigLogin {
@@ -478,6 +500,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
         assert!(Config::from_str(
             r#"
 interval = '1min'
+reporter = { notify = ["meow"], heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
 
 [notify]
 meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
@@ -488,6 +511,20 @@ notify = ["meow"]
                 "#
         )
         .is_ok());
+
+        assert!(Config::from_str(
+            r#"
+interval = '1min'
+reporter = { notify = ["reporter_notify"], heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
+
+[[subscription.meow]]
+platform = { name = "bilibili.live", user_id = 123456 }
+notify = []
+            "#
+        )
+        .unwrap_err()
+        .to_string()
+        .ends_with("reference of notify not found 'reporter_notify'"));
 
         assert!(Config::from_str(
             r#"
