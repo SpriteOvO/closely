@@ -180,6 +180,7 @@ impl Notifier {
                     .await
             }
             NotificationKind::Posts(posts) => self.notify_posts(posts, notification.source).await,
+            NotificationKind::Log(message) => self.notify_log(message).await,
         }
     }
 
@@ -309,6 +310,23 @@ impl Notifier {
             .images(images)
             .text(content)
             .build();
+
+        BACKEND
+            .get()
+            .unwrap()
+            .send_message(&self.params.chat, message)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn notify_log(&self, message: &str) -> anyhow::Result<()> {
+        if !self.params.notifications.log {
+            info!("log notification is disabled, skip notifying");
+            return Ok(());
+        }
+
+        let message = lagrange::Message::text(message);
 
         BACKEND
             .get()

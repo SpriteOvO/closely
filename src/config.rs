@@ -35,6 +35,11 @@ static PLATFORM_GLOBAL: OnceCell<PlatformGlobal> = OnceCell::new();
 impl Config {
     pub async fn init(input: impl AsRef<str>) -> anyhow::Result<Self> {
         let mut config = Self::from_str(input)?;
+        if let Some(reporter) = &config.reporter {
+            reporter
+                .init(&config.notify_map)
+                .map_err(|err| anyhow!("failed to initialize reporter: {err}"))?;
+        }
         PLATFORM_GLOBAL
             .set(config.platform.take().unwrap_or_default())
             .map_err(|_| anyhow!("config was initialized before"))?;
@@ -66,7 +71,7 @@ impl Config {
     }
 
     pub fn reporter(&self) -> Option<ReporterParams> {
-        self.reporter.as_ref().map(|r| r.reporter(&self.notify_map))
+        self.reporter.as_ref().map(|r| r.reporter())
     }
 }
 
@@ -163,6 +168,8 @@ pub struct Notifications {
     pub live_title: bool,
     #[serde(default = "default_true")]
     pub post: bool,
+    #[serde(default = "default_true")]
+    pub log: bool,
 }
 
 impl Default for Notifications {
@@ -186,6 +193,7 @@ impl Overridable for Notifications {
             live_online: new.live_online.unwrap_or(self.live_online),
             live_title: new.live_title.unwrap_or(self.live_title),
             post: new.post.unwrap_or(self.post),
+            log: new.log.unwrap_or(self.log),
         }
     }
 }
@@ -195,6 +203,7 @@ pub struct NotificationsOverride {
     pub live_online: Option<bool>,
     pub live_title: Option<bool>,
     pub post: Option<bool>,
+    pub log: Option<bool>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -358,7 +367,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::reporter::{ConfigHeartbeat, ConfigHeartbeatHttpGet, ConfigHeartbeatKind};
+    use crate::reporter::{
+        ConfigHeartbeat, ConfigHeartbeatHttpGet, ConfigHeartbeatKind, ConfigReporterLog,
+    };
 
     #[test]
     fn deser() {
@@ -366,7 +377,7 @@ mod tests {
             Config::from_str(
                 r#"
 interval = '1min'
-reporter = { notify = ["meow"], heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
+reporter = { log = { notify = ["meow"] }, heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
 
 [platform.QQ]
 login = { account = 123456, password = "xyz" }
@@ -400,7 +411,9 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
             Config {
                 interval: Duration::from_secs(60), // 1min
                 reporter: Some(ConfigReporterRaw {
-                    notify_ref: vec![NotifyRef::Direct("meow".into())],
+                    log: Some(ConfigReporterLog {
+                        notify_ref: vec![NotifyRef::Direct("meow".into())],
+                    }),
                     heartbeat: Some(ConfigHeartbeat {
                         kind: ConfigHeartbeatKind::HttpGet(ConfigHeartbeatHttpGet {
                             url: "https://example.com/".into(),
@@ -444,6 +457,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                 live_online: true,
                                 live_title: false,
                                 post: false,
+                                log: true,
                             },
                             chat: notify::telegram::ConfigChat::Id(5678),
                             thread_id: Some(900),
@@ -515,7 +529,7 @@ notify = ["meow"]
         assert!(Config::from_str(
             r#"
 interval = '1min'
-reporter = { notify = ["reporter_notify"], heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
+reporter = { log = { notify = ["reporter_notify"] }, heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
 
 [[subscription.meow]]
 platform = { name = "bilibili.live", user_id = 123456 }

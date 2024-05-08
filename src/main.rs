@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use clap::Parser;
 use closely::{cli, prop};
 use spdlog::{
+    formatter::{pattern, PatternFormatter},
     prelude::*,
     sink::{RotatingFileSink, RotationPolicy},
 };
@@ -61,7 +62,13 @@ fn setup_logger(verbose: bool, log_dir: Option<&Path>) -> anyhow::Result<()> {
         spdlog::set_default_logger(logger);
     }
 
-    spdlog::default_logger().set_flush_level_filter(LevelFilter::All);
+    let logger = spdlog::default_logger();
+    logger.sinks().iter().for_each(|sink| {
+        sink.set_formatter(Box::new(PatternFormatter::new(pattern!(
+            "[{date} {time}.{millisecond}] [{^{level}}] {payload}{eol}"
+        ))));
+    });
+    logger.set_flush_level_filter(LevelFilter::All);
 
     Ok(())
 }

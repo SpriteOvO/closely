@@ -37,13 +37,13 @@ impl fmt::Display for ConfigSourcePlatform {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StatusSource {
     pub platform: PlatformMetadata,
     pub user: Option<StatusSourceUser>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StatusSourceUser {
     pub display_name: String,
     pub profile_url: String,
@@ -246,7 +246,7 @@ impl fmt::Display for Posts {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PostsRef<'a>(pub Vec<&'a Post>);
 
 impl fmt::Display for PostsRef<'_> {
@@ -259,7 +259,7 @@ impl fmt::Display for PostsRef<'_> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Notification<'a> {
     pub kind: NotificationKind<'a>,
     pub source: &'a StatusSource,
@@ -271,11 +271,12 @@ impl<'a> fmt::Display for Notification<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum NotificationKind<'a> {
     LiveOnline(&'a LiveStatus),
     LiveTitle(&'a LiveStatus, &'a str /* old title */),
     Posts(PostsRef<'a>),
+    Log(String),
 }
 
 impl<'a> fmt::Display for NotificationKind<'a> {
@@ -286,6 +287,7 @@ impl<'a> fmt::Display for NotificationKind<'a> {
                 write!(f, "{live_status}, old title '{old_title}'")
             }
             Self::Posts(posts) => write!(f, "{}", posts),
+            Self::Log(message) => write!(f, "log '{message}'"),
         }
     }
 }

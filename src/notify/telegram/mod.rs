@@ -202,6 +202,7 @@ impl Notifier {
                     .await
             }
             NotificationKind::Posts(posts) => self.notify_posts(posts, notification.source).await,
+            NotificationKind::Log(message) => self.notify_log(message).await,
         }
     }
 
@@ -692,6 +693,52 @@ impl Notifier {
             .await
             .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
         let resp: Response = json::from_str(&text)
+            .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
+        if !resp.ok {
+            bail!("response from Telegram contains error, response '{text}'");
+        }
+
+        Ok(())
+    }
+
+    async fn notify_log(&self, message: &str) -> anyhow::Result<()> {
+        if !self.params.notifications.log {
+            info!("log notification is disabled, skip notifying");
+            return Ok(());
+        }
+
+        let token = self.token()?;
+
+        let body = json!(
+            {
+                "chat_id": telegram_chat_json(&self.params.chat),
+                "message_thread_id": self.params.thread_id,
+                "text": message,
+                "link_preview_options": { "is_disabled": true },
+                // "disable_notification": true, // TODO: Make it configurable
+            }
+        );
+        let resp = reqwest::Client::new()
+            .post(telegram_api(token, "sendMessage"))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|err| anyhow!("failed to send request for Telegram: {err}"))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            bail!(
+                "response from Telegram status is not success. resp: {}, body: {}",
+                resp.text().await.unwrap_or_else(|_| "*no text*".into()),
+                body
+            );
+        }
+
+        let text = resp
+            .text()
+            .await
+            .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
+        let resp: Response<ResultMessage> = json::from_str(&text)
             .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
         if !resp.ok {
             bail!("response from Telegram contains error, response '{text}'");
