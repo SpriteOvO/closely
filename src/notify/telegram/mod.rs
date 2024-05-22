@@ -1,15 +1,11 @@
-use std::{
-    borrow::Cow,
-    collections::VecDeque,
-    fmt::{self, Write},
-    future::Future,
-    ops::Range,
-    pin::Pin,
-};
+mod request;
 
-use anyhow::{anyhow, bail};
-use serde::{de::IgnoredAny, Deserialize};
-use serde_json::{self as json, json};
+use std::{borrow::Cow, collections::VecDeque, fmt, future::Future, pin::Pin};
+
+use anyhow::{anyhow, bail, ensure};
+use request::*;
+use serde::Deserialize;
+use serde_json as json;
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
 
@@ -108,6 +104,15 @@ pub enum ConfigChat {
     Username(String),
 }
 
+impl ConfigChat {
+    fn to_json(&self) -> json::Value {
+        match self {
+            ConfigChat::Id(id) => json::Value::Number((*id).into()),
+            ConfigChat::Username(username) => json::Value::String(format!("@{username}")),
+        }
+    }
+}
+
 impl fmt::Display for ConfigChat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -115,39 +120,6 @@ impl fmt::Display for ConfigChat {
             ConfigChat::Username(username) => write!(f, "@{}", username),
         }
     }
-}
-
-#[derive(Deserialize)]
-struct Response<R = IgnoredAny> {
-    ok: bool,
-    #[allow(dead_code)]
-    description: Option<String>,
-    result: Option<R>,
-}
-
-#[derive(Deserialize)]
-struct ResultMessage {
-    message_id: i64,
-}
-
-fn telegram_api(token: impl AsRef<str>, method: impl AsRef<str>) -> String {
-    format!(
-        "https://api.telegram.org/bot{}/{}",
-        token.as_ref(),
-        method.as_ref()
-    )
-}
-
-fn telegram_chat_json(chat: &ConfigChat) -> json::Value {
-    match chat {
-        ConfigChat::Id(id) => json::Value::Number((*id).into()),
-        ConfigChat::Username(username) => json::Value::String(format!("@{username}")),
-    }
-}
-
-enum Entity<'a> {
-    Link(&'a str),
-    Quote,
 }
 
 pub struct Notifier {
@@ -224,31 +196,6 @@ impl Notifier {
         }
     }
 
-    fn make_live_caption<'a>(
-        &self,
-        title_history: impl IntoIterator<Item = &'a String>,
-        live_status: &LiveStatus,
-        source: &StatusSource,
-    ) -> (String, Vec<json::Value>) {
-        let caption = format!(
-            "[{}] {} {}",
-            source.platform.display_name,
-            match live_status.kind {
-                LiveStatusKind::Online => "🟢",
-                LiveStatusKind::Offline => "🟠",
-                LiveStatusKind::Banned => "🔴",
-            },
-            itertools::join(title_history, " ⬅️ "),
-        );
-        let caption_entities = vec![json!({
-            "type": "text_link",
-            "offset": 0,
-            "length": caption.encode_utf16().count(),
-            "url": live_status.live_url
-        })];
-        (caption, caption_entities)
-    }
-
     async fn notify_live_online(
         &self,
         live_status: &LiveStatus,
@@ -257,43 +204,21 @@ impl Notifier {
         let token = self.token()?;
 
         let title_history = VecDeque::from([live_status.title.clone()]);
-        let (caption, caption_entities) =
-            self.make_live_caption(&title_history, live_status, source);
 
-        let body = json!(
-            {
-                "chat_id": telegram_chat_json(&self.params.chat),
-                "message_thread_id": self.params.thread_id,
-                "photo": live_status.cover_image_url,
-                "caption": caption,
-                "caption_entities": caption_entities
-            }
-        );
-        let resp = reqwest::Client::new()
-            .post(telegram_api(token, "sendPhoto"))
-            .json(&body)
+        let text = make_live_text(&title_history, live_status, source);
+        let resp = Request::new(&token)
+            .send_photo(&self.params.chat, &live_status.cover_image_url)
+            .thread_id_opt(self.params.thread_id)
+            .text(text)
             .send()
             .await
-            .map_err(|err| anyhow!("failed to send request for Telegram: {err}"))?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            bail!(
-                "response from Telegram status is not success. resp: {}, body: {}",
-                resp.text().await.unwrap_or_else(|_| "*no text*".into()),
-                body
-            );
-        }
-
-        let text = resp
-            .text()
-            .await
-            .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
-        let resp: Response<ResultMessage> = json::from_str(&text)
-            .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
-        if !resp.ok {
-            bail!("response from Telegram contains error, response '{text}'");
-        }
+            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+        ensure!(
+            resp.ok,
+            "response contains error, description '{}'",
+            resp.description
+                .unwrap_or_else(|| "*no description*".into())
+        );
 
         *self.last_live_message.lock().await = Some(SentMessage {
             // The doc guarantees `result` to be present if `ok` == `true`
@@ -312,42 +237,19 @@ impl Notifier {
         if let Some(last_live_message) = self.last_live_message.lock().await.take() {
             let token = self.token()?;
 
-            let (caption, caption_entities) =
-                self.make_live_caption(&last_live_message.title_history, live_status, source);
-
-            let body = json!(
-                {
-                    "chat_id": telegram_chat_json(&self.params.chat),
-                    "message_id": last_live_message.id,
-                    "caption": caption,
-                    "caption_entities": caption_entities
-                }
-            );
-            let resp = reqwest::Client::new()
-                .post(telegram_api(token, "editMessageCaption"))
-                .json(&body)
+            let text = make_live_text(&last_live_message.title_history, live_status, source);
+            let resp = Request::new(&token)
+                .edit_message_caption(&self.params.chat, last_live_message.id)
+                .text(text)
                 .send()
                 .await
-                .map_err(|err| anyhow!("failed to send request for Telegram: {err}"))?;
-
-            let status = resp.status();
-            if !status.is_success() {
-                bail!(
-                    "response from Telegram status is not success. resp: {}, body: {}",
-                    resp.text().await.unwrap_or_else(|_| "*no text*".into()),
-                    body
-                );
-            }
-
-            let text = resp
-                .text()
-                .await
-                .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
-            let resp: Response<ResultMessage> = json::from_str(&text)
-                .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
-            if !resp.ok {
-                bail!("response from Telegram contains error, response '{text}'");
-            }
+                .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+            ensure!(
+                resp.ok,
+                "response contains error, description '{}'",
+                resp.description
+                    .unwrap_or_else(|| "*no description*".into())
+            );
         }
         Ok(())
     }
@@ -375,50 +277,28 @@ impl Notifier {
     ) -> anyhow::Result<()> {
         let token = self.token()?;
 
-        let text = format!(
-            "[{}] ✏️ {}",
-            source.platform.display_name, live_status.title
+        let text = Text::link(
+            format!(
+                "[{}] ✏️ {}",
+                source.platform.display_name, live_status.title
+            ),
+            &live_status.live_url,
         );
-        let body = json!(
-            {
-                "chat_id": telegram_chat_json(&self.params.chat),
-                "message_thread_id": self.params.thread_id,
-                "text": text,
-                "entities": vec![json!({
-                    "type": "text_link",
-                    "offset": 0,
-                    "length": text.encode_utf16().count(),
-                    "url": live_status.live_url
-                })],
-                "link_preview_options": { "is_disabled": true },
-                // "disable_notification": true, // TODO: Make it configurable
-            }
-        );
-        let resp = reqwest::Client::new()
-            .post(telegram_api(token, "sendMessage"))
-            .json(&body)
+
+        let resp = Request::new(&token)
+            .send_message(&self.params.chat, text)
+            .thread_id_opt(self.params.thread_id)
+            // .disable_notification() // TODO: Make it configurable
+            .disable_link_preview()
             .send()
             .await
-            .map_err(|err| anyhow!("failed to send request for Telegram: {err}"))?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            bail!(
-                "response from Telegram status is not success. resp: {}, body: {}",
-                resp.text().await.unwrap_or_else(|_| "*no text*".into()),
-                body
-            );
-        }
-
-        let text = resp
-            .text()
-            .await
-            .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
-        let resp: Response<ResultMessage> = json::from_str(&text)
-            .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
-        if !resp.ok {
-            bail!("response from Telegram contains error, response '{text}'");
-        }
+            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+        ensure!(
+            resp.ok,
+            "response contains error, description '{}'",
+            resp.description
+                .unwrap_or_else(|| "*no description*".into())
+        );
 
         Ok(())
     }
@@ -435,42 +315,19 @@ impl Notifier {
                 .title_history
                 .push_front(live_status.title.clone());
 
-            let (caption, caption_entities) =
-                self.make_live_caption(&last_live_message.title_history, live_status, source);
-
-            let body = json!(
-                {
-                    "chat_id": telegram_chat_json(&self.params.chat),
-                    "message_id": last_live_message.id,
-                    "caption": caption,
-                    "caption_entities": caption_entities
-                }
-            );
-            let resp = reqwest::Client::new()
-                .post(telegram_api(token, "editMessageCaption"))
-                .json(&body)
+            let text = make_live_text(&last_live_message.title_history, live_status, source);
+            let resp = Request::new(&token)
+                .edit_message_caption(&self.params.chat, last_live_message.id)
+                .text(text)
                 .send()
                 .await
-                .map_err(|err| anyhow!("failed to send request for Telegram: {err}"))?;
-
-            let status = resp.status();
-            if !status.is_success() {
-                bail!(
-                    "response from Telegram status is not success. resp: {}, body: {}",
-                    resp.text().await.unwrap_or_else(|_| "*no text*".into()),
-                    body
-                );
-            }
-
-            let text = resp
-                .text()
-                .await
-                .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
-            let resp: Response<ResultMessage> = json::from_str(&text)
-                .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
-            if !resp.ok {
-                bail!("response from Telegram contains error, response '{text}'");
-            }
+                .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+            ensure!(
+                resp.ok,
+                "response contains error, description '{}'",
+                resp.description
+                    .unwrap_or_else(|| "*no description*".into())
+            );
         }
         Ok(())
     }
@@ -507,210 +364,137 @@ impl Notifier {
         post: &Post,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
-        let mut content = String::new();
-
-        let mut entities = Vec::<(Range<usize>, Entity)>::new();
-
-        write!(content, "[{}] ", source.platform.display_name)?;
+        let mut text = Text::plain(format!("[{}] ", source.platform.display_name));
 
         match &post.repost_from {
             Some(RepostFrom::Recursion(repost_from)) => {
                 if !post.content.is_empty() {
-                    writeln!(content, "💬 {}", post.content)?;
+                    text.push_plain(format!("💬 {}\n", post.content));
                 }
 
-                let quote_begin = content.encode_utf16().count();
-                content.write_str("🔁 ")?;
+                text.push_quote(|text| {
+                    text.push_plain("🔁 ");
 
-                if let Some(user) = &repost_from.user {
-                    let nickname_begin = content.encode_utf16().count();
-                    content.write_str(&user.nickname)?;
-                    // In order for Telegram to display more relevant information about the post, we
-                    // don't use `profile_url` here
-                    //
-                    // &repost_from.user.profile_url,
-                    if let PostUrl::Clickable(url) = repost_from.urls.major() {
-                        entities.push((
-                            nickname_begin..content.encode_utf16().count(),
-                            Entity::Link(&url.url),
-                        ));
+                    if let Some(user) = &repost_from.user {
+                        // In order for Telegram to display more relevant information about the
+                        // post, we don't use `profile_url` here
+                        //
+                        // &repost_from.user.profile_url,
+                        if let PostUrl::Clickable(url) = &repost_from.urls.major() {
+                            text.push_link(&user.nickname, &url.url);
+                        } else {
+                            text.push_plain(&user.nickname);
+                        }
+                        text.push_plain(": ");
                     }
-                    write!(content, ": {}", repost_from.content)?;
-                } else {
-                    write!(content, "{}", repost_from.content)?;
-                }
-
-                entities.push((quote_begin..content.encode_utf16().count(), Entity::Quote));
+                    text.push_plain(&repost_from.content);
+                });
             }
             Some(RepostFrom::Legacy {
                 is_repost,
                 is_quote,
             }) => {
                 if *is_repost {
-                    content.write_str("🔁 ")?
+                    text.push_plain("🔁 ")
                 } else if *is_quote {
-                    content.write_str("🔁💬 ")?
+                    text.push_plain("🔁💬 ")
                 }
-                content.write_str(&post.content)?
+                text.push_plain(&post.content)
             }
-            None => content.write_str(&post.content)?,
+            None => text.push_plain(&post.content),
         }
 
-        let mut body = json!(
-            {
-                "chat_id": telegram_chat_json(&self.params.chat),
-                "message_thread_id": self.params.thread_id,
-                "disable_notification": true, // TODO: Make it configurable
-            }
-        );
-
-        fn entities_to_entities(entities: Vec<(Range<usize>, Entity)>) -> json::Value {
-            json::Value::Array(
-                entities
-                    .into_iter()
-                    .map(|(range, entity)| match entity {
-                        Entity::Link(url) => json!({
-                            "type": "text_link",
-                            "offset": range.start,
-                            "length": range.end - range.start,
-                            "url": url,
-                        }),
-                        Entity::Quote => json!({
-                            "type": "blockquote",
-                            "offset": range.start,
-                            "length": range.end - range.start,
-                        }),
-                    })
-                    .collect(),
-            )
-        }
+        const DISABLE_NOTIFICATION: bool = true; // TODO: Make it configurable
 
         let attachments = post.attachments_recursive();
         let num_attachments = attachments.len();
 
-        let method = match num_attachments {
+        let resp = match num_attachments {
             0 | 1 => {
-                let body = body.as_object_mut().unwrap();
-
                 // Jump buttons
-                let buttons = post
+                let buttons = vec![post
                     .urls
                     .iter()
                     .into_iter()
                     .filter_map(|url| url.as_clickable())
-                    .map(|url| {
-                        json!({
-                            "text": url.display,
-                            "url": url.url,
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                body.insert("reply_markup".into(), json!({"inline_keyboard": [buttons]}));
+                    .map(|url| Button::new_url(&url.display, &url.url))
+                    .collect::<Vec<_>>()];
 
                 if num_attachments == 0 {
-                    body.insert("text".into(), json!(content));
-                    body.insert("entities".into(), entities_to_entities(entities));
-                    "sendMessage"
+                    Request::new(token)
+                        .send_message(&self.params.chat, text)
+                        .thread_id_opt(self.params.thread_id)
+                        .disable_notification_bool(DISABLE_NOTIFICATION)
+                        .markup(Markup::InlineKeyboard(buttons))
+                        .send()
+                        .await
+                        .map(|resp| resp.discard_result())
                 } else {
                     let attachment = attachments.first().unwrap();
 
                     match attachment {
                         PostAttachment::Image(image) => {
-                            body.insert("photo".into(), json!(image.media_url));
-                            body.insert("caption".into(), json!(content));
-                            body.insert("caption_entities".into(), entities_to_entities(entities));
                             // TODO: `sendAnimation` for single GIF?
-                            "sendPhoto"
+                            Request::new(token).send_photo(&self.params.chat, &image.media_url)
                         }
                         PostAttachment::Video(video) => {
-                            body.insert("video".into(), json!(video.media_url));
-                            body.insert("caption".into(), json!(content));
-                            body.insert("caption_entities".into(), entities_to_entities(entities));
-                            "sendVideo"
+                            Request::new(token).send_video(&self.params.chat, &video.media_url)
                         }
                     }
+                    .text(text)
+                    .thread_id_opt(self.params.thread_id)
+                    .disable_notification_bool(DISABLE_NOTIFICATION)
+                    .markup(Markup::InlineKeyboard(buttons))
+                    .send()
+                    .await
+                    .map(|resp| resp.discard_result())
                 }
             }
             _ => {
-                let body = body.as_object_mut().unwrap();
-
-                content.write_str("\n\n")?;
+                text.push_plain("\n\n");
 
                 // Jump buttons
-                let mut iter = post
-                    .urls
-                    .iter()
-                    .into_iter()
-                    .filter_map(|url| url.as_clickable())
-                    .peekable();
-                while let Some(url) = iter.next() {
-                    let button_text_begin = content.encode_utf16().count();
-                    write!(content, ">> {} <<", url.display)?;
-                    entities.push((
-                        button_text_begin..content.encode_utf16().count(),
-                        Entity::Link(&url.url),
-                    ));
-                    if iter.peek().is_some() {
-                        content.write_str(" | ")?;
+                {
+                    let mut iter = post
+                        .urls
+                        .iter()
+                        .into_iter()
+                        .filter_map(|url| url.as_clickable())
+                        .peekable();
+                    while let Some(url) = iter.next() {
+                        text.push_link(format!(">> {} <<", url.display), &url.url);
+                        if iter.peek().is_some() {
+                            text.push_plain(" | ");
+                        }
                     }
                 }
 
-                let mut media = attachments
-                    .iter()
-                    .map(|attachment| match attachment {
-                        PostAttachment::Image(image) => {
-                            // TODO: Mixing GIF in media group to send is not yet supported in
-                            // Telegram, add an overlay like video? (see
-                            // comment in twitter.com implementation)
-                            json!({
-                                "type": "photo",
-                                "media": image.media_url,
-                            })
-                        }
-                        PostAttachment::Video(video) => {
-                            json!({
-                                "type": "video",
-                                "media": video.media_url,
-                            })
-                        }
-                    })
-                    .collect::<Vec<_>>();
+                let medias = attachments.iter().map(|attachment| match attachment {
+                    // TODO: Mixing GIF in media group to send is not yet supported in Telegram, add
+                    // an overlay like video? (see comment in twitter.com implementation)
+                    PostAttachment::Image(image) => Media::Photo(&image.media_url),
+                    PostAttachment::Video(video) => Media::Video(&video.media_url),
+                });
 
-                let first_media = media.first_mut().unwrap().as_object_mut().unwrap();
-                first_media.insert("caption".into(), json!(content));
-                first_media.insert("caption_entities".into(), entities_to_entities(entities));
-
-                body.insert("media".into(), json!(media));
-
-                "sendMediaGroup"
+                Request::new(token)
+                    .send_media_group(&self.params.chat)
+                    .medias(medias)
+                    .text(text)
+                    .thread_id_opt(self.params.thread_id)
+                    .disable_notification_bool(DISABLE_NOTIFICATION)
+                    .send()
+                    .await
+                    .map(|resp| resp.discard_result())
             }
-        };
-
-        let resp = reqwest::Client::new()
-            .post(telegram_api(token, method))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|err| anyhow!("failed to send request for Telegram: {err}"))?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            bail!(
-                "response from Telegram status is not success. resp: {}, body: {}",
-                resp.text().await.unwrap_or_else(|_| "*no text*".into()),
-                body
-            );
         }
+        .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
 
-        let text = resp
-            .text()
-            .await
-            .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
-        let resp: Response = json::from_str(&text)
-            .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
-        if !resp.ok {
-            bail!("response from Telegram contains error, response '{text}'");
-        }
+        ensure!(
+            resp.ok,
+            "response contains error, description '{}'",
+            resp.description
+                .unwrap_or_else(|| "*no description*".into())
+        );
 
         Ok(())
     }
@@ -723,43 +507,42 @@ impl Notifier {
 
         let token = self.token()?;
 
-        let body = json!(
-            {
-                "chat_id": telegram_chat_json(&self.params.chat),
-                "message_thread_id": self.params.thread_id,
-                "text": message,
-                "link_preview_options": { "is_disabled": true },
-                // "disable_notification": true, // TODO: Make it configurable
-            }
-        );
-        let resp = reqwest::Client::new()
-            .post(telegram_api(token, "sendMessage"))
-            .json(&body)
+        let resp = Request::new(&token)
+            .send_message(&self.params.chat, Text::plain(message))
+            .thread_id_opt(self.params.thread_id)
+            .disable_link_preview()
+            // .disable_notification() // TODO: Make it configurable
             .send()
             .await
-            .map_err(|err| anyhow!("failed to send request for Telegram: {err}"))?;
+            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
 
-        let status = resp.status();
-        if !status.is_success() {
-            bail!(
-                "response from Telegram status is not success. resp: {}, body: {}",
-                resp.text().await.unwrap_or_else(|_| "*no text*".into()),
-                body
-            );
-        }
-
-        let text = resp
-            .text()
-            .await
-            .map_err(|err| anyhow!("failed to obtain text from response of Telegram: {err}"))?;
-        let resp: Response<ResultMessage> = json::from_str(&text)
-            .map_err(|err| anyhow!("failed to deserialize response from Telegram: {err}"))?;
-        if !resp.ok {
-            bail!("response from Telegram contains error, response '{text}'");
-        }
+        ensure!(
+            resp.ok,
+            "response contains error, description '{}'",
+            resp.description
+                .unwrap_or_else(|| "*no description*".into())
+        );
 
         Ok(())
     }
+}
+
+fn make_live_text<'a>(
+    title_history: impl IntoIterator<Item = &'a String>,
+    live_status: &'a LiveStatus,
+    source: &StatusSource,
+) -> Text<'a> {
+    let text = format!(
+        "[{}] {} {}",
+        source.platform.display_name,
+        match live_status.kind {
+            LiveStatusKind::Online => "🟢",
+            LiveStatusKind::Offline => "🟠",
+            LiveStatusKind::Banned => "🔴",
+        },
+        itertools::join(title_history, " ⬅️ "),
+    );
+    Text::link(text, &live_status.live_url)
 }
 
 struct SentMessage {
