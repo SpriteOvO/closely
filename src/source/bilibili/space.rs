@@ -41,7 +41,7 @@ mod data {
 
     #[derive(Debug, Deserialize)]
     pub struct Item {
-        pub id_str: String,
+        pub id_str: Option<String>, // `None` if the item is deleted
         pub modules: Modules,
         pub orig: Option<Box<Item>>,
     }
@@ -108,6 +108,8 @@ mod data {
     #[derive(Debug, Deserialize)]
     #[serde(tag = "type")]
     pub enum ModuleDynamicMajor {
+        #[serde(rename = "MAJOR_TYPE_NONE")]
+        None(ModuleDynamicMajorNone),
         #[serde(rename = "MAJOR_TYPE_OPUS")]
         Opus(ModuleDynamicMajorOpus),
         #[serde(rename = "MAJOR_TYPE_ARCHIVE")]
@@ -131,6 +133,18 @@ mod data {
                 _ => None,
             }
         }
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorNone {
+        pub none: ModuleDynamicMajorNoneInner,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorNoneInner {
+        pub tips: String,
     }
 
     //
@@ -409,7 +423,7 @@ fn fetch_space_history_impl(
 }
 
 fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
-    fn parse_item(item: &data::Item) -> anyhow::Result<Post> {
+    fn parse_item(item: &data::Item, parent_item: Option<&data::Item>) -> anyhow::Result<Post> {
         debug_assert!(matches!(
             item.modules
                 .dynamic
@@ -427,6 +441,9 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                 .as_ref()
                 .and_then(|major| -> Option<Cow<str>> {
                     match major {
+                        data::ModuleDynamicMajor::None(none) => {
+                            Some(Cow::Borrowed(&none.none.tips))
+                        }
                         data::ModuleDynamicMajor::Opus(opus) => {
                             Some(Cow::Borrowed(&opus.opus.summary.text))
                         }
@@ -459,36 +476,45 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
         let original = item
             .orig
             .as_ref()
-            .map(|orig| parse_item(orig))
+            .map(|orig| parse_item(orig, Some(item)))
             .transpose()
             .map_err(|err| anyhow!("failed to parse origin card: {err}"))?;
 
-        let mut urls = vec![PostUrl {
-            url: format!("https://www.bilibili.com/opus/{}", item.id_str),
-            display: "查看动态".into(),
-        }];
+        let major_url = if let Some(id_str) = item.id_str.as_ref() {
+            PostUrl::new_clickable(
+                format!("https://www.bilibili.com/opus/{id_str}"),
+                "查看动态",
+            )
+        } else {
+            PostUrl::Identity(format!(
+                "https://www.bilibili.com/opus/{}::forward-original",
+                parent_item.unwrap().id_str.as_ref().unwrap()
+            ))
+        };
+        let mut urls = vec![major_url];
         item.modules
             .dynamic
             .major
             .as_ref()
             .inspect(|major| match major {
-                data::ModuleDynamicMajor::Opus(_)
+                data::ModuleDynamicMajor::None(_)
+                | data::ModuleDynamicMajor::Opus(_)
                 | data::ModuleDynamicMajor::Draw(_)
                 | data::ModuleDynamicMajor::Common(_) => {
                     // No need to add extra URLs
                 }
-                data::ModuleDynamicMajor::Archive(archive) => urls.push(PostUrl {
-                    url: format!("https://www.bilibili.com/video/{}", archive.archive.bvid),
-                    display: "查看视频".into(),
-                }),
-                data::ModuleDynamicMajor::Article(article) => urls.push(PostUrl {
-                    url: format!("https://www.bilibili.com/read/cv{}", article.article.id),
-                    display: "查看文章".into(),
-                }),
-                data::ModuleDynamicMajor::Pgc(pgc) => urls.push(PostUrl {
-                    url: format!("https://www.bilibili.com/bangumi/play/ep{}", pgc.pgc.epid),
-                    display: "查看文章".into(),
-                }),
+                data::ModuleDynamicMajor::Archive(archive) => urls.push(PostUrl::new_clickable(
+                    format!("https://www.bilibili.com/video/{}", archive.archive.bvid),
+                    "查看视频",
+                )),
+                data::ModuleDynamicMajor::Article(article) => urls.push(PostUrl::new_clickable(
+                    format!("https://www.bilibili.com/read/cv{}", article.article.id),
+                    "查看文章",
+                )),
+                data::ModuleDynamicMajor::Pgc(pgc) => urls.push(PostUrl::new_clickable(
+                    format!("https://www.bilibili.com/bangumi/play/ep{}", pgc.pgc.epid),
+                    "查看文章",
+                )),
                 data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
             });
 
@@ -503,6 +529,7 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                 .major
                 .as_ref()
                 .map(|major| match major {
+                    data::ModuleDynamicMajor::None(_) => vec![],
                     data::ModuleDynamicMajor::Opus(opus) => opus
                         .opus
                         .pics
@@ -564,7 +591,7 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
             )
         })
         .filter_map(|item| {
-            parse_item(&item)
+            parse_item(&item, None)
                 .tap_err(|err| error!("failed to deserialize item: {err} for '{item:?}'"))
                 .ok()
         })
@@ -602,17 +629,23 @@ mod tests {
     #[tokio::test]
     async fn deser() {
         let history = fetch_space_history(8047632).await.unwrap();
-        assert!(history
-            .0
-            .iter()
-            .all(|post| !post.urls.major().url.is_empty()));
+        assert!(history.0.iter().all(|post| !post
+            .urls
+            .major()
+            .as_clickable()
+            .unwrap()
+            .url
+            .is_empty()));
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
 
         let history = fetch_space_history(178362496).await.unwrap();
-        assert!(history
-            .0
-            .iter()
-            .all(|post| !post.urls.major().url.is_empty()));
+        assert!(history.0.iter().all(|post| !post
+            .urls
+            .major()
+            .as_clickable()
+            .unwrap()
+            .url
+            .is_empty()));
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
     }
 
@@ -649,11 +682,7 @@ mod tests {
                 avatar_url: "https://test.avatar".into(),
             }),
             content: "test1".into(),
-            urls: PostUrls::from_iter([PostUrl {
-                url: "https://test1".into(),
-                display: "View".into(),
-            }])
-            .unwrap(),
+            urls: PostUrls::from_iter([PostUrl::new_clickable("https://test1", "View")]).unwrap(),
             repost_from: None,
             attachments: vec![],
         });
@@ -677,11 +706,7 @@ mod tests {
                 avatar_url: "https://test.avatar".into(),
             }),
             content: "test2".into(),
-            urls: PostUrls::from_iter([PostUrl {
-                url: "https://test2".into(),
-                display: "View".into(),
-            }])
-            .unwrap(),
+            urls: PostUrls::from_iter([PostUrl::new_clickable("https://test2", "View")]).unwrap(),
             repost_from: None,
             attachments: vec![],
         });

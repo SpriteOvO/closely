@@ -133,7 +133,12 @@ pub struct Post {
 
 impl Post {
     pub fn platform_unique_id(&self) -> PostPlatformUniqueId {
-        PostPlatformUniqueId(self.urls.major().url.clone())
+        let identity = match self.urls.major() {
+            PostUrl::Clickable(clickable) => clickable.url.clone(),
+            PostUrl::Identity(identity) => identity.clone(),
+        };
+        assert!(!identity.is_empty());
+        PostPlatformUniqueId(identity)
     }
 }
 
@@ -167,7 +172,31 @@ impl From<PostUrl> for PostUrls {
 }
 
 #[derive(Debug)]
-pub struct PostUrl {
+pub enum PostUrl {
+    Clickable(PostUrlClickable),
+    // For some cases. a post doesn't have a URL (e.g. deleted post), but we still need something
+    // unique to identify it
+    Identity(String),
+}
+
+impl PostUrl {
+    pub fn new_clickable(url: impl Into<String>, display: impl Into<String>) -> Self {
+        PostUrl::Clickable(PostUrlClickable {
+            url: url.into(),
+            display: display.into(),
+        })
+    }
+
+    pub fn as_clickable(&self) -> Option<&PostUrlClickable> {
+        match self {
+            PostUrl::Clickable(clickable) => Some(clickable),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct PostUrlClickable {
     pub url: String,
     pub display: String,
 }

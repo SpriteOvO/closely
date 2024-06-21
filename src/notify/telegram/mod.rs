@@ -19,8 +19,8 @@ use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     secret_enum,
     source::{
-        LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, RepostFrom,
-        StatusSource,
+        LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostUrl, PostsRef,
+        RepostFrom, StatusSource,
     },
 };
 
@@ -370,7 +370,10 @@ impl Notifier {
     ) -> anyhow::Result<()> {
         let token = self.token()?;
 
-        let text = format!("[{}] ✏️ {}", source.platform.display_name, live_status.title);
+        let text = format!(
+            "[{}] ✏️ {}",
+            source.platform.display_name, live_status.title
+        );
         let body = json!(
             {
                 "chat_id": telegram_chat_json(&self.params.chat),
@@ -517,16 +520,16 @@ impl Notifier {
                 if let Some(user) = &repost_from.user {
                     let nickname_begin = content.encode_utf16().count();
                     content.write_str(&user.nickname)?;
-                    entities.push((
-                        nickname_begin..content.encode_utf16().count(),
-                        Entity::Link(
-                            // In order for Telegram to display more relevant information about the
-                            // post, we don't use `profile_url` here
-                            //
-                            // &repost_from.user.profile_url,
-                            &repost_from.urls.major().url,
-                        ),
-                    ));
+                    // In order for Telegram to display more relevant information about the post, we
+                    // don't use `profile_url` here
+                    //
+                    // &repost_from.user.profile_url,
+                    if let PostUrl::Clickable(url) = repost_from.urls.major() {
+                        entities.push((
+                            nickname_begin..content.encode_utf16().count(),
+                            Entity::Link(&url.url),
+                        ));
+                    }
                     write!(content, ": {}", repost_from.content)?;
                 } else {
                     write!(content, "{}", repost_from.content)?;
@@ -589,6 +592,7 @@ impl Notifier {
                     .urls
                     .iter()
                     .into_iter()
+                    .filter_map(|url| url.as_clickable())
                     .map(|url| {
                         json!({
                             "text": url.display,
@@ -628,7 +632,12 @@ impl Notifier {
                 content.write_str("\n\n")?;
 
                 // Jump buttons
-                let mut iter = post.urls.iter().into_iter().peekable();
+                let mut iter = post
+                    .urls
+                    .iter()
+                    .into_iter()
+                    .filter_map(|url| url.as_clickable())
+                    .peekable();
                 while let Some(url) = iter.next() {
                     let button_text_begin = content.encode_utf16().count();
                     write!(content, ">> {} <<", url.display)?;

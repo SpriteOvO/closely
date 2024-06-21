@@ -294,7 +294,12 @@ impl Notifier {
             None => content.write_str(&post.content)?,
         }
         content.write_str("\n")?;
-        for url in post.urls.iter().into_iter() {
+        for url in post
+            .urls
+            .iter()
+            .into_iter()
+            .filter_map(|url| url.as_clickable())
+        {
             write!(content, "\n{}: {}", url.display, url.url)?;
         }
 

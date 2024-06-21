@@ -153,11 +153,7 @@ impl Fetcher {
                     avatar_url: status.avatar_url.real_url(),
                 }),
                 content: tweet.content,
-                urls: PostUrl {
-                    url: tweet.url.real_url(),
-                    display: "View Tweet".into(),
-                }
-                .into(),
+                urls: PostUrl::new_clickable(tweet.url.real_url(), "View Tweet").into(),
                 repost_from: Some(RepostFrom::Legacy {
                     is_repost: tweet.is_retweet,
                     is_quote: tweet.is_quote,

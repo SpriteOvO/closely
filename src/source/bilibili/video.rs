@@ -123,10 +123,10 @@ fn parse_response(resp: data::SeriesArchives) -> anyhow::Result<Posts> {
         .map(|archive| Post {
             user: None,
             content: archive.title,
-            urls: PostUrl {
-                url: format!("https://www.bilibili.com/video/{}", archive.bvid),
-                display: "查看视频".into(),
-            }
+            urls: PostUrl::new_clickable(
+                format!("https://www.bilibili.com/video/{}", archive.bvid),
+                "查看视频",
+            )
             .into(),
             repost_from: None,
             attachments: vec![PostAttachment::Image(PostAttachmentImage {
@@ -146,10 +146,13 @@ mod tests {
     async fn deser() {
         let videos = fetch_series_archives(522384919, 3747026).await.unwrap();
 
-        assert!(videos
-            .0
-            .iter()
-            .all(|post| !post.urls.major().url.is_empty()));
+        assert!(videos.0.iter().all(|post| !post
+            .urls
+            .major()
+            .as_clickable()
+            .unwrap()
+            .url
+            .is_empty()));
         assert!(videos.0.iter().all(|post| !post.content.is_empty()));
     }
 }
