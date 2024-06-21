@@ -32,7 +32,7 @@ struct ResponseDataRoom {
     uid: u64,
     live_status: u64,
     uname: String,
-    cover_from_user: String,
+    cover_from_user: String, // Empty for no cover (not yet updated)
 }
 
 pub struct Fetcher {
@@ -72,7 +72,12 @@ impl Fetcher {
                 online: data.live_status == 1,
                 title: data.title,
                 streamer_name: data.uname.clone(),
-                cover_image_url: data.cover_from_user,
+                cover_image_url: if !data.cover_from_user.is_empty() {
+                    data.cover_from_user
+                } else {
+                    "https://i1.hdslb.com/bfs/static/blive/live-assets/common/images/no-cover.png"
+                        .into()
+                },
                 live_url: format!("https://live.bilibili.com/{}", data.room_id),
             }),
             source: StatusSource {
