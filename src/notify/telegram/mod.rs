@@ -19,8 +19,8 @@ use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     secret_enum,
     source::{
-        LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostUrl, PostsRef,
-        RepostFrom, StatusSource,
+        LiveStatus, LiveStatusKind, Notification, NotificationKind, Post, PostAttachment, PostUrl,
+        PostsRef, RepostFrom, StatusSource,
     },
 };
 
@@ -216,10 +216,11 @@ impl Notifier {
             return Ok(());
         }
 
-        if live_status.online {
-            self.notify_live_online(live_status, source).await
-        } else {
-            self.notify_live_offline(live_status, source).await
+        match live_status.kind {
+            LiveStatusKind::Online => self.notify_live_online(live_status, source).await,
+            LiveStatusKind::Offline | LiveStatusKind::Banned => {
+                self.notify_live_offline(live_status, source).await
+            }
         }
     }
 
@@ -232,7 +233,11 @@ impl Notifier {
         let caption = format!(
             "[{}] {} {}",
             source.platform.display_name,
-            if live_status.online { "🟢" } else { "🟠" },
+            match live_status.kind {
+                LiveStatusKind::Online => "🟢",
+                LiveStatusKind::Offline => "🟠",
+                LiveStatusKind::Banned => "🔴",
+            },
             itertools::join(title_history, " ⬅️ "),
         );
         let caption_entities = vec![json!({

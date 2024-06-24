@@ -177,16 +177,16 @@ impl Fetcher {
             })
             .collect();
 
-        Ok(Status {
-            kind: StatusKind::Posts(Posts(posts)),
-            source: StatusSource {
+        Ok(Status::new(
+            StatusKind::Posts(Posts(posts)),
+            StatusSource {
                 platform: self.metadata(),
                 user: Some(StatusSourceUser {
                     display_name: status.fullname,
                     profile_url: format!("https://twitter.com/{}", self.params.username),
                 }),
             },
-        })
+        ))
     }
 }
 

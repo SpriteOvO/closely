@@ -15,7 +15,7 @@ pub struct TaskSubscription {
     interval: Duration,
     notifiers: Vec<Box<dyn notify::NotifierTrait>>,
     fetcher: Box<dyn source::FetcherTrait>,
-    last_status: Option<Status>,
+    last_status: Status,
 }
 
 impl TaskSubscription {
@@ -30,7 +30,7 @@ impl TaskSubscription {
             interval,
             notifiers: notify.into_iter().map(notify::notifier).collect(),
             fetcher: source::fetcher(source_platform),
-            last_status: None,
+            last_status: Status::empty(),
         }
     }
 
@@ -65,7 +65,7 @@ impl TaskSubscription {
             self.fetcher
         );
 
-        let notifications = status.generate_notifications(self.last_status.as_ref());
+        let notifications = status.generate_notifications(&self.last_status);
         for notification in notifications {
             if let Some(notification) = self.fetcher.post_filter(notification).await {
                 info!(
@@ -78,7 +78,9 @@ impl TaskSubscription {
                 }
             }
         }
-        self.last_status = Some(status);
+        if !status.is_empty() {
+            self.last_status = status;
+        }
 
         Ok(())
     }

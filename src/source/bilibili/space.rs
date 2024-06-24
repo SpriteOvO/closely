@@ -310,15 +310,15 @@ impl Fetcher {
             })
             .await;
 
-        Ok(Status {
-            kind: StatusKind::Posts(posts),
-            source: StatusSource {
+        Ok(Status::new(
+            StatusKind::Posts(posts),
+            StatusSource {
                 platform: self.metadata(),
                 // TODO: User info is only contained in cards, not in a unique kv, implement it
                 // later if needed
                 user: None,
             },
-        })
+        ))
     }
 
     async fn post_filter_impl<'a>(

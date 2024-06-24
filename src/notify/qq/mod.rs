@@ -19,8 +19,8 @@ use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     secret_enum,
     source::{
-        LiveStatus, Notification, NotificationKind, Post, PostAttachment, PostsRef, RepostFrom,
-        StatusSource,
+        LiveStatus, LiveStatusKind, Notification, NotificationKind, Post, PostAttachment, PostsRef,
+        RepostFrom, StatusSource,
     },
 };
 
@@ -194,7 +194,7 @@ impl Notifier {
             return Ok(());
         }
 
-        if live_status.online {
+        if let LiveStatusKind::Online = live_status.kind {
             let message = lagrange::Message::builder()
                 .image(&live_status.cover_image_url)
                 .text(format!(

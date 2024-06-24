@@ -79,13 +79,13 @@ impl Fetcher {
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
         let videos = fetch_series_archives(self.params.user_id, self.params.series_id).await?;
 
-        Ok(Status {
-            kind: StatusKind::Posts(videos),
-            source: StatusSource {
+        Ok(Status::new(
+            StatusKind::Posts(videos),
+            StatusSource {
                 platform: self.metadata(),
                 user: None,
             },
-        })
+        ))
     }
 }
 

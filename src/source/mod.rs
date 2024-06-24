@@ -50,50 +50,70 @@ pub struct StatusSourceUser {
 }
 
 #[derive(Debug)]
-pub struct Status {
-    pub kind: StatusKind,
-    pub source: StatusSource,
+pub struct Status(Option<StatusInner>);
+
+#[derive(Debug)]
+struct StatusInner {
+    kind: StatusKind,
+    source: StatusSource,
 }
 
 impl Status {
-    pub fn generate_notifications<'a>(
-        &'a self,
-        last_status: Option<&'a Status>,
-    ) -> Vec<Notification<'a>> {
-        match (&self.kind, last_status.map(|s| &s.kind)) {
-            (StatusKind::Live(live_status), Some(StatusKind::Live(last_live_status))) => {
-                let mut notifications = vec![];
-                if live_status.title != last_live_status.title {
-                    notifications.push(Notification {
-                        kind: NotificationKind::LiveTitle(live_status, &last_live_status.title),
-                        source: &self.source,
-                    })
-                }
-                if live_status.online != last_live_status.online {
-                    notifications.push(Notification {
-                        kind: NotificationKind::LiveOnline(live_status),
-                        source: &self.source,
-                    })
-                }
-                notifications
-            }
-            (StatusKind::Posts(posts), Some(StatusKind::Posts(last_posts))) => {
-                let new_posts = vec_diff_by(&posts.0, &last_posts.0, |l, r| {
-                    l.platform_unique_id() == r.platform_unique_id()
-                })
-                .collect::<Vec<_>>();
-                if !new_posts.is_empty() {
-                    vec![Notification {
-                        kind: NotificationKind::Posts(PostsRef(new_posts)),
-                        source: &self.source,
-                    }]
-                } else {
-                    vec![]
-                }
-            }
-            (_, None) => vec![],
-            (_, _) => panic!("states mismatch"),
-        }
+    pub fn empty() -> Self {
+        Self(None)
+    }
+
+    pub fn new(kind: StatusKind, source: StatusSource) -> Self {
+        Self(Some(StatusInner { kind, source }))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
+
+    pub fn generate_notifications<'a>(&'a self, last_status: &'a Status) -> Vec<Notification<'a>> {
+        self.0
+            .as_ref()
+            .map(
+                |status| match (&status.kind, last_status.0.as_ref().map(|s| &s.kind)) {
+                    (StatusKind::Live(live_status), Some(StatusKind::Live(last_live_status))) => {
+                        let mut notifications = vec![];
+                        if live_status.title != last_live_status.title {
+                            notifications.push(Notification {
+                                kind: NotificationKind::LiveTitle(
+                                    live_status,
+                                    &last_live_status.title,
+                                ),
+                                source: &status.source,
+                            })
+                        }
+                        if live_status.kind != last_live_status.kind {
+                            notifications.push(Notification {
+                                kind: NotificationKind::LiveOnline(live_status),
+                                source: &status.source,
+                            })
+                        }
+                        notifications
+                    }
+                    (StatusKind::Posts(posts), Some(StatusKind::Posts(last_posts))) => {
+                        let new_posts = vec_diff_by(&posts.0, &last_posts.0, |l, r| {
+                            l.platform_unique_id() == r.platform_unique_id()
+                        })
+                        .collect::<Vec<_>>();
+                        if !new_posts.is_empty() {
+                            vec![Notification {
+                                kind: NotificationKind::Posts(PostsRef(new_posts)),
+                                source: &status.source,
+                            }]
+                        } else {
+                            vec![]
+                        }
+                    }
+                    (_, None) => vec![],
+                    (_, _) => panic!("states mismatch"),
+                },
+            )
+            .unwrap_or_default()
     }
 }
 
@@ -238,9 +258,26 @@ pub struct PostAttachmentVideo {
     pub media_url: String,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum LiveStatusKind {
+    Online,
+    Offline,
+    Banned,
+}
+
+impl fmt::Display for LiveStatusKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Online => write!(f, "online"),
+            Self::Offline => write!(f, "offline"),
+            Self::Banned => write!(f, "banned"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct LiveStatus {
-    pub online: bool,
+    pub kind: LiveStatusKind,
     pub title: String,
     pub streamer_name: String,
     pub cover_image_url: String,
@@ -249,13 +286,8 @@ pub struct LiveStatus {
 
 impl fmt::Display for LiveStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "'{}' {}",
-            self.streamer_name,
-            if self.online { "online" } else { "offline" }
-        )?;
-        if self.online {
+        write!(f, "'{}' {}", self.streamer_name, self.kind)?;
+        if let LiveStatusKind::Online = self.kind {
             write!(f, " with title {}", self.title)?;
         }
         Ok(())
