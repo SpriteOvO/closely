@@ -345,17 +345,13 @@ impl Notifier {
         let token = self.token()?;
 
         let mut errors = vec![];
-
         for post in &posts.0 {
             if let Err(err) = self.notify_post(token.as_ref(), post, source).await {
-                error!("failed to notify post to Telegram: {err}");
                 errors.push(err);
             }
         }
-
-        errors
-            .into_iter()
-            .fold(Ok(()), |res, err| bail!("{res:?} {err}"))
+        ensure!(errors.is_empty(), "{errors:?}");
+        Ok(())
     }
 
     async fn notify_post(

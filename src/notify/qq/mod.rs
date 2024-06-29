@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, ensure};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use spdlog::prelude::*;
@@ -248,17 +248,13 @@ impl Notifier {
         }
 
         let mut errors = vec![];
-
         for post in &posts.0 {
             if let Err(err) = self.notify_post(post, source).await {
-                error!("failed to notify post to QQ: {err}");
                 errors.push(err);
             }
         }
-
-        errors
-            .into_iter()
-            .fold(Ok(()), |res, err| bail!("{res:?} {err}"))
+        ensure!(errors.is_empty(), "{errors:?}");
+        Ok(())
     }
 
     async fn notify_post(&self, post: &Post, source: &StatusSource) -> anyhow::Result<()> {

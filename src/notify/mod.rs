@@ -80,6 +80,9 @@ pub fn notifier(params: ConfigNotify) -> Box<dyn NotifierTrait> {
 pub async fn notify(notify: &dyn NotifierTrait, notification: &Notification<'_>) {
     info!("notifying notification '{notification}'");
     if let Err(err) = notify.notify(notification).await {
-        error!("failed to notify: {err}");
+        error!(
+            "failed to notify to {}: {err}",
+            notify.metadata().display_name
+        );
     }
 }
