@@ -4,7 +4,7 @@ use anyhow::{anyhow, ensure};
 use serde::Deserialize;
 use serde_json as json;
 
-use super::Response;
+use super::{upgrade_to_https, Response};
 use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     source::{
@@ -130,7 +130,7 @@ fn parse_response(resp: data::SeriesArchives) -> anyhow::Result<Posts> {
             .into(),
             repost_from: None,
             attachments: vec![PostAttachment::Image(PostAttachmentImage {
-                media_url: archive.pic,
+                media_url: upgrade_to_https(&archive.pic),
             })],
         })
         .collect();

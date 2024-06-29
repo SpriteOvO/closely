@@ -6,7 +6,7 @@ use serde_json::{self as json, json};
 use spdlog::critical;
 use tokio::sync::Mutex;
 
-use super::Response;
+use super::{upgrade_to_https, Response};
 use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     source::{
@@ -113,7 +113,7 @@ impl Fetcher {
                 title: data.title,
                 streamer_name: data.uname.clone(),
                 cover_image_url: if !data.cover_from_user.is_empty() {
-                    data.cover_from_user
+                    upgrade_to_https(&data.cover_from_user)
                 } else {
                     "https://i1.hdslb.com/bfs/static/blive/live-assets/common/images/no-cover.png"
                         .into()

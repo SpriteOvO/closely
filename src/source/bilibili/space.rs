@@ -9,7 +9,7 @@ use spdlog::prelude::*;
 use tap::prelude::*;
 use tokio::sync::{Mutex, OnceCell};
 
-use super::Response;
+use super::{upgrade_to_https, Response};
 use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     source::{
@@ -536,13 +536,13 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                         .iter()
                         .map(|pic| {
                             PostAttachment::Image(PostAttachmentImage {
-                                media_url: pic.url.clone(),
+                                media_url: upgrade_to_https(&pic.url),
                             })
                         })
                         .collect(),
                     data::ModuleDynamicMajor::Archive(archive) => {
                         vec![PostAttachment::Image(PostAttachmentImage {
-                            media_url: archive.archive.cover.clone(),
+                            media_url: upgrade_to_https(&archive.archive.cover),
                         })]
                     }
                     data::ModuleDynamicMajor::Article(article) => article
@@ -551,7 +551,7 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                         .iter()
                         .map(|cover| {
                             PostAttachment::Image(PostAttachmentImage {
-                                media_url: cover.clone(),
+                                media_url: upgrade_to_https(cover),
                             })
                         })
                         .collect(),
@@ -561,18 +561,18 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                         .iter()
                         .map(|item| {
                             PostAttachment::Image(PostAttachmentImage {
-                                media_url: item.src.clone(),
+                                media_url: upgrade_to_https(&item.src),
                             })
                         })
                         .collect(),
                     data::ModuleDynamicMajor::Common(common) => {
                         vec![PostAttachment::Image(PostAttachmentImage {
-                            media_url: common.common.cover.clone(),
+                            media_url: upgrade_to_https(&common.common.cover),
                         })]
                     }
                     data::ModuleDynamicMajor::Pgc(pgc) => {
                         vec![PostAttachment::Image(PostAttachmentImage {
-                            media_url: pgc.pgc.cover.clone(),
+                            media_url: upgrade_to_https(&pgc.pgc.cover),
                         })]
                     }
                     data::ModuleDynamicMajor::LiveRcmd => unreachable!(),

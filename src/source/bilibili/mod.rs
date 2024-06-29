@@ -11,3 +11,24 @@ struct Response<T> {
     pub(crate) message: String,
     pub(crate) data: Option<T>,
 }
+
+fn upgrade_to_https(url: &str) -> String {
+    if url.starts_with("http://") {
+        url.replacen("http://", "https://", 1)
+    } else {
+        url.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upgrade_https() {
+        assert_eq!(
+            upgrade_to_https("http://example.com/http://example.com"),
+            "https://example.com/http://example.com"
+        );
+    }
+}
