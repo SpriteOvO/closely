@@ -477,6 +477,8 @@ fn parse_tweet(tweet: data::Tweet) -> Post {
     }
     .map(|result| RepostFrom::Recursion(Box::new(parse_tweet(result.result.into_tweet()))));
 
+    let possibly_sensitive = tweet.legacy.possibly_sensitive.unwrap_or(false);
+
     let card_attachment = tweet.card.and_then(|card| {
         const IMAGE_KEYS: [&str; 3] = [
             "photo_image_full_size_original",
@@ -495,6 +497,7 @@ fn parse_tweet(tweet: data::Tweet) -> Post {
             Some(data::TweetCardValue::Image { image_value }) => {
                 Some(PostAttachment::Image(PostAttachmentImage {
                     media_url: image_value.url.clone(),
+                    has_spoiler: possibly_sensitive,
                 }))
             }
             Some(_) => {
@@ -517,6 +520,7 @@ fn parse_tweet(tweet: data::Tweet) -> Post {
         .map(|media| match media.kind {
             data::TweetLegacyEntityMediaKind::Photo => PostAttachment::Image(PostAttachmentImage {
                 media_url: media.media_url_https,
+                has_spoiler: possibly_sensitive,
             }),
             data::TweetLegacyEntityMediaKind::Video
             | data::TweetLegacyEntityMediaKind::AnimatedGif => {
@@ -530,9 +534,11 @@ fn parse_tweet(tweet: data::Tweet) -> Post {
                 match video_info {
                     Some(video_info) => PostAttachment::Video(PostAttachmentVideo {
                         media_url: video_info.url,
+                        has_spoiler: possibly_sensitive,
                     }),
                     None => PostAttachment::Image(PostAttachmentImage {
                         media_url: media.media_url_https,
+                        has_spoiler: possibly_sensitive,
                     }),
                 }
             }

@@ -131,6 +131,7 @@ fn parse_response(resp: data::SeriesArchives) -> anyhow::Result<Posts> {
             repost_from: None,
             attachments: vec![PostAttachment::Image(PostAttachmentImage {
                 media_url: upgrade_to_https(&archive.pic),
+                has_spoiler: false,
             })],
         })
         .collect();

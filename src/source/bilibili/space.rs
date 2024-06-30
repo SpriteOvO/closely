@@ -537,12 +537,14 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                         .map(|pic| {
                             PostAttachment::Image(PostAttachmentImage {
                                 media_url: upgrade_to_https(&pic.url),
+                                has_spoiler: false,
                             })
                         })
                         .collect(),
                     data::ModuleDynamicMajor::Archive(archive) => {
                         vec![PostAttachment::Image(PostAttachmentImage {
                             media_url: upgrade_to_https(&archive.archive.cover),
+                            has_spoiler: false,
                         })]
                     }
                     data::ModuleDynamicMajor::Article(article) => article
@@ -552,6 +554,7 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                         .map(|cover| {
                             PostAttachment::Image(PostAttachmentImage {
                                 media_url: upgrade_to_https(cover),
+                                has_spoiler: false,
                             })
                         })
                         .collect(),
@@ -562,17 +565,20 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                         .map(|item| {
                             PostAttachment::Image(PostAttachmentImage {
                                 media_url: upgrade_to_https(&item.src),
+                                has_spoiler: false,
                             })
                         })
                         .collect(),
                     data::ModuleDynamicMajor::Common(common) => {
                         vec![PostAttachment::Image(PostAttachmentImage {
                             media_url: upgrade_to_https(&common.common.cover),
+                            has_spoiler: false,
                         })]
                     }
                     data::ModuleDynamicMajor::Pgc(pgc) => {
                         vec![PostAttachment::Image(PostAttachmentImage {
                             media_url: upgrade_to_https(&pgc.pgc.cover),
+                            has_spoiler: false,
                         })]
                     }
                     data::ModuleDynamicMajor::LiveRcmd => unreachable!(),

@@ -14,6 +14,7 @@ use serde_json::{self as json, json};
 use spdlog::prelude::*;
 
 use super::ConfigChat;
+use crate::source::{PostAttachmentImage, PostAttachmentVideo};
 
 pub struct Request<'a> {
     token: &'a str,
@@ -110,7 +111,7 @@ impl<'a> Request<'a> {
         }
     }
 
-    pub fn send_photo(self, chat: &'a ConfigChat, photo: &'a str) -> SendMedia<'a> {
+    pub fn send_photo(self, chat: &'a ConfigChat, photo: MediaPhoto<'a>) -> SendMedia<'a> {
         SendMedia {
             base: self,
             chat,
@@ -122,7 +123,7 @@ impl<'a> Request<'a> {
         }
     }
 
-    pub fn send_video(self, chat: &'a ConfigChat, video: &'a str) -> SendMedia<'a> {
+    pub fn send_video(self, chat: &'a ConfigChat, video: MediaVideo<'a>) -> SendMedia<'a> {
         SendMedia {
             base: self,
             chat,
@@ -303,8 +304,36 @@ impl<'a> SendMessage<'a> {
 }
 
 pub enum Media<'a> {
-    Photo(&'a str), // TODO: Make a enum for it
-    Video(&'a str),
+    Photo(MediaPhoto<'a>),
+    Video(MediaVideo<'a>),
+}
+
+pub struct MediaPhoto<'a> {
+    pub url: &'a str,
+    pub has_spoiler: bool,
+}
+
+impl<'a> From<&'a PostAttachmentImage> for MediaPhoto<'a> {
+    fn from(value: &'a PostAttachmentImage) -> Self {
+        Self {
+            url: &value.media_url,
+            has_spoiler: value.has_spoiler,
+        }
+    }
+}
+
+pub struct MediaVideo<'a> {
+    pub url: &'a str,
+    pub has_spoiler: bool,
+}
+
+impl<'a> From<&'a PostAttachmentVideo> for MediaVideo<'a> {
+    fn from(value: &'a PostAttachmentVideo) -> Self {
+        Self {
+            url: &value.media_url,
+            has_spoiler: value.has_spoiler,
+        }
+    }
 }
 
 pub struct SendMedia<'a> {
@@ -365,14 +394,16 @@ impl<'a> SendMedia<'a> {
                 "disable_notification": self.disable_notification
             }
         );
-        let (method, url) = match self.media {
-            Media::Photo(url) => {
-                body["photo"] = url.into();
-                ("sendPhoto", url)
+        let (method, url) = match &self.media {
+            Media::Photo(photo) => {
+                body["photo"] = photo.url.into();
+                body["has_spoiler"] = photo.has_spoiler.into();
+                ("sendPhoto", photo.url)
             }
-            Media::Video(url) => {
-                body["video"] = url.into();
-                ("sendVideo", url)
+            Media::Video(video) => {
+                body["video"] = video.url.into();
+                body["has_spoiler"] = video.has_spoiler.into();
+                ("sendVideo", video.url)
             }
         };
         if let Some(text) = self.text {
@@ -467,16 +498,18 @@ impl<'a> SendMediaGroup<'a> {
             .medias
             .iter()
             .map(|media| match media {
-                Media::Photo(url) => {
+                Media::Photo(photo) => {
                     json!({
                         "type": "photo",
-                        "media": url,
+                        "media": photo.url,
+                        "has_spoiler": photo.has_spoiler,
                     })
                 }
-                Media::Video(url) => {
+                Media::Video(video) => {
                     json!({
                         "type": "video",
-                        "media": url,
+                        "media": video.url,
+                        "has_spoiler": video.has_spoiler,
                     })
                 }
             })
@@ -508,8 +541,8 @@ impl<'a> SendMediaGroup<'a> {
                 .map(|(i, (media, kind))| {
                     media["media"] = format_attach_url(i).into();
                     match kind {
-                        Media::Photo(url) => FileUrl::new_photo(url),
-                        Media::Video(url) => FileUrl::new_video(url),
+                        Media::Photo(photo) => FileUrl::new_photo(photo.url),
+                        Media::Video(video) => FileUrl::new_video(video.url),
                     }
                 })
                 .collect::<Vec<_>>();

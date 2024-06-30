@@ -207,7 +207,13 @@ impl Notifier {
 
         let text = make_live_text(&title_history, live_status, source);
         let resp = Request::new(&token)
-            .send_photo(&self.params.chat, &live_status.cover_image_url)
+            .send_photo(
+                &self.params.chat,
+                MediaPhoto {
+                    url: &live_status.cover_image_url,
+                    has_spoiler: false,
+                },
+            )
             .thread_id_opt(self.params.thread_id)
             .text(text)
             .send()
@@ -431,10 +437,10 @@ impl Notifier {
                     match attachment {
                         PostAttachment::Image(image) => {
                             // TODO: `sendAnimation` for single GIF?
-                            Request::new(token).send_photo(&self.params.chat, &image.media_url)
+                            Request::new(token).send_photo(&self.params.chat, image.into())
                         }
                         PostAttachment::Video(video) => {
-                            Request::new(token).send_video(&self.params.chat, &video.media_url)
+                            Request::new(token).send_video(&self.params.chat, video.into())
                         }
                     }
                     .text(text)
@@ -468,8 +474,8 @@ impl Notifier {
                 let medias = attachments.iter().map(|attachment| match attachment {
                     // TODO: Mixing GIF in media group to send is not yet supported in Telegram, add
                     // an overlay like video? (see comment in twitter.com implementation)
-                    PostAttachment::Image(image) => Media::Photo(&image.media_url),
-                    PostAttachment::Video(video) => Media::Video(&video.media_url),
+                    PostAttachment::Image(image) => Media::Photo(image.into()),
+                    PostAttachment::Video(video) => Media::Video(video.into()),
                 });
 
                 Request::new(token)

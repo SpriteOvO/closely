@@ -253,21 +253,34 @@ impl Post {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PostAttachment {
     Image(PostAttachmentImage),
-    #[allow(dead_code)]
     Video(PostAttachmentVideo),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct PostAttachmentImage {
     pub media_url: String,
+    pub has_spoiler: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+impl PartialEq for PostAttachmentImage {
+    fn eq(&self, other: &Self) -> bool {
+        self.media_url.eq(&other.media_url)
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct PostAttachmentVideo {
     pub media_url: String,
+    pub has_spoiler: bool,
+}
+
+impl PartialEq for PostAttachmentVideo {
+    fn eq(&self, other: &Self) -> bool {
+        self.media_url.eq(&other.media_url)
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
