@@ -126,7 +126,7 @@ impl<'a> Request<'a> {
         SendMedia {
             base: self,
             chat,
-            media: Media::Photo(video),
+            media: Media::Video(video),
             thread_id: None,
             text: None,
             disable_notification: false,
