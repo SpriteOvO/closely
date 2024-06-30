@@ -10,7 +10,10 @@ use std::{
 use anyhow::ensure;
 use serde::Deserialize;
 
-use crate::platform::{PlatformMetadata, PlatformTrait};
+use crate::{
+    config::PlatformGlobal,
+    platform::{PlatformMetadata, PlatformTrait},
+};
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(tag = "name")]
@@ -24,6 +27,15 @@ pub enum ConfigSourcePlatform {
     BilibiliVideo(bilibili::video::ConfigParams),
     #[serde(rename = "Twitter")]
     Twitter(twitter::ConfigParams),
+}
+
+impl ConfigSourcePlatform {
+    pub fn validate(&self, global: &PlatformGlobal) -> anyhow::Result<()> {
+        match self {
+            Self::BilibiliLive(_) | Self::BilibiliSpace(_) | Self::BilibiliVideo(_) => Ok(()),
+            Self::Twitter(p) => p.validate(global),
+        }
+    }
 }
 
 impl fmt::Display for ConfigSourcePlatform {
@@ -241,19 +253,19 @@ impl Post {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PostAttachment {
     Image(PostAttachmentImage),
     #[allow(dead_code)]
     Video(PostAttachmentVideo),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PostAttachmentImage {
     pub media_url: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PostAttachmentVideo {
     pub media_url: String,
 }

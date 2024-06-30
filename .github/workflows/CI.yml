@@ -47,6 +47,8 @@ jobs:
     - name: Run check with default features
       run: cargo check --verbose
     - name: Run tests with all features
+      env:
+        CLOSELY_TEST_TWITTER_COOKIES: ${{ secrets.CLOSELY_TEST_TWITTER_COOKIES }}
       run: cargo test --all-features --verbose
 
   clippy:
@@ -61,4 +63,6 @@ jobs:
     - name: Restore cargo caches
       uses: Swatinem/rust-cache@v2
     - name: Run clippy
+      env:
+        CLOSELY_TEST_TWITTER_COOKIES: ${{ secrets.CLOSELY_TEST_TWITTER_COOKIES }}
       run: cargo clippy --all-features --tests --examples -- -D warnings -A dead-code

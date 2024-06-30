@@ -85,6 +85,12 @@ impl Config {
     }
 
     fn validate(&self) -> anyhow::Result<()> {
+        let global = self
+            .platform
+            .as_ref()
+            .map(Cow::Borrowed)
+            .unwrap_or(Cow::Owned(PlatformGlobal::default()));
+
         // Validate platform_global
         if let Some(platform) = &self.platform {
             platform.validate()?;
@@ -95,6 +101,14 @@ impl Config {
             reporter.validate(&self.notify_map)?;
         }
 
+        // Validate source
+        self.subscription
+            .values()
+            .flatten()
+            .map(|subscription| &subscription.platform)
+            .map(|platform| platform.validate(&global))
+            .collect::<Result<Vec<_>, _>>()?;
+
         // Validate notify ref
         self.subscription
             .values()
@@ -104,8 +118,7 @@ impl Config {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Validate notify_map
-        self.notify_map
-            .validate(self.platform.as_ref().unwrap_or(&PlatformGlobal::default()))?;
+        self.notify_map.validate(&global)?;
 
         Ok(())
     }
@@ -139,6 +152,9 @@ impl PlatformGlobal {
         }
         if let Some(telegram) = &self.telegram {
             telegram.token.as_secret_ref().validate()?;
+        }
+        if let Some(twitter) = &self.twitter {
+            twitter.auth.as_secret_ref().validate()?;
         }
         Ok(())
     }
@@ -387,7 +403,7 @@ lagrange = { binary_path = "/tmp/lagrange", http_port = 8000, sign_server = "htt
 token = "ttt"
 
 [platform.Twitter]
-nitter_host = "https://nitter.example.com/"
+auth = { cookies = "a=b;c=d;ct0=blah" }
 
 [notify]
 meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
@@ -437,7 +453,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                         token: notify::telegram::ConfigToken::Token("ttt".into())
                     }),
                     twitter: Some(source::twitter::ConfigGlobal {
-                        nitter_host: "https://nitter.example.com/".into()
+                        auth: source::twitter::ConfigCookies::Cookies("a=b;c=d;ct0=blah".into())
                     })
                 }),
                 notify_map: NotifyMap(HashMap::from_iter([
