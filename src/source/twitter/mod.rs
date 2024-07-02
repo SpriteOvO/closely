@@ -650,12 +650,12 @@ mod tests {
         let fetcher =
             FetcherInner::new(TwitterCookies::new(env!("CLOSELY_TEST_TWITTER_COOKIES")).unwrap());
 
-        let posts = fetcher.user_tweets("suzumiyasuzume").await.unwrap().0;
+        let posts = fetcher.user_tweets("NASA").await.unwrap().0;
         assert!(posts.iter().any(|post| !post.attachments.is_empty()));
         assert!(posts.iter().all(|post| post
             .urls
             .major()
             .as_clickable()
-            .is_some_and(|url| url.url.starts_with("https://x.com/suzumiyasuzume/status"))));
+            .is_some_and(|url| url.url.starts_with("https://x.com/NASA/status"))));
     }
 }
