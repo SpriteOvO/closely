@@ -242,6 +242,7 @@ mod data {
     #[derive(Clone, Debug, PartialEq, Deserialize)]
     #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
     pub enum TweetCardValue {
+        Boolean { boolean_value: bool },
         String { string_value: String },
         Image { image_value: TweetCardImageValue },
         ImageColor,
