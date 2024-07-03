@@ -502,11 +502,28 @@ fn parse_tweet(tweet: data::Tweet) -> Post {
                 }))
             }
             Some(_) => {
-                critical!("type of image card mismatched! tweet: {:?}", urls.major());
+                critical!(
+                    "type of image card mismatched! tweet: {:?}, card kv: {:?}",
+                    urls.major(),
+                    card.legacy.binding_values
+                );
                 None
             }
             None => {
-                warn!("image key not found in card for tweet: {:?}", urls.major());
+                if card
+                    .legacy
+                    .binding_values
+                    .iter()
+                    .any(|kv| matches!(kv.value, data::TweetCardValue::Image { .. }))
+                {
+                    let rustfmt_bug =
+                        "expected image key not found in card, but the card contains image.";
+                    warn!(
+                        "{rustfmt_bug} tweet: {:?}, card kv: {:?}",
+                        urls.major(),
+                        card.legacy.binding_values
+                    );
+                }
                 None
             }
         }
