@@ -4,20 +4,16 @@ use std::{
     fmt::{self, Write},
     future::Future,
     pin::Pin,
-    time::Duration,
 };
 
-use anyhow::{anyhow, bail, ensure};
-use once_cell::sync::Lazy;
+use anyhow::ensure;
 use serde::Deserialize;
 use spdlog::prelude::*;
-use tokio::sync::OnceCell;
 
 use super::NotifierTrait;
 use crate::{
-    config::{self, AsSecretRef},
+    config::{self, Config},
     platform::{PlatformMetadata, PlatformTrait},
-    secret_enum,
     source::{
         LiveStatus, LiveStatusKind, Notification, NotificationKind, Post, PostAttachment, PostsRef,
         RepostFrom, StatusSource,
@@ -26,25 +22,7 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigGlobal {
-    pub login: ConfigLogin,
     pub lagrange: lagrange::ConfigLagrange,
-}
-
-impl ConfigGlobal {
-    pub async fn init(&self) -> anyhow::Result<()> {
-        let core = lagrange::LograngeOnebot::launch(&self.login, &self.lagrange)
-            .await
-            .map_err(|err| anyhow!("failed to launch core: {err}"))?;
-
-        let version = core
-            .version_info_retry_timeout(Duration::from_secs(5))
-            .await?;
-        info!("lagrange core launched. version: {version:?}");
-
-        BACKEND
-            .set(core)
-            .map_err(|_| anyhow!("global state already initialized"))
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -57,10 +35,8 @@ pub struct ConfigParams {
 
 impl ConfigParams {
     pub fn validate(&self, global: &config::PlatformGlobal) -> anyhow::Result<()> {
-        match &global.qq {
-            Some(global_qq) => global_qq.login.validate(),
-            None => bail!("login in global is missing"),
-        }
+        ensure!(global.qq.is_some(), "qq in global is missing");
+        Ok(())
     }
 }
 
@@ -97,36 +73,6 @@ impl config::Overridable for ConfigParams {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct ConfigLogin {
-    #[serde(flatten)]
-    pub account: ConfigAccount,
-    #[serde(flatten)]
-    pub password: ConfigPassword,
-}
-
-impl ConfigLogin {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        self.account.as_secret_ref().validate()?;
-        self.password.as_secret_ref().validate()?;
-        Ok(())
-    }
-}
-
-secret_enum! {
-    #[derive(Clone, Debug, PartialEq, Deserialize)]
-    #[serde(rename_all = "snake_case")]
-    pub enum ConfigAccount {
-        Account(u64),
-    }
-
-    #[derive(Clone, Debug, PartialEq, Deserialize)]
-    #[serde(rename_all = "snake_case")]
-    pub enum ConfigPassword {
-        Password(String),
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigChat {
     GroupId(u64),
@@ -142,10 +88,9 @@ impl fmt::Display for ConfigChat {
     }
 }
 
-static BACKEND: Lazy<OnceCell<lagrange::LograngeOnebot>> = Lazy::new(OnceCell::new);
-
 pub struct Notifier {
     params: ConfigParams,
+    backend: lagrange::LagrangeOnebot<'static>,
 }
 
 impl PlatformTrait for Notifier {
@@ -165,7 +110,12 @@ impl NotifierTrait for Notifier {
 
 impl Notifier {
     pub fn new(params: ConfigParams) -> Self {
-        Self { params }
+        let lagrange =
+            lagrange::LagrangeOnebot::new(&Config::platform_global().qq.as_ref().unwrap().lagrange);
+        Self {
+            params,
+            backend: lagrange,
+        }
     }
 
     async fn notify_impl(&self, notification: &Notification<'_>) -> anyhow::Result<()> {
@@ -203,9 +153,7 @@ impl Notifier {
                 ))
                 .build();
 
-            BACKEND
-                .get()
-                .unwrap()
+            self.backend
                 .send_message(&self.params.chat, message)
                 .await?;
         }
@@ -228,9 +176,7 @@ impl Notifier {
             source.platform.display_name, live_status.title
         ));
 
-        BACKEND
-            .get()
-            .unwrap()
+        self.backend
             .send_message(&self.params.chat, message)
             .await?;
 
@@ -312,9 +258,7 @@ impl Notifier {
             .text(content)
             .build();
 
-        BACKEND
-            .get()
-            .unwrap()
+        self.backend
             .send_message(&self.params.chat, message)
             .await?;
 
@@ -329,9 +273,7 @@ impl Notifier {
 
         let message = lagrange::Message::text(message);
 
-        BACKEND
-            .get()
-            .unwrap()
+        self.backend
             .send_message(&self.params.chat, message)
             .await?;
 

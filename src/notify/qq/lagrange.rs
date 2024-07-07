@@ -1,114 +1,36 @@
-use std::{
-    fmt::Debug,
-    path::PathBuf,
-    process::{Child, Command, Stdio},
-    time::Duration,
-};
+use std::{fmt::Debug, time::Duration};
 
 use anyhow::{anyhow, ensure};
-use rand::distributions::{Alphanumeric, DistString};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{self as json, json};
-use spdlog::prelude::*;
-use tokio::{fs, time::timeout};
+use tokio::time::timeout;
 
-use super::{ConfigChat, ConfigLogin};
-use crate::{cli_args, config::AsSecretRef};
+use super::ConfigChat;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigLagrange {
-    pub binary_path: PathBuf,
+    pub http_host: String,
     pub http_port: u16,
-    pub sign_server: String,
+    pub access_token: Option<String>,
 }
 
-pub struct LograngeOnebot {
-    child: Child,
-    http_port: u16,
-    access_token: String,
+pub struct LagrangeOnebot<'a> {
+    config: &'a ConfigLagrange,
 }
 
-impl LograngeOnebot {
-    pub async fn launch(login: &ConfigLogin, lagrange: &ConfigLagrange) -> anyhow::Result<Self> {
-        let access_token = Alphanumeric.sample_string(&mut rand::thread_rng(), 32);
-
-        let appsettings = json!(
-            {
-                "Logging": {
-                    "LogLevel": {
-                        "Default": "Information",
-                        "Microsoft": "Warning",
-                        "Microsoft.Hosting.Lifetime": "Information"
-                    }
-                },
-                "SignServerUrl": lagrange.sign_server,
-                "Account": {
-                    "Uin": login.account.as_secret_ref().get_parse_copy()?,
-                    "Password": login.password.as_secret_ref().get_str()?,
-                    "Protocol": "Linux",
-                    "AutoReconnect": true,
-                    "GetOptimumServer": true
-                },
-                "Message": {
-                    "IgnoreSelf": true,
-                    "StringPost": false
-                },
-                "QrCode": {
-                    "ConsoleCompatibilityMode": false
-                },
-                "Implementations": [
-                    {
-                        "Type": "Http",
-                        "Host": "localhost",
-                        "Port": lagrange.http_port,
-                        "AccessToken": access_token
-                    }
-                ]
-            }
-        );
-
-        #[cfg(debug_assertions)]
-        info!("logrange access token: {access_token}");
-
-        let working_dir = lagrange
-            .binary_path
-            .parent()
-            .ok_or_else(|| anyhow!("binary path of logrange has no parent"))?;
-        fs::write(
-            working_dir.join("appsettings.json"),
-            json::to_string_pretty(&appsettings)?,
-        )
-        .await?;
-
-        let mut command = Command::new(&lagrange.binary_path);
-
-        if let Some(log_dir) = &cli_args().log_dir {
-            let log_dir = PathBuf::from(log_dir).join("lagrange");
-            std::fs::create_dir_all(&log_dir)
-                .map_err(|err| anyhow!("failed to create directories for lagrange logs: {err}"))?;
-
-            let mut open_options = std::fs::OpenOptions::new();
-            open_options.create(true).append(true);
-
-            let stdfile = |stream| {
-                open_options
-                    .open(log_dir.join(format!("lagrange.{stream}")))
-                    .map_err(|err| anyhow!("failed to open {stream} log file for lagrange: {err}"))
-            };
-            command
-                .stdout(stdfile("stdout")?)
-                .stderr(stdfile("stderr")?);
-        } else {
-            command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
-        };
-
-        let child = command.current_dir(working_dir).spawn()?;
-
-        Ok(Self {
-            child,
-            http_port: lagrange.http_port,
-            access_token,
-        })
+impl<'a> LagrangeOnebot<'a> {
+    pub fn new(config: &'a ConfigLagrange) -> Self {
+        Self { config }
+        // instance
+        //     .version_info_retry_timeout(Duration::from_secs(5))
+        //     .await
+        //     .map_err(|_| {
+        //         anyhow!(
+        //             "failed to connect Lagrange on '{}:{}'",
+        //             config.http_host,
+        //             config.http_port
+        //         )
+        //     })?;
     }
 
     async fn request<T: DeserializeOwned + Debug>(
@@ -117,12 +39,17 @@ impl LograngeOnebot {
         arguments: Option<json::Value>,
     ) -> anyhow::Result<Response<T>> {
         async {
-            let resp = reqwest::Client::new()
-                .post(format!("http://localhost:{}/{method}", self.http_port))
-                .json(&arguments.unwrap_or(json::Value::Null))
-                .bearer_auth(&self.access_token)
-                .send()
-                .await?;
+            let mut resp = reqwest::Client::new()
+                .post(format!(
+                    "http://{}:{}/{method}",
+                    self.config.http_host, self.config.http_port
+                ))
+                .json(&arguments.unwrap_or(json::Value::Null));
+            if let Some(access_token) = self.config.access_token.as_ref() {
+                resp = resp.bearer_auth(access_token);
+            }
+            let resp = resp.send().await?;
+
             let status = resp.status();
             ensure!(
                 status.is_success(),
@@ -184,12 +111,6 @@ impl LograngeOnebot {
         self.request::<_>("send_msg", Some(args))
             .await
             .map(|resp| resp.data.unwrap())
-    }
-}
-
-impl Drop for LograngeOnebot {
-    fn drop(&mut self) {
-        _ = self.child.kill();
     }
 }
 

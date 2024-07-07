@@ -377,7 +377,6 @@ dependencies = [
  "itertools",
  "once_cell",
  "paste",
- "rand",
  "reqwest",
  "serde",
  "serde_json",

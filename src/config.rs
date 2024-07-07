@@ -11,7 +11,6 @@ use serde::{
     },
     Deserialize,
 };
-use spdlog::prelude::*;
 
 use crate::{
     notify,
@@ -137,19 +136,10 @@ pub struct PlatformGlobal {
 
 impl PlatformGlobal {
     async fn init(&self) -> anyhow::Result<()> {
-        #[cfg(feature = "qq")]
-        if let Some(qq) = &self.qq {
-            info!("Initializing QQ...");
-            qq.init().await?;
-        }
         Ok(())
     }
 
     fn validate(&self) -> anyhow::Result<()> {
-        #[cfg(feature = "qq")]
-        if let Some(qq) = &self.qq {
-            qq.login.validate()?;
-        }
         if let Some(telegram) = &self.telegram {
             telegram.token.as_secret_ref().validate()?;
         }
@@ -380,8 +370,6 @@ const fn default_false() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
     use crate::reporter::{
         ConfigHeartbeat, ConfigHeartbeatHttpGet, ConfigHeartbeatKind, ConfigReporterLog,
@@ -396,8 +384,7 @@ interval = '1min'
 reporter = { log = { notify = ["meow"] }, heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
 
 [platform.QQ]
-login = { account = 123456, password = "xyz" }
-lagrange = { binary_path = "/tmp/lagrange", http_port = 8000, sign_server = "https://example.com/" }
+lagrange = { http_host = "localhost", http_port = 8000 }
 
 [platform.Telegram]
 token = "ttt"
@@ -439,14 +426,10 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                 }),
                 platform: Some(PlatformGlobal {
                     qq: Some(notify::qq::ConfigGlobal {
-                        login: notify::qq::ConfigLogin {
-                            account: notify::qq::ConfigAccount::Account(123456),
-                            password: notify::qq::ConfigPassword::Password("xyz".into())
-                        },
                         lagrange: notify::qq::lagrange::ConfigLagrange {
-                            binary_path: PathBuf::from("/tmp/lagrange"),
+                            http_host: "localhost".into(),
                             http_port: 8000,
-                            sign_server: "https://example.com/".into(),
+                            access_token: None,
                         }
                     }),
                     telegram: Some(notify::telegram::ConfigGlobal {
