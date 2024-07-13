@@ -592,11 +592,13 @@ enum ReplaceKind<'a> {
 fn replace_entities(mut text: String, entities: &data::TweetLegacyEntities) -> String {
     // TODO: entities.user_mentions
 
+    let mut media_entities = entities.media.iter().flatten().collect::<Vec<_>>();
+    // Multiple media share the same indices, they are expected to be overlapped
+    media_entities.dedup_by_key(|media| media.indices);
+
     // Check overlapping indices
-    let mut indices = entities
-        .media
-        .iter()
-        .flatten()
+    let mut indices = media_entities
+        .into_iter()
         .map(|media| (ReplaceKind::Media, media.indices))
         .chain(
             entities
