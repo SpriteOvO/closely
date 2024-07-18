@@ -1,6 +1,8 @@
 use anyhow::{anyhow, ensure};
 use reqwest::header::COOKIE;
 
+use crate::helper;
+
 pub struct TwitterCookies {
     pub raw: String,
     pub ct0: String,
@@ -52,7 +54,7 @@ impl TwitterRequester {
     }
 
     async fn request(&self, url: impl AsRef<str>) -> anyhow::Result<reqwest::Response> {
-        let resp = reqwest::Client::new()
+        let resp = helper::reqwest_client()?
             .get(url.as_ref())
             .bearer_auth(BEARER_TOKEN)
             .header(COOKIE, &self.cookies.raw)

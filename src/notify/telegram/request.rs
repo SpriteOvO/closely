@@ -14,7 +14,10 @@ use serde_json::{self as json, json};
 use spdlog::prelude::*;
 
 use super::ConfigChat;
-use crate::source::{PostAttachmentImage, PostAttachmentVideo};
+use crate::{
+    helper,
+    source::{PostAttachmentImage, PostAttachmentVideo},
+};
 
 pub struct Request<'a> {
     token: &'a str,
@@ -43,7 +46,7 @@ impl<'a> Request<'a> {
     ) -> anyhow::Result<Response<T>> {
         let url = format!("https://api.telegram.org/bot{}/{}", self.token, method);
 
-        let mut client = reqwest::Client::new().post(url);
+        let mut client = helper::reqwest_client()?.post(url);
 
         if let Some(file_urls) = file_urls {
             let form = form_append_json(Form::new(), body.as_object().unwrap());
@@ -54,9 +57,13 @@ impl<'a> Request<'a> {
                 .try_fold(form, |form, (i, file_url)| async move {
                     trace!("downloading media from url '{}'", file_url.url);
 
-                    let file = reqwest::get(file_url.url).await.map_err(|err| {
-                        anyhow!("failed to download file: {err} from url '{}'", file_url.url)
-                    })?;
+                    let file = helper::reqwest_client()?
+                        .get(file_url.url)
+                        .send()
+                        .await
+                        .map_err(|err| {
+                            anyhow!("failed to download file: {err} from url '{}'", file_url.url)
+                        })?;
 
                     let status = file.status();
                     anyhow::ensure!(

@@ -6,6 +6,7 @@ use serde_json as json;
 
 use super::{upgrade_to_https, Response};
 use crate::{
+    helper,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostUrl, Posts, Status,
@@ -90,7 +91,7 @@ impl Fetcher {
 }
 
 async fn fetch_series_archives(user_id: u64, series_id: u64) -> anyhow::Result<Posts> {
-    let resp = reqwest::Client::new()
+    let resp = helper::reqwest_client()?
         .get(format!(
             "https://api.bilibili.com/x/series/archives?mid={user_id}&series_id={series_id}"
         ))

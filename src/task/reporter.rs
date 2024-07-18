@@ -5,7 +5,10 @@ use spdlog::prelude::*;
 use tokio::time::MissedTickBehavior;
 
 use super::{Task, TaskKind};
-use crate::reporter::{ConfigHeartbeat, ConfigHeartbeatKind, ReporterParams};
+use crate::{
+    helper,
+    reporter::{ConfigHeartbeat, ConfigHeartbeatKind, ReporterParams},
+};
 
 pub struct TaskReporter {
     params: ReporterParams,
@@ -35,7 +38,7 @@ impl TaskReporter {
     async fn run_once(heartbeat: &ConfigHeartbeat) -> anyhow::Result<()> {
         match &heartbeat.kind {
             ConfigHeartbeatKind::HttpGet(http_get) => {
-                let response = reqwest::get(http_get.url()).await?;
+                let response = helper::reqwest_client()?.get(http_get.url()).send().await?;
                 let status = response.status();
                 ensure!(
                     status.is_success(),

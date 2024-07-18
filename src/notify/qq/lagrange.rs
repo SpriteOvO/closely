@@ -6,6 +6,7 @@ use serde_json::{self as json, json};
 use tokio::time::timeout;
 
 use super::ConfigChat;
+use crate::helper;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigLagrange {
@@ -39,7 +40,7 @@ impl<'a> LagrangeOnebot<'a> {
         arguments: Option<json::Value>,
     ) -> anyhow::Result<Response<T>> {
         async {
-            let mut resp = reqwest::Client::new()
+            let mut resp = helper::reqwest_client()?
                 .post(format!(
                     "http://{}:{}/{method}",
                     self.config.http_host, self.config.http_port

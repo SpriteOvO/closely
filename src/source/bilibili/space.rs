@@ -11,6 +11,7 @@ use tokio::sync::{Mutex, OnceCell};
 
 use super::{upgrade_to_https, Response};
 use crate::{
+    helper,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, Notification, NotificationKind, Post, PostAttachment, PostAttachmentImage,
@@ -378,7 +379,7 @@ fn fetch_space_history_impl(
             .map(|(name, value)| format!("{}={}", name, value))
             .collect::<Vec<_>>()
             .join("; ");
-        let resp = reqwest::Client::new()
+        let resp = helper::reqwest_client()?
             .get(format!(
                 "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={}",
                 user_id

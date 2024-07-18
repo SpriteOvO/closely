@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 
 use super::{upgrade_to_https, Response};
 use crate::{
+    helper,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, LiveStatus, LiveStatusKind, Status, StatusKind, StatusSource,
@@ -134,7 +135,7 @@ impl Fetcher {
 async fn fetch_live_info(user_id: u64) -> anyhow::Result<RoomData> {
     let body = json!({ "uids": [user_id] });
 
-    let resp = reqwest::Client::new()
+    let resp = helper::reqwest_client()?
         .post(BILIBILI_LIVE_API)
         .json(&body)
         .send()
