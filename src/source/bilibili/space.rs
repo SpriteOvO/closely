@@ -6,7 +6,6 @@ use reqwest::header::{self, HeaderValue};
 use serde::Deserialize;
 use serde_json::{self as json};
 use spdlog::prelude::*;
-use tap::prelude::*;
 use tokio::sync::{Mutex, OnceCell};
 
 use super::{upgrade_to_https, Response};
@@ -599,7 +598,7 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
         })
         .filter_map(|item| {
             parse_item(&item, None)
-                .tap_err(|err| error!("failed to deserialize item: {err} for '{item:?}'"))
+                .inspect_err(|err| error!("failed to deserialize item: {err} for '{item:?}'"))
                 .ok()
         })
         .collect();
