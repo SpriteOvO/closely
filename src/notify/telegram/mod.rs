@@ -382,7 +382,7 @@ impl Notifier {
                         // post, we don't use `profile_url` here
                         //
                         // &repost_from.user.profile_url,
-                        if let PostUrl::Clickable(url) = &repost_from.urls.major() {
+                        if let PostUrl::Clickable(url) = &repost_from.urls_recursive().major() {
                             text.push_link(&user.nickname, &url.url);
                         } else {
                             text.push_plain(&user.nickname);
@@ -415,8 +415,7 @@ impl Notifier {
             0 | 1 => {
                 // Jump buttons
                 let buttons = vec![post
-                    .urls
-                    .iter()
+                    .urls_recursive()
                     .into_iter()
                     .filter_map(|url| url.as_clickable())
                     .map(|url| Button::new_url(&url.display, &url.url))
@@ -458,8 +457,7 @@ impl Notifier {
                 // Jump buttons
                 {
                     let mut iter = post
-                        .urls
-                        .iter()
+                        .urls_recursive()
                         .into_iter()
                         .filter_map(|url| url.as_clickable())
                         .peekable();

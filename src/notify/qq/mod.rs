@@ -237,8 +237,7 @@ impl Notifier {
         }
         content.write_str("\n")?;
         for url in post
-            .urls
-            .iter()
+            .urls_recursive()
             .into_iter()
             .filter_map(|url| url.as_clickable())
         {

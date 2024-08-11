@@ -5,6 +5,7 @@ use std::{
     fmt::{self, Display},
     future::Future,
     pin::Pin,
+    slice, vec,
 };
 
 use anyhow::ensure;
@@ -158,19 +159,14 @@ pub struct PostPlatformUniqueId(String);
 pub struct Post {
     pub user: Option<User>,
     pub content: String,
-    pub urls: PostUrls,
+    urls: PostUrls,
     pub repost_from: Option<RepostFrom>,
     attachments: Vec<PostAttachment>,
 }
 
 impl Post {
     pub fn platform_unique_id(&self) -> PostPlatformUniqueId {
-        let identity = match self.urls.major() {
-            PostUrl::Clickable(clickable) => clickable.url.clone(),
-            PostUrl::Identity(identity) => identity.clone(),
-        };
-        assert!(!identity.is_empty());
-        PostPlatformUniqueId(identity)
+        PostPlatformUniqueId(self.urls.major().unique_id().into())
     }
 }
 
@@ -192,7 +188,7 @@ impl PostUrls {
         self.0.first().unwrap()
     }
 
-    pub fn iter(&self) -> impl IntoIterator<Item = &PostUrl> {
+    pub fn iter(&self) -> slice::Iter<PostUrl> {
         self.0.iter()
     }
 }
@@ -200,6 +196,23 @@ impl PostUrls {
 impl From<PostUrl> for PostUrls {
     fn from(url: PostUrl) -> Self {
         Self::new(url)
+    }
+}
+
+#[derive(Debug)]
+pub struct PostUrlsRef<'a>(Vec<&'a PostUrl>);
+
+impl<'a> PostUrlsRef<'a> {
+    pub fn major(&self) -> &'a PostUrl {
+        self.0.first().unwrap()
+    }
+
+    pub fn iter(&self) -> slice::Iter<'_, &'a PostUrl> {
+        self.0.iter()
+    }
+
+    pub fn into_iter(self) -> vec::IntoIter<&'a PostUrl> {
+        self.0.into_iter()
     }
 }
 
@@ -225,6 +238,15 @@ impl PostUrl {
             _ => None,
         }
     }
+
+    pub fn unique_id(&self) -> &str {
+        let id = match self {
+            PostUrl::Clickable(clickable) => &clickable.url,
+            PostUrl::Identity(identity) => identity,
+        };
+        assert!(!id.is_empty());
+        id
+    }
 }
 
 #[derive(Debug)]
@@ -249,6 +271,20 @@ impl Post {
                 .collect()
         } else {
             self.attachments.iter().collect()
+        }
+    }
+
+    pub fn urls_recursive(&self) -> PostUrlsRef {
+        if let Some(RepostFrom::Recursion(repost_from)) = &self.repost_from {
+            let mut v = self
+                .urls
+                .iter()
+                .chain(repost_from.urls_recursive().into_iter().skip(1)) // Skip the major URL from the repost
+                .collect::<Vec<_>>();
+            v.dedup_by_key(|url| url.unique_id());
+            PostUrlsRef(v)
+        } else {
+            PostUrlsRef(self.urls.iter().collect())
         }
     }
 }
