@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashSet, fmt, future::Future, pin::Pin};
+use std::{borrow::Cow, fmt, future::Future, pin::Pin};
 
 use anyhow::{anyhow, bail, Ok};
 use once_cell::sync::Lazy;
@@ -6,16 +6,15 @@ use reqwest::header::{self, HeaderValue};
 use serde::Deserialize;
 use serde_json::{self as json};
 use spdlog::prelude::*;
-use tokio::sync::{Mutex, OnceCell};
+use tokio::sync::Mutex;
 
 use super::{upgrade_to_https, Response};
 use crate::{
     helper,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
-        FetcherTrait, Notification, NotificationKind, Post, PostAttachment, PostAttachmentImage,
-        PostPlatformUniqueId, PostUrl, PostUrls, Posts, PostsRef, RepostFrom, Status, StatusKind,
-        StatusSource, User,
+        FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostUrl, PostUrls, Posts,
+        RepostFrom, Status, StatusKind, StatusSource, User,
     },
 };
 
@@ -273,8 +272,6 @@ mod data {
 
 pub struct Fetcher {
     params: ConfigParams,
-    first_fetch: OnceCell<()>,
-    fetched_cache: Mutex<HashSet<PostPlatformUniqueId>>,
 }
 
 impl PlatformTrait for Fetcher {
@@ -289,13 +286,6 @@ impl FetcherTrait for Fetcher {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
         Box::pin(self.fetch_status_impl())
     }
-
-    fn post_filter<'a>(
-        &'a self,
-        notification: Notification<'a>,
-    ) -> Pin<Box<dyn Future<Output = Option<Notification<'a>>> + Send + '_>> {
-        Box::pin(self.post_filter_impl(notification))
-    }
 }
 
 impl fmt::Display for Fetcher {
@@ -306,25 +296,11 @@ impl fmt::Display for Fetcher {
 
 impl Fetcher {
     pub fn new(params: ConfigParams) -> Self {
-        Self {
-            params,
-            first_fetch: OnceCell::new(),
-            fetched_cache: Mutex::new(HashSet::new()),
-        }
+        Self { params }
     }
 
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
         let posts = fetch_space_history(self.params.user_id).await?;
-
-        // The initial full cache for `post_filter`
-        self.first_fetch
-            .get_or_init(|| async {
-                let mut published_cache = self.fetched_cache.lock().await;
-                posts.0.iter().for_each(|post| {
-                    assert!(published_cache.insert(post.platform_unique_id()));
-                })
-            })
-            .await;
 
         Ok(Status::new(
             StatusKind::Posts(posts),
@@ -335,35 +311,6 @@ impl Fetcher {
                 user: None,
             },
         ))
-    }
-
-    async fn post_filter_impl<'a>(
-        &self,
-        mut notification: Notification<'a>,
-    ) -> Option<Notification<'a>> {
-        // Sometimes the API returns posts without all "published video" posts, it
-        // causes the problem that the next update will treat the missing posts as new
-        // posts and notify them again. So we do some hacky filter here.
-
-        if let NotificationKind::Posts(posts) = notification.kind {
-            let mut fetched_cache = self.fetched_cache.lock().await;
-            let remaining_posts = posts
-                .0
-                .into_iter()
-                .filter(|post| !fetched_cache.contains(&post.platform_unique_id()))
-                .collect::<Vec<_>>();
-
-            remaining_posts.iter().for_each(|post| {
-                assert!(fetched_cache.insert(post.platform_unique_id()));
-            });
-            drop(fetched_cache);
-
-            if remaining_posts.is_empty() {
-                return None;
-            }
-            notification.kind = NotificationKind::Posts(PostsRef(remaining_posts));
-        }
-        Some(notification)
     }
 }
 
@@ -682,77 +629,5 @@ mod tests {
             .url
             .is_empty()));
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
-    }
-
-    #[tokio::test]
-    async fn dedup_published_videos() {
-        let fetcher = Fetcher::new(ConfigParams { user_id: 1 });
-
-        let source = StatusSource {
-            platform: PlatformMetadata {
-                display_name: "test.platform",
-            },
-            user: None,
-        };
-        let mut posts = vec![];
-
-        macro_rules! make_notification {
-            ( $posts:expr ) => {
-                Notification {
-                    kind: NotificationKind::Posts(PostsRef($posts)),
-                    source: &source,
-                }
-            };
-            () => {
-                make_notification!(posts.iter().collect())
-            };
-        }
-
-        assert!(fetcher.post_filter(make_notification!()).await.is_none());
-
-        posts.push(Post {
-            user: Some(User {
-                nickname: "test display name".into(),
-                profile_url: "https://test.profile".into(),
-                avatar_url: "https://test.avatar".into(),
-            }),
-            content: "test1".into(),
-            urls: PostUrls::from_iter([PostUrl::new_clickable("https://test1", "View")]).unwrap(),
-            repost_from: None,
-            attachments: vec![],
-        });
-
-        let filtered = fetcher.post_filter(make_notification!()).await;
-        assert!(matches!(
-            filtered.unwrap().kind,
-            NotificationKind::Posts(posts) if posts.0.len() == 1 && posts.0[0].content == "test1"
-        ));
-
-        let filtered = fetcher.post_filter(make_notification!()).await;
-        assert!(filtered.is_none());
-
-        let filtered = fetcher.post_filter(make_notification!(vec![])).await;
-        assert!(filtered.is_none());
-
-        posts.push(Post {
-            user: Some(User {
-                nickname: "test display name".into(),
-                profile_url: "https://test.profile".into(),
-                avatar_url: "https://test.avatar".into(),
-            }),
-            content: "test2".into(),
-            urls: PostUrls::from_iter([PostUrl::new_clickable("https://test2", "View")]).unwrap(),
-            repost_from: None,
-            attachments: vec![],
-        });
-
-        let filtered = fetcher.post_filter(make_notification!()).await;
-        assert!(matches!(
-            filtered.unwrap().kind,
-            NotificationKind::Posts(posts) if posts.0.len() == 1 && posts.0[0].content == "test2"
-        ));
-
-        let filtered = fetcher.post_filter(make_notification!(vec![])).await;
-        assert!(filtered.is_none());
     }
 }

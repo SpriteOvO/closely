@@ -78,10 +78,7 @@ impl TaskSubscription {
                 }
             }
         }
-        if !status.is_empty() {
-            self.last_status = status;
-        }
-
+        self.last_status.update_incrementally(status);
         Ok(())
     }
 }

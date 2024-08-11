@@ -2,6 +2,7 @@ pub mod bilibili;
 pub mod twitter;
 
 use std::{
+    borrow::Borrow,
     fmt::{self, Display},
     future::Future,
     pin::Pin,
@@ -50,22 +51,22 @@ impl fmt::Display for ConfigSourcePlatform {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StatusSource {
     pub platform: PlatformMetadata,
     pub user: Option<StatusSourceUser>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StatusSourceUser {
     pub display_name: String,
     pub profile_url: String,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Status(Option<StatusInner>);
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct StatusInner {
     kind: StatusKind,
     source: StatusSource,
@@ -78,10 +79,6 @@ impl Status {
 
     pub fn new(kind: StatusKind, source: StatusSource) -> Self {
         Self(Some(StatusInner { kind, source }))
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_none()
     }
 
     pub fn generate_notifications<'a>(&'a self, last_status: &'a Status) -> Vec<Notification<'a>> {
@@ -109,7 +106,7 @@ impl Status {
                         notifications
                     }
                     (StatusKind::Posts(posts), Some(StatusKind::Posts(last_posts))) => {
-                        let new_posts = vec_diff_by(&posts.0, &last_posts.0, |l, r| {
+                        let new_posts = vec_diff_by(&last_posts.0, &posts.0, |l, r| {
                             l.platform_unique_id() == r.platform_unique_id()
                         })
                         .collect::<Vec<_>>();
@@ -128,9 +125,40 @@ impl Status {
             )
             .unwrap_or_default()
     }
+
+    // Sometimes the data source API glitches and returns empty items without
+    // producing any errors. If we simply replace the stored value of `Status`, when
+    // the API comes back to normal, we will incorrectly generate notifications with
+    // all the items as a new update. To solve this issue, call this function, which
+    // will always incrementally store the new items and never delete the old items.
+    pub fn update_incrementally(&mut self, new: Status) {
+        match (&mut self.0, new.0) {
+            (None, None) => {}
+            (Some(_), None) => {}
+            (inner @ None, Some(new)) => *inner = Some(new),
+            (Some(stored), Some(new)) => {
+                match (&mut stored.kind, new.kind) {
+                    (StatusKind::Live(stored), StatusKind::Live(new)) => *stored = new,
+                    (StatusKind::Posts(stored), StatusKind::Posts(new)) => {
+                        let mut new = vec_diff_by(&stored.0, new.0, |l, r| {
+                            l.platform_unique_id() == r.platform_unique_id()
+                        })
+                        .collect::<Vec<_>>();
+                        // We don't care about the order at the moment.
+                        stored.0.append(&mut new);
+                    }
+                    _ => unreachable!("the stored status and the new status kinds are mismatch"),
+                }
+                stored.source.platform = new.source.platform;
+                if let Some(user) = new.source.user {
+                    stored.source.user = Some(user);
+                }
+            }
+        }
+    }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum StatusKind {
     Live(LiveStatus),
     Posts(Posts),
@@ -145,7 +173,7 @@ impl fmt::Display for StatusKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct User {
     pub nickname: String,
     pub profile_url: String,
@@ -155,7 +183,7 @@ pub struct User {
 #[derive(Debug, Eq, PartialEq, Hash)]
 pub struct PostPlatformUniqueId(String);
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Post {
     pub user: Option<User>,
     pub content: String,
@@ -170,7 +198,7 @@ impl Post {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PostUrls(Vec<PostUrl>);
 
 impl PostUrls {
@@ -216,7 +244,7 @@ impl<'a> PostUrlsRef<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum PostUrl {
     Clickable(PostUrlClickable),
     // For some cases. a post doesn't have a URL (e.g. deleted post), but we still need something
@@ -249,13 +277,19 @@ impl PostUrl {
     }
 }
 
-#[derive(Debug)]
+impl PartialEq for PostUrl {
+    fn eq(&self, other: &Self) -> bool {
+        self.unique_id().eq(other.unique_id())
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct PostUrlClickable {
     pub url: String,
     pub display: String,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RepostFrom {
     // TODO: Remove this in the future
     Legacy { is_repost: bool, is_quote: bool },
@@ -319,7 +353,7 @@ impl PartialEq for PostAttachmentVideo {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LiveStatusKind {
     Online,
     Offline,
@@ -336,7 +370,7 @@ impl fmt::Display for LiveStatusKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LiveStatus {
     pub kind: LiveStatusKind,
     pub title: String,
@@ -355,7 +389,7 @@ impl fmt::Display for LiveStatus {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Posts(Vec<Post>);
 
 impl fmt::Display for Posts {
@@ -439,20 +473,23 @@ pub fn fetcher(platform: &ConfigSourcePlatform) -> Box<dyn FetcherTrait> {
     }
 }
 
-fn vec_diff_by<'a, T, F>(lhs: &'a [T], rhs: &'a [T], predicate: F) -> impl Iterator<Item = &'a T>
+fn vec_diff_by<'a, T, R, I, F>(prev: &'a [T], new: I, predicate: F) -> impl Iterator<Item = R> + 'a
 where
-    F: Fn(&T, &T) -> bool + 'a,
+    I: IntoIterator<Item = R> + 'a,
+    F: Fn(&R, &T) -> bool + 'a,
 {
-    lhs.iter()
-        .filter(move |l| !rhs.iter().any(|r| predicate(l, r)))
+    new.into_iter()
+        .filter(move |n| !prev.iter().any(|p| predicate(n, p)))
 }
 
 #[allow(dead_code)]
-fn vec_diff<'a, T>(lhs: &'a [T], rhs: &'a [T]) -> impl Iterator<Item = &'a T>
+fn vec_diff<'a, T, R, I>(prev: &'a [T], new: I) -> impl Iterator<Item = R> + 'a
 where
+    I: IntoIterator<Item = R> + 'a,
     T: PartialEq,
+    R: Borrow<T>,
 {
-    vec_diff_by(lhs, rhs, |l, r| l == r)
+    vec_diff_by(prev, new, |n, p| p == n.borrow())
 }
 
 #[cfg(test)]
@@ -462,8 +499,252 @@ mod tests {
     #[test]
     fn vec_diff_valid() {
         assert_eq!(
-            vec_diff(&[1, 2, 3], &[4, 2, 3, 4]).collect::<Vec<_>>(),
+            vec_diff(&[4, 2, 3, 4], &[1, 2, 3]).collect::<Vec<_>>(),
             [&1]
-        )
+        );
+        assert_eq!(vec_diff(&[4, 2, 3, 4], [1, 2, 3]).collect::<Vec<_>>(), [1]);
+    }
+
+    #[test]
+    fn status_incremental_update_live() {
+        let mut status = Status::empty();
+        assert!(status.0.is_none());
+
+        let new = Status::new(
+            StatusKind::Live(LiveStatus {
+                kind: LiveStatusKind::Online,
+                title: "title1".into(),
+                streamer_name: "streamer1".into(),
+                cover_image_url: "cover1".into(),
+                live_url: "live1".into(),
+            }),
+            StatusSource {
+                platform: PlatformMetadata {
+                    display_name: "test",
+                },
+                user: Some(StatusSourceUser {
+                    display_name: "user1".into(),
+                    profile_url: "profile1".into(),
+                }),
+            },
+        );
+        status.update_incrementally(new.clone());
+        assert_eq!(status, new);
+
+        let new = Status::new(
+            StatusKind::Live(LiveStatus {
+                kind: LiveStatusKind::Online,
+                title: "title2".into(),
+                streamer_name: "streamer2".into(),
+                cover_image_url: "cover2".into(),
+                live_url: "live2".into(),
+            }),
+            StatusSource {
+                platform: PlatformMetadata {
+                    display_name: "test",
+                },
+                user: Some(StatusSourceUser {
+                    display_name: "user1".into(),
+                    profile_url: "profile1".into(),
+                }),
+            },
+        );
+        status.update_incrementally(new.clone());
+        assert_eq!(status, new);
+    }
+
+    #[test]
+    fn status_incremental_update_posts() {
+        let mut status = Status::empty();
+        assert!(status.0.is_none());
+
+        let new = Status::new(
+            StatusKind::Posts(Posts(vec![Post {
+                user: None,
+                content: "content1".into(),
+                urls: PostUrls::new(PostUrl::Identity("id1".into())),
+                repost_from: None,
+                attachments: vec![],
+            }])),
+            StatusSource {
+                platform: PlatformMetadata {
+                    display_name: "test",
+                },
+                user: Some(StatusSourceUser {
+                    display_name: "user1".into(),
+                    profile_url: "profile1".into(),
+                }),
+            },
+        );
+        status.update_incrementally(new.clone());
+        assert_eq!(status, new);
+
+        status.update_incrementally(Status::new(
+            StatusKind::Posts(Posts(vec![
+                Post {
+                    user: None,
+                    content: "content1".into(),
+                    urls: PostUrls::new(PostUrl::Identity("id1".into())),
+                    repost_from: None,
+                    attachments: vec![],
+                },
+                Post {
+                    user: None,
+                    content: "content2".into(),
+                    urls: PostUrls::new(PostUrl::Identity("id2".into())),
+                    repost_from: None,
+                    attachments: vec![],
+                },
+            ])),
+            StatusSource {
+                platform: PlatformMetadata {
+                    display_name: "test",
+                },
+                user: None,
+            },
+        ));
+        let last = Status::new(
+            StatusKind::Posts(Posts(vec![
+                Post {
+                    user: None,
+                    content: "content1".into(),
+                    urls: PostUrls::new(PostUrl::Identity("id1".into())),
+                    repost_from: None,
+                    attachments: vec![],
+                },
+                Post {
+                    user: None,
+                    content: "content2".into(),
+                    urls: PostUrls::new(PostUrl::Identity("id2".into())),
+                    repost_from: None,
+                    attachments: vec![],
+                },
+            ])),
+            StatusSource {
+                platform: PlatformMetadata {
+                    display_name: "test",
+                },
+                user: Some(StatusSourceUser {
+                    display_name: "user1".into(),
+                    profile_url: "profile1".into(),
+                }),
+            },
+        );
+        assert_eq!(status, last);
+
+        status.update_incrementally(Status::new(
+            StatusKind::Posts(Posts(vec![])),
+            StatusSource {
+                platform: PlatformMetadata {
+                    display_name: "test",
+                },
+                user: None,
+            },
+        ));
+        assert_eq!(status, last);
+
+        status.update_incrementally(Status::new(
+            StatusKind::Posts(Posts(vec![Post {
+                user: None,
+                content: "content3".into(),
+                urls: PostUrls::new(PostUrl::Identity("id3".into())),
+                repost_from: None,
+                attachments: vec![],
+            }])),
+            StatusSource {
+                platform: PlatformMetadata {
+                    display_name: "test",
+                },
+                user: Some(StatusSourceUser {
+                    display_name: "user2".into(),
+                    profile_url: "profile1".into(),
+                }),
+            },
+        ));
+        let last = Status::new(
+            StatusKind::Posts(Posts(vec![
+                Post {
+                    user: None,
+                    content: "content1".into(),
+                    urls: PostUrls::new(PostUrl::Identity("id1".into())),
+                    repost_from: None,
+                    attachments: vec![],
+                },
+                Post {
+                    user: None,
+                    content: "content2".into(),
+                    urls: PostUrls::new(PostUrl::Identity("id2".into())),
+                    repost_from: None,
+                    attachments: vec![],
+                },
+                Post {
+                    user: None,
+                    content: "content3".into(),
+                    urls: PostUrls::new(PostUrl::Identity("id3".into())),
+                    repost_from: None,
+                    attachments: vec![],
+                },
+            ])),
+            StatusSource {
+                platform: PlatformMetadata {
+                    display_name: "test",
+                },
+                user: Some(StatusSourceUser {
+                    display_name: "user2".into(),
+                    profile_url: "profile1".into(),
+                }),
+            },
+        );
+        assert_eq!(status, last);
+
+        status.update_incrementally(Status::empty());
+        assert_eq!(status, last);
+    }
+
+    #[test]
+    #[should_panic]
+    fn status_incremental_update_mismatch() {
+        let mut status = Status::empty();
+        assert!(status.0.is_none());
+
+        let new = Status::new(
+            StatusKind::Live(LiveStatus {
+                kind: LiveStatusKind::Online,
+                title: "title1".into(),
+                streamer_name: "streamer1".into(),
+                cover_image_url: "cover1".into(),
+                live_url: "live1".into(),
+            }),
+            StatusSource {
+                platform: PlatformMetadata {
+                    display_name: "test",
+                },
+                user: Some(StatusSourceUser {
+                    display_name: "user1".into(),
+                    profile_url: "profile1".into(),
+                }),
+            },
+        );
+        status.update_incrementally(new.clone());
+        assert_eq!(status, new);
+
+        status.update_incrementally(Status::new(
+            StatusKind::Posts(Posts(vec![Post {
+                user: None,
+                content: "content1".into(),
+                urls: PostUrls::new(PostUrl::Identity("id1".into())),
+                repost_from: None,
+                attachments: vec![],
+            }])),
+            StatusSource {
+                platform: PlatformMetadata {
+                    display_name: "test",
+                },
+                user: Some(StatusSourceUser {
+                    display_name: "user1".into(),
+                    profile_url: "profile1".into(),
+                }),
+            },
+        ));
     }
 }
