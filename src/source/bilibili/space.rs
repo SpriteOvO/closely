@@ -122,6 +122,8 @@ mod data {
         Common(ModuleDynamicMajorCommon),
         #[serde(rename = "MAJOR_TYPE_PGC")]
         Pgc(ModuleDynamicMajorPgc),
+        #[serde(rename = "MAJOR_TYPE_LIVE")]
+        Live(ModuleDynamicMajorLive),
         #[serde(rename = "MAJOR_TYPE_LIVE_RCMD")]
         LiveRcmd, // We don't care about this item
     }
@@ -243,6 +245,20 @@ mod data {
     pub struct ModuleDynamicMajorPgcInner {
         pub cover: String, // URL
         pub epid: u64,
+        pub title: String,
+    }
+
+    //
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorLive {
+        pub live: ModuleDynamicMajorLiveInner,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicMajorLiveInner {
+        pub cover: String, // URL
+        pub id: u64,
         pub title: String,
     }
 
@@ -463,6 +479,9 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                         data::ModuleDynamicMajor::Pgc(pgc) => {
                             Some(Cow::Owned(format!("番剧《{}》", pgc.pgc.title)))
                         }
+                        data::ModuleDynamicMajor::Live(live) => {
+                            Some(Cow::Borrowed(&live.live.title))
+                        }
                         data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
                     }
                 });
@@ -514,6 +533,10 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                 data::ModuleDynamicMajor::Pgc(pgc) => urls.push(PostUrl::new_clickable(
                     format!("https://www.bilibili.com/bangumi/play/ep{}", pgc.pgc.epid),
                     "查看文章",
+                )),
+                data::ModuleDynamicMajor::Live(live) => urls.push(PostUrl::new_clickable(
+                    format!("https://live.bilibili.com/{}", live.live.id),
+                    "前往直播间",
                 )),
                 data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
             });
@@ -578,6 +601,12 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                     data::ModuleDynamicMajor::Pgc(pgc) => {
                         vec![PostAttachment::Image(PostAttachmentImage {
                             media_url: upgrade_to_https(&pgc.pgc.cover),
+                            has_spoiler: false,
+                        })]
+                    }
+                    data::ModuleDynamicMajor::Live(live) => {
+                        vec![PostAttachment::Image(PostAttachmentImage {
+                            media_url: upgrade_to_https(&live.live.cover),
                             has_spoiler: false,
                         })]
                     }
