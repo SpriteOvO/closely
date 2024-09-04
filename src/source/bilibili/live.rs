@@ -6,9 +6,8 @@ use serde_json::{self as json, json};
 use spdlog::critical;
 use tokio::sync::Mutex;
 
-use super::{upgrade_to_https, Response};
+use super::*;
 use crate::{
-    helper,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, LiveStatus, LiveStatusKind, Status, StatusKind, StatusSource,
@@ -135,7 +134,7 @@ impl Fetcher {
 async fn fetch_live_info(user_id: u64) -> anyhow::Result<RoomData> {
     let body = json!({ "uids": [user_id] });
 
-    let resp = helper::reqwest_client()?
+    let resp = bilibili_request_builder()?
         .post(BILIBILI_LIVE_API)
         .json(&body)
         .send()

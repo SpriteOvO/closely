@@ -8,9 +8,8 @@ use serde_json::{self as json};
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
 
-use super::{upgrade_to_https, Response};
+use super::*;
 use crate::{
-    helper,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostUrl, PostUrls, Posts,
@@ -341,7 +340,7 @@ fn fetch_space_history_impl(
             .map(|(name, value)| format!("{}={}", name, value))
             .collect::<Vec<_>>()
             .join("; ");
-        let resp = helper::reqwest_client()?
+        let resp = bilibili_request_builder()?
             .get(format!(
                 "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={}&dm_img_list=[]&dm_img_str=V2ViR0wgMS&dm_cover_img_str=REDACTED",
                 user_id

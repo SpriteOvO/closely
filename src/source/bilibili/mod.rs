@@ -2,7 +2,10 @@ pub mod live;
 pub mod space;
 pub mod video;
 
+use reqwest::header::{self, HeaderMap, HeaderValue};
 use serde::Deserialize;
+
+use crate::{helper, prop};
 
 #[derive(Deserialize)]
 struct Response<T> {
@@ -18,6 +21,15 @@ fn upgrade_to_https(url: &str) -> String {
     } else {
         url.into()
     }
+}
+
+fn bilibili_request_builder() -> anyhow::Result<reqwest::Client> {
+    helper::reqwest_client_with(|builder| {
+        builder.default_headers(HeaderMap::from_iter([(
+            header::USER_AGENT,
+            HeaderValue::from_str(&prop::user_agent(true)).unwrap(),
+        )]))
+    })
 }
 
 #[cfg(test)]

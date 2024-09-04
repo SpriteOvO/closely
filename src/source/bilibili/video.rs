@@ -4,9 +4,8 @@ use anyhow::{anyhow, ensure};
 use serde::Deserialize;
 use serde_json as json;
 
-use super::{upgrade_to_https, Response};
+use super::*;
 use crate::{
-    helper,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostUrl, Posts, Status,
@@ -91,7 +90,7 @@ impl Fetcher {
 }
 
 async fn fetch_series_archives(user_id: u64, series_id: u64) -> anyhow::Result<Posts> {
-    let resp = helper::reqwest_client()?
+    let resp = bilibili_request_builder()?
         .get(format!(
             "https://api.bilibili.com/x/series/archives?mid={user_id}&series_id={series_id}"
         ))
