@@ -343,7 +343,7 @@ fn fetch_space_history_impl(
             .join("; ");
         let resp = helper::reqwest_client()?
             .get(format!(
-                "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={}",
+                "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={}&dm_img_list=[]&dm_img_str=V2ViR0wgMS&dm_cover_img_str=REDACTED",
                 user_id
             ))
             .header(header::COOKIE, HeaderValue::from_str(&cookies)?)
