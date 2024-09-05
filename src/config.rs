@@ -4,17 +4,12 @@ use std::{
 
 use anyhow::{anyhow, bail};
 use once_cell::sync::OnceCell;
-use serde::{
-    de::{
-        value::{Error as SerdeValueError, MapDeserializer},
-        DeserializeOwned,
-    },
-    Deserialize,
-};
+use serde::{de::DeserializeOwned, Deserialize};
 
 use crate::{
-    notify,
+    helper, notify,
     reporter::{ConfigReporterRaw, ReporterParams},
+    serde_impl_default_for,
     source::{self, ConfigSourcePlatform},
 };
 
@@ -141,7 +136,9 @@ impl PlatformGlobal {
 
     fn validate(&self) -> anyhow::Result<()> {
         if let Some(telegram) = &self.telegram {
-            telegram.token.as_secret_ref().validate()?;
+            if let Some(token) = &telegram.token {
+                token.as_secret_ref().validate()?;
+            }
         }
         if let Some(twitter) = &self.twitter {
             twitter.auth.as_secret_ref().validate()?;
@@ -168,25 +165,17 @@ pub struct SubscriptionRef<'a> {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Notifications {
-    #[serde(default = "default_true")]
+    #[serde(default = "helper::refl_bool::<true>")]
     pub live_online: bool,
-    #[serde(default = "default_false")]
+    #[serde(default = "helper::refl_bool::<false>")]
     pub live_title: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "helper::refl_bool::<true>")]
     pub post: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "helper::refl_bool::<true>")]
     pub log: bool,
 }
 
-impl Default for Notifications {
-    fn default() -> Self {
-        // https://stackoverflow.com/a/77858562
-        Self::deserialize(MapDeserializer::<_, SerdeValueError>::new(
-            std::iter::empty::<((), ())>(),
-        ))
-        .unwrap()
-    }
-}
+serde_impl_default_for!(Notifications);
 
 impl Overridable for Notifications {
     type Override = NotificationsOverride;
@@ -360,14 +349,6 @@ pub trait Overridable {
         Self: Sized;
 }
 
-const fn default_true() -> bool {
-    true
-}
-
-const fn default_false() -> bool {
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,7 +414,8 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                         }
                     }),
                     telegram: Some(notify::telegram::ConfigGlobal {
-                        token: notify::telegram::ConfigToken::Token("ttt".into())
+                        token: Some(notify::telegram::ConfigToken::Token("ttt".into())),
+                        experimental: Default::default()
                     }),
                     twitter: Some(source::twitter::ConfigGlobal {
                         auth: source::twitter::ConfigCookies::Cookies("a=b;c=d;ct0=blah".into())

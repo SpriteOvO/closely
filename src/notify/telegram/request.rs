@@ -113,7 +113,7 @@ impl<'a> Request<'a> {
             text,
             thread_id: None,
             disable_notification: false,
-            disable_link_preview: false,
+            link_preview: None,
             markup: None,
         }
     }
@@ -150,6 +150,21 @@ impl<'a> Request<'a> {
             thread_id: None,
             text: None,
             disable_notification: false,
+        }
+    }
+
+    pub fn edit_message_text(
+        self,
+        chat: &'a ConfigChat,
+        message_id: i64,
+        text: Text<'a>,
+    ) -> EditMessageText<'a> {
+        EditMessageText {
+            base: self,
+            chat,
+            message_id,
+            text,
+            link_preview: None,
         }
     }
 
@@ -236,13 +251,63 @@ impl<'a> Markup<'a> {
     }
 }
 
+pub enum LinkPreviewOwned {
+    Disabled,
+    Below(String),
+    Above(String),
+}
+
+impl LinkPreviewOwned {
+    pub fn as_ref(&self) -> LinkPreview {
+        match self {
+            Self::Disabled => LinkPreview::Disabled,
+            Self::Below(url) => LinkPreview::Below(url),
+            Self::Above(url) => LinkPreview::Above(url),
+        }
+    }
+}
+
+pub enum LinkPreview<'a> {
+    Disabled,
+    Below(&'a str),
+    Above(&'a str),
+}
+
+impl LinkPreview<'_> {
+    fn into_json(self) -> json::Value {
+        match self {
+            Self::Disabled => {
+                json!({
+                    "is_disabled": true
+                })
+            }
+            Self::Below(url) => {
+                json!({
+                    "is_disabled": false,
+                    "url": url,
+                    "prefer_large_media": true,
+                    "show_above_text": false
+                })
+            }
+            Self::Above(url) => {
+                json!({
+                    "is_disabled": false,
+                    "url": url,
+                    "prefer_large_media": true,
+                    "show_above_text": true
+                })
+            }
+        }
+    }
+}
+
 pub struct SendMessage<'a> {
     base: Request<'a>,
     chat: &'a ConfigChat,
     text: Text<'a>,
     thread_id: Option<i64>,
     disable_notification: bool,
-    disable_link_preview: bool,
+    link_preview: Option<LinkPreview<'a>>,
     markup: Option<Markup<'a>>,
 }
 
@@ -261,9 +326,9 @@ impl<'a> SendMessage<'a> {
         }
     }
 
-    pub fn disable_link_preview(self) -> Self {
+    pub fn link_preview(self, options: LinkPreview<'a>) -> Self {
         Self {
-            disable_link_preview: true,
+            link_preview: Some(options),
             ..self
         }
     }
@@ -300,8 +365,8 @@ impl<'a> SendMessage<'a> {
             body.insert("text".into(), text);
             body.insert("entities".into(), entities);
         }
-        if self.disable_link_preview {
-            body["link_preview_options"] = json!({ "is_disabled": true });
+        if let Some(link_preview) = self.link_preview {
+            body["link_preview_options"] = link_preview.into_json();
         }
         if let Some(markup) = self.markup {
             body["reply_markup"] = markup.into_json();
@@ -562,6 +627,42 @@ impl<'a> SendMediaGroup<'a> {
                 .await?;
         }
         Ok(resp)
+    }
+}
+
+pub struct EditMessageText<'a> {
+    base: Request<'a>,
+    chat: &'a ConfigChat,
+    message_id: i64,
+    text: Text<'a>,
+    link_preview: Option<LinkPreview<'a>>,
+}
+
+impl<'a> EditMessageText<'a> {
+    pub fn link_preview(self, options: LinkPreview<'a>) -> Self {
+        Self {
+            link_preview: Some(options),
+            ..self
+        }
+    }
+
+    pub async fn send(self) -> anyhow::Result<Response<ResultMessage>> {
+        let mut body = json!(
+            {
+                "chat_id": self.chat.to_json(),
+                "message_id": self.message_id,
+            }
+        );
+        let (text, entities) = self.text.into_json();
+        {
+            let body = body.as_object_mut().unwrap();
+            body.insert("text".into(), text);
+            body.insert("entities".into(), entities);
+        }
+        if let Some(link_preview) = self.link_preview {
+            body["link_preview_options"] = link_preview.into_json();
+        }
+        self.base.send_request("editMessageText", &body).await
     }
 }
 

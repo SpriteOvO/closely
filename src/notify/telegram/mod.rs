@@ -12,8 +12,9 @@ use tokio::sync::Mutex;
 use super::NotifierTrait;
 use crate::{
     config::{self, AsSecretRef, Config},
+    helper,
     platform::{PlatformMetadata, PlatformTrait},
-    secret_enum,
+    secret_enum, serde_impl_default_for,
     source::{
         LiveStatus, LiveStatusKind, Notification, NotificationKind, Post, PostAttachment, PostUrl,
         PostsRef, RepostFrom, StatusSource,
@@ -23,8 +24,18 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigGlobal {
     #[serde(flatten)]
-    pub token: ConfigToken,
+    pub token: Option<ConfigToken>,
+    #[serde(default)]
+    pub experimental: ConfigExperimental,
 }
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ConfigExperimental {
+    #[serde(default = "helper::refl_bool::<false>")]
+    pub send_live_image_as_preview: bool,
+}
+
+serde_impl_default_for!(ConfigExperimental);
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
@@ -41,8 +52,12 @@ impl ConfigParams {
     pub fn validate(&self, global: &config::PlatformGlobal) -> anyhow::Result<()> {
         match &self.token {
             Some(token) => token.as_secret_ref().validate(),
-            None => match &global.telegram {
-                Some(global_telegram) => global_telegram.token.as_secret_ref().validate(),
+            None => match global
+                .telegram
+                .as_ref()
+                .and_then(|telegram| telegram.token.as_ref())
+            {
+                Some(token) => token.as_secret_ref().validate(),
                 None => bail!("both token in global and notify are missing"),
             },
         }
@@ -152,11 +167,27 @@ impl Notifier {
         }
     }
 
+    fn exp_send_live_image_as_preview(&self) -> bool {
+        Config::platform_global()
+            .telegram
+            .as_ref()
+            .map(|telegram| telegram.experimental.send_live_image_as_preview)
+            .unwrap_or_default()
+    }
+
     fn token(&self) -> anyhow::Result<Cow<str>> {
         self.params
             .token
             .as_ref()
-            .unwrap_or_else(|| &Config::platform_global().telegram.as_ref().unwrap().token)
+            .unwrap_or_else(|| {
+                Config::platform_global()
+                    .telegram
+                    .as_ref()
+                    .unwrap()
+                    .token
+                    .as_ref()
+                    .unwrap()
+            })
             .as_secret_ref()
             .get_str()
             .map_err(|err| anyhow!("failed to read token for telegram: {err}"))
@@ -206,19 +237,36 @@ impl Notifier {
         let title_history = VecDeque::from([live_status.title.clone()]);
 
         let text = make_live_text(&title_history, live_status, source);
-        let resp = Request::new(&token)
-            .send_photo(
-                &self.params.chat,
-                MediaPhoto {
-                    url: &live_status.cover_image_url,
-                    has_spoiler: false,
-                },
+        let (resp, link_preview) = if !self.exp_send_live_image_as_preview() {
+            let link_preview = LinkPreviewOwned::Disabled;
+            (
+                Request::new(&token)
+                    .send_photo(
+                        &self.params.chat,
+                        MediaPhoto {
+                            url: &live_status.cover_image_url,
+                            has_spoiler: false,
+                        },
+                    )
+                    .thread_id_opt(self.params.thread_id)
+                    .text(text)
+                    .send()
+                    .await,
+                link_preview,
             )
-            .thread_id_opt(self.params.thread_id)
-            .text(text)
-            .send()
-            .await
-            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+        } else {
+            let link_preview = LinkPreviewOwned::Above(live_status.cover_image_url.clone());
+            (
+                Request::new(&token)
+                    .send_message(&self.params.chat, text)
+                    .thread_id_opt(self.params.thread_id)
+                    .link_preview(link_preview.as_ref())
+                    .send()
+                    .await,
+                link_preview,
+            )
+        };
+        let resp = resp.map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
         ensure!(
             resp.ok,
             "response contains error, description '{}'",
@@ -229,6 +277,7 @@ impl Notifier {
         *self.last_live_message.lock().await = Some(SentMessage {
             // The doc guarantees `result` to be present if `ok` == `true`
             id: resp.result.unwrap().message_id,
+            link_preview,
             title_history,
         });
 
@@ -244,12 +293,20 @@ impl Notifier {
             let token = self.token()?;
 
             let text = make_live_text(&last_live_message.title_history, live_status, source);
-            let resp = Request::new(&token)
-                .edit_message_caption(&self.params.chat, last_live_message.id)
-                .text(text)
-                .send()
-                .await
-                .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+            let resp = if !self.exp_send_live_image_as_preview() {
+                Request::new(&token)
+                    .edit_message_caption(&self.params.chat, last_live_message.id)
+                    .text(text)
+                    .send()
+                    .await
+            } else {
+                Request::new(&token)
+                    .edit_message_text(&self.params.chat, last_live_message.id, text)
+                    .link_preview(last_live_message.link_preview.as_ref())
+                    .send()
+                    .await
+            }
+            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
             ensure!(
                 resp.ok,
                 "response contains error, description '{}'",
@@ -295,7 +352,7 @@ impl Notifier {
             .send_message(&self.params.chat, text)
             .thread_id_opt(self.params.thread_id)
             // .disable_notification() // TODO: Make it configurable
-            .disable_link_preview()
+            .link_preview(LinkPreview::Disabled)
             .send()
             .await
             .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
@@ -322,12 +379,20 @@ impl Notifier {
                 .push_front(live_status.title.clone());
 
             let text = make_live_text(&last_live_message.title_history, live_status, source);
-            let resp = Request::new(&token)
-                .edit_message_caption(&self.params.chat, last_live_message.id)
-                .text(text)
-                .send()
-                .await
-                .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+            let resp = if !self.exp_send_live_image_as_preview() {
+                Request::new(&token)
+                    .edit_message_caption(&self.params.chat, last_live_message.id)
+                    .text(text)
+                    .send()
+                    .await
+            } else {
+                Request::new(&token)
+                    .edit_message_text(&self.params.chat, last_live_message.id, text)
+                    .link_preview(last_live_message.link_preview.as_ref())
+                    .send()
+                    .await
+            }
+            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
             ensure!(
                 resp.ok,
                 "response contains error, description '{}'",
@@ -510,7 +575,7 @@ impl Notifier {
         let resp = Request::new(&token)
             .send_message(&self.params.chat, Text::plain(message))
             .thread_id_opt(self.params.thread_id)
-            .disable_link_preview()
+            .link_preview(LinkPreview::Disabled)
             // .disable_notification() // TODO: Make it configurable
             .send()
             .await
@@ -547,6 +612,7 @@ fn make_live_text<'a>(
 
 struct SentMessage {
     id: i64,
+    link_preview: LinkPreviewOwned,
     // The first is the current title, the last is the oldest title
     title_history: VecDeque<String>,
 }

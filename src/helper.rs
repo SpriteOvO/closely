@@ -23,3 +23,31 @@ pub fn reqwest_client_with(
     .build()
     .map_err(|err| anyhow!("failed to build reqwest client: {err}"))
 }
+
+macro_rules! refl_fn {
+    ( $($ty:ident),+ ) => {
+        $(paste::paste! {
+            pub const fn [<refl_ $ty>]<const V: $ty>() -> $ty {
+                V
+            }
+        })+
+    };
+}
+
+refl_fn!(bool);
+
+#[macro_export]
+macro_rules! serde_impl_default_for {
+    ( $struct:ident ) => {
+        impl Default for $struct {
+            fn default() -> Self {
+                // https://stackoverflow.com/a/77858562
+                Self::deserialize(serde::de::value::MapDeserializer::<
+                    _,
+                    serde::de::value::Error,
+                >::new(std::iter::empty::<((), ())>()))
+                .unwrap()
+            }
+        }
+    };
+}
