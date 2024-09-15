@@ -222,17 +222,6 @@ impl Notifier {
                     write!(content, "{}", repost_from.content)?;
                 }
             }
-            Some(RepostFrom::Legacy {
-                is_repost,
-                is_quote,
-            }) => {
-                if *is_repost {
-                    content.write_str("🔁 ")?
-                } else if *is_quote {
-                    content.write_str("🔁💬 ")?
-                }
-                content.write_str(&post.content)?
-            }
             None => content.write_str(&post.content)?,
         }
         content.write_str("\n")?;

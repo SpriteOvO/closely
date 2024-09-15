@@ -457,17 +457,6 @@ impl Notifier {
                     text.push_plain(&repost_from.content);
                 });
             }
-            Some(RepostFrom::Legacy {
-                is_repost,
-                is_quote,
-            }) => {
-                if *is_repost {
-                    text.push_plain("🔁 ")
-                } else if *is_quote {
-                    text.push_plain("🔁💬 ")
-                }
-                text.push_plain(&post.content)
-            }
             None => text.push_plain(&post.content),
         }
 

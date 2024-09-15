@@ -291,8 +291,6 @@ pub struct PostUrlClickable {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RepostFrom {
-    // TODO: Remove this in the future
-    Legacy { is_repost: bool, is_quote: bool },
     Recursion(Box<Post>),
 }
 
