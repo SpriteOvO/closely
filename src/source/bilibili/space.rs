@@ -342,7 +342,7 @@ fn fetch_space_history_impl(
             .join("; ");
         let resp = bilibili_request_builder()?
             .get(format!(
-                "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={}&dm_img_list=[]&dm_img_str=V2ViR0wgMS&dm_cover_img_str=REDACTED",
+                "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={}&features=itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard,forwardListHidden,ugcDelete,onlyfansQaCard&dm_img_list=[]&dm_img_str=V2ViR0wgMS&dm_cover_img_str=REDACTED",
                 user_id
             ))
             .header(header::COOKIE, HeaderValue::from_str(&cookies)?)
@@ -407,7 +407,11 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                             Some(Cow::Borrowed(&none.none.tips))
                         }
                         data::ModuleDynamicMajor::Opus(opus) => {
-                            Some(Cow::Borrowed(&opus.opus.summary.text))
+                            if let Some(title) = opus.opus.title.as_deref() {
+                                Some(Cow::Owned(format!("{title}\n\n{}", opus.opus.summary.text)))
+                            } else {
+                                Some(Cow::Borrowed(&opus.opus.summary.text))
+                            }
                         }
                         data::ModuleDynamicMajor::Archive(archive) => Some(Cow::Owned(format!(
                             "投稿了视频《{}》",
