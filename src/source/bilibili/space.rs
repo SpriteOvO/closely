@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt, future::Future, pin::Pin};
+use std::{borrow::Cow, collections::HashSet, fmt, future::Future, ops::DerefMut, pin::Pin};
 
 use anyhow::{anyhow, bail, Ok};
 use once_cell::sync::Lazy;
@@ -124,6 +124,8 @@ mod data {
         Live(ModuleDynamicMajorLive),
         #[serde(rename = "MAJOR_TYPE_LIVE_RCMD")]
         LiveRcmd, // We don't care about this item
+        #[serde(rename = "MAJOR_TYPE_BLOCKED")]
+        Blocked,
     }
 
     impl ModuleDynamicMajor {
@@ -271,6 +273,10 @@ mod data {
 
 pub struct Fetcher {
     params: ConfigParams,
+    // We cache all blocked posts and filter them again later, because the API sometimes
+    // incorrectly returns fans-only posts for guests, this leads us to incorrectly assume that
+    // these are new normal posts.
+    blocked: Mutex<BlockedPostIds>,
 }
 
 impl PlatformTrait for Fetcher {
@@ -295,11 +301,15 @@ impl fmt::Display for Fetcher {
 
 impl Fetcher {
     pub fn new(params: ConfigParams) -> Self {
-        Self { params }
+        Self {
+            params,
+            blocked: Mutex::new(BlockedPostIds(HashSet::new())),
+        }
     }
 
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
-        let posts = fetch_space_history(self.params.user_id).await?;
+        let posts =
+            fetch_space_history(self.params.user_id, self.blocked.lock().await.deref_mut()).await?;
 
         Ok(Status::new(
             StatusKind::Posts(posts),
@@ -313,17 +323,21 @@ impl Fetcher {
     }
 }
 
+// Fans-only posts
+struct BlockedPostIds(HashSet<String>);
+
 #[allow(clippy::type_complexity)] // No, I don't think it's complex XD
 static GUEST_COOKIES: Lazy<Mutex<Option<Vec<(String, String)>>>> = Lazy::new(|| Mutex::new(None));
 
-async fn fetch_space_history(user_id: u64) -> anyhow::Result<Posts> {
-    fetch_space_history_impl(user_id, true).await
+async fn fetch_space_history(user_id: u64, blocked: &mut BlockedPostIds) -> anyhow::Result<Posts> {
+    fetch_space_history_impl(user_id, blocked, true).await
 }
 
-fn fetch_space_history_impl(
+fn fetch_space_history_impl<'a>(
     user_id: u64,
+    blocked: &'a mut BlockedPostIds,
     retry: bool,
-) -> Pin<Box<dyn Future<Output = anyhow::Result<Posts>> + Send>> {
+) -> Pin<Box<dyn Future<Output = anyhow::Result<Posts>> + Send + 'a>> {
     Box::pin(async move {
         let mut guest_cookies = GUEST_COOKIES.lock().await;
         if guest_cookies.is_none() {
@@ -372,7 +386,7 @@ fn fetch_space_history_impl(
                     *guest_cookies = None;
                     drop(guest_cookies);
                     warn!("bilibili guest token expired, retrying with new token");
-                    return fetch_space_history_impl(user_id, false).await;
+                    return fetch_space_history_impl(user_id, blocked, false).await;
                 } else {
                     bail!("bilibili failed with token expired, and already retried once")
                 }
@@ -380,11 +394,11 @@ fn fetch_space_history_impl(
             _ => bail!("response contains error, response '{text}'"),
         }
 
-        parse_response(resp.data.unwrap())
+        parse_response(resp.data.unwrap(), blocked)
     })
 }
 
-fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
+fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> anyhow::Result<Posts> {
     fn parse_item(item: &data::Item, parent_item: Option<&data::Item>) -> anyhow::Result<Post> {
         debug_assert!(matches!(
             item.modules
@@ -432,7 +446,10 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                         data::ModuleDynamicMajor::Live(live) => {
                             Some(Cow::Borrowed(&live.live.title))
                         }
-                        data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
+                        data::ModuleDynamicMajor::LiveRcmd | data::ModuleDynamicMajor::Blocked => {
+                            critical!("unexpected major type: {major:?}");
+                            unreachable!()
+                        }
                     }
                 });
         let content = match (&item.modules.dynamic.desc, major_content) {
@@ -488,7 +505,10 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                     format!("https://live.bilibili.com/{}", live.live.id),
                     "前往直播间",
                 )),
-                data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
+                data::ModuleDynamicMajor::LiveRcmd | data::ModuleDynamicMajor::Blocked => {
+                    critical!("unexpected major type: {major:?}");
+                    unreachable!()
+                }
             });
 
         Ok(Post {
@@ -560,7 +580,10 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                             has_spoiler: false,
                         })]
                     }
-                    data::ModuleDynamicMajor::LiveRcmd => unreachable!(),
+                    data::ModuleDynamicMajor::LiveRcmd | data::ModuleDynamicMajor::Blocked => {
+                        critical!("unexpected major type: {major:?}");
+                        unreachable!()
+                    }
                 })
                 .unwrap_or_default(),
         })
@@ -574,6 +597,27 @@ fn parse_response(resp: data::SpaceHistory) -> anyhow::Result<Posts> {
                 item.modules.dynamic.major,
                 Some(data::ModuleDynamicMajor::LiveRcmd)
             )
+        })
+        .filter(|item| {
+            item.id_str
+                .as_deref()
+                .map(|id_str| {
+                    if matches!(
+                        item.modules.dynamic.major,
+                        Some(data::ModuleDynamicMajor::Blocked)
+                    ) {
+                        blocked.0.insert(id_str.into());
+                        false
+                    } else if blocked.0.contains(id_str) {
+                        let rustfmt_bug = "filtered out a bilibili space item";
+                        let rustfmt_bug2 = "as it was blocked and probobly a fans-only post";
+                        warn!("{rustfmt_bug} '{id_str}' {rustfmt_bug2}");
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .unwrap_or(true)
         })
         .filter_map(|item| {
             parse_item(&item, None)
@@ -613,7 +657,9 @@ mod tests {
 
     #[tokio::test]
     async fn deser() {
-        let history = fetch_space_history(8047632).await.unwrap();
+        let mut blocked = BlockedPostIds(HashSet::new());
+
+        let history = fetch_space_history(8047632, &mut blocked).await.unwrap();
         assert!(history.0.iter().all(|post| !post
             .urls
             .major()
@@ -623,7 +669,7 @@ mod tests {
             .is_empty()));
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
 
-        let history = fetch_space_history(178362496).await.unwrap();
+        let history = fetch_space_history(178362496, &mut blocked).await.unwrap();
         assert!(history.0.iter().all(|post| !post
             .urls
             .major()
