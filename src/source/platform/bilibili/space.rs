@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashSet, fmt, future::Future, ops::DerefMut, pin::Pin};
+use std::{collections::HashSet, fmt, future::Future, ops::DerefMut, pin::Pin};
 
 use anyhow::{anyhow, bail, Ok};
 use once_cell::sync::Lazy;
@@ -30,6 +30,7 @@ impl fmt::Display for ConfigParams {
 
 mod data {
     use super::*;
+    use crate::source::PostContentPart;
 
     #[derive(Debug, Deserialize)]
     pub struct SpaceHistory {
@@ -266,8 +267,78 @@ mod data {
 
     #[derive(Debug, Deserialize)]
     pub struct RichText {
-        // TODO: pub rich_text_nodes
+        rich_text_nodes: Vec<RichTextNode>,
+        text: String, // Fallback
+    }
+
+    impl RichText {
+        pub fn to_content(&self) -> PostContent {
+            PostContent::from_parts(self.rich_text_nodes.iter().map(|node| match &node.kind {
+                RichTextNodeKind::Text => PostContentPart::Plain(node.text.clone()),
+                RichTextNodeKind::Web { jump_url } => PostContentPart::Link {
+                    display: node.text.clone(),
+                    url: jump_url.clone(),
+                },
+                RichTextNodeKind::At { rid } => PostContentPart::Link {
+                    display: node.text.clone(),
+                    url: format!("https://space.bilibili.com/{rid}"),
+                },
+                RichTextNodeKind::Topic { jump_url } => {
+                    if jump_url.starts_with("//search.bilibili.com") {
+                        PostContentPart::Link {
+                            display: node.text.clone(),
+                            url: format!("https:{jump_url}"),
+                        }
+                    } else {
+                        warn!("unexpected bilibili topic URL '{jump_url}' in rich text node");
+                        PostContentPart::Plain(node.orig_text.clone())
+                    }
+                }
+                // We treat these nodes as plain text
+                RichTextNodeKind::Emoji { .. } | RichTextNodeKind::Lottery { .. } => {
+                    PostContentPart::Plain(node.orig_text.clone())
+                }
+                RichTextNodeKind::Unknown(info) => {
+                    warn!("unexpected bilibili rich text node '{info}'");
+                    PostContentPart::Plain(node.orig_text.clone())
+                }
+            }))
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct RichTextNode {
+        pub orig_text: String,
         pub text: String,
+        #[serde(flatten)]
+        pub kind: RichTextNodeKind,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(tag = "type")]
+    pub enum RichTextNodeKind {
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_TEXT")]
+        Text,
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_EMOJI")]
+        Emoji { emoji: RichTextNodeEmoji },
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_WEB")]
+        Web { jump_url: String },
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_AT")]
+        At { rid: String },
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_TOPIC")]
+        Topic { jump_url: String },
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_LOTTERY")]
+        Lottery { rid: String },
+        #[serde(untagged)]
+        Unknown(json::Value),
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct RichTextNodeEmoji {
+        pub icon_url: String,
+        pub text: String,
+        // pub size: u64
+        // pub type: u64
     }
 }
 
@@ -400,51 +471,50 @@ fn fetch_space_history_impl<'a>(
 
 fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> anyhow::Result<Posts> {
     fn parse_item(item: &data::Item, parent_item: Option<&data::Item>) -> anyhow::Result<Post> {
-        debug_assert!(matches!(
-            item.modules
-                .dynamic
-                .major
-                .as_ref()
-                .and_then(|major| major.as_archive())
-                .map(|archive| archive.kind),
-            Some(1) | None
-        ));
-
         let major_content =
             item.modules
                 .dynamic
                 .major
                 .as_ref()
-                .and_then(|major| -> Option<Cow<str>> {
+                .and_then(|major| -> Option<PostContent> {
                     match major {
                         data::ModuleDynamicMajor::None(none) => {
-                            Some(Cow::Borrowed(&none.none.tips))
+                            Some(PostContent::plain(&none.none.tips))
                         }
                         data::ModuleDynamicMajor::Opus(opus) => {
                             if let Some(title) = opus.opus.title.as_deref() {
-                                Some(Cow::Owned(format!("{title}\n\n{}", opus.opus.summary.text)))
+                                Some(
+                                    PostContent::plain(title)
+                                        .with_plain("\n\n")
+                                        .with_content(opus.opus.summary.to_content()),
+                                )
                             } else {
-                                Some(Cow::Borrowed(&opus.opus.summary.text))
+                                Some(opus.opus.summary.to_content())
                             }
                         }
-                        data::ModuleDynamicMajor::Archive(archive) => Some(Cow::Owned(format!(
-                            "投稿了视频《{}》",
-                            archive.archive.title
-                        ))),
-                        data::ModuleDynamicMajor::Article(article) => Some(Cow::Owned(format!(
-                            "投稿了文章《{}》",
-                            article.article.title
-                        ))),
+                        data::ModuleDynamicMajor::Archive(archive) => Some(
+                            PostContent::plain("投稿了视频《")
+                                .with_plain(&archive.archive.title)
+                                .with_plain("》"),
+                        ),
+                        data::ModuleDynamicMajor::Article(article) => Some(
+                            PostContent::plain("投稿了文章《")
+                                .with_plain(&article.article.title)
+                                .with_plain("》"),
+                        ),
                         data::ModuleDynamicMajor::Draw(_) => None,
-                        data::ModuleDynamicMajor::Common(common) => Some(Cow::Owned(format!(
-                            "{} - {}",
-                            common.common.title, common.common.desc
-                        ))),
-                        data::ModuleDynamicMajor::Pgc(pgc) => {
-                            Some(Cow::Owned(format!("番剧《{}》", pgc.pgc.title)))
-                        }
+                        data::ModuleDynamicMajor::Common(common) => Some(
+                            PostContent::plain(&common.common.title)
+                                .with_plain(" - ")
+                                .with_plain(&common.common.desc),
+                        ),
+                        data::ModuleDynamicMajor::Pgc(pgc) => Some(
+                            PostContent::plain("番剧《")
+                                .with_plain(&pgc.pgc.title)
+                                .with_plain("》"),
+                        ),
                         data::ModuleDynamicMajor::Live(live) => {
-                            Some(Cow::Borrowed(&live.live.title))
+                            Some(PostContent::plain(&live.live.title))
                         }
                         data::ModuleDynamicMajor::LiveRcmd | data::ModuleDynamicMajor::Blocked => {
                             critical!("unexpected major type: {major:?}");
@@ -453,9 +523,9 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
                     }
                 });
         let content = match (&item.modules.dynamic.desc, major_content) {
-            (Some(desc), Some(major)) => format!("{}\n\n{}", desc.text, major),
-            (Some(desc), None) => desc.text.clone(),
-            (None, Some(major)) => major.into(),
+            (Some(desc), Some(major)) => desc.to_content().with_plain("\n\n").with_content(major),
+            (Some(desc), None) => desc.to_content(),
+            (None, Some(major)) => major,
             (None, None) => bail!("item no content. item: {item:?}"),
         };
 
@@ -513,7 +583,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
 
         Ok(Post {
             user: Some(item.modules.author.clone().into()),
-            content: PostContent::plain(content),
+            content,
             urls: PostUrls::from_iter(urls)?,
             repost_from: original.map(|original| RepostFrom::Recursion(Box::new(original))),
             attachments: item

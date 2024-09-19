@@ -750,9 +750,10 @@ impl<'a> Text<'a> {
             .push((begin..self.text.encode_utf16().count(), Entity::Quote));
     }
 
-    pub fn push_content(&mut self, content: &PostContent) {
+    pub fn push_content(&mut self, content: &'a PostContent) {
         content.parts().for_each(|part| match part {
             PostContentPart::Plain(text) => self.push_plain(text),
+            PostContentPart::Link { display, url } => self.push_link(display, url),
         });
     }
 
