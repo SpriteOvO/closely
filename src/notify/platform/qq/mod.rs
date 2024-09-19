@@ -10,9 +10,9 @@ use anyhow::ensure;
 use serde::Deserialize;
 use spdlog::prelude::*;
 
-use super::NotifierTrait;
 use crate::{
     config::{self, Config},
+    notify::NotifierTrait,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         LiveStatus, LiveStatusKind, Notification, NotificationKind, Post, PostAttachment, PostsRef,

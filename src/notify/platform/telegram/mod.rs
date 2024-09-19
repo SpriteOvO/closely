@@ -9,10 +9,10 @@ use serde_json as json;
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
 
-use super::NotifierTrait;
 use crate::{
     config::{self, AsSecretRef, Config},
     helper,
+    notify::NotifierTrait,
     platform::{PlatformMetadata, PlatformTrait},
     secret_enum, serde_impl_default_for,
     source::{

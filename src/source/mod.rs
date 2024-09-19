@@ -1,55 +1,11 @@
-pub mod bilibili;
-pub mod twitter;
+mod helper;
+pub mod platform;
 
-use std::{
-    borrow::Borrow,
-    fmt::{self, Display},
-    future::Future,
-    pin::Pin,
-    slice, vec,
-};
+use std::{fmt, fmt::Display, future::Future, pin::Pin, slice, vec};
 
 use anyhow::ensure;
-use serde::Deserialize;
 
-use crate::{
-    config::PlatformGlobal,
-    platform::{PlatformMetadata, PlatformTrait},
-};
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(tag = "name")]
-#[allow(clippy::enum_variant_names)]
-pub enum ConfigSourcePlatform {
-    #[serde(rename = "bilibili.live")]
-    BilibiliLive(bilibili::live::ConfigParams),
-    #[serde(rename = "bilibili.space")]
-    BilibiliSpace(bilibili::space::ConfigParams),
-    #[serde(rename = "bilibili.video")]
-    BilibiliVideo(bilibili::video::ConfigParams),
-    #[serde(rename = "Twitter")]
-    Twitter(twitter::ConfigParams),
-}
-
-impl ConfigSourcePlatform {
-    pub fn validate(&self, global: &PlatformGlobal) -> anyhow::Result<()> {
-        match self {
-            Self::BilibiliLive(_) | Self::BilibiliSpace(_) | Self::BilibiliVideo(_) => Ok(()),
-            Self::Twitter(p) => p.validate(global),
-        }
-    }
-}
-
-impl fmt::Display for ConfigSourcePlatform {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ConfigSourcePlatform::BilibiliLive(p) => write!(f, "{p}"),
-            ConfigSourcePlatform::BilibiliSpace(p) => write!(f, "{p}"),
-            ConfigSourcePlatform::BilibiliVideo(p) => write!(f, "{p}"),
-            ConfigSourcePlatform::Twitter(p) => write!(f, "{p}"),
-        }
-    }
-}
+use crate::platform::{PlatformMetadata, PlatformTrait};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StatusSource {
@@ -106,7 +62,7 @@ impl Status {
                         notifications
                     }
                     (StatusKind::Posts(posts), Some(StatusKind::Posts(last_posts))) => {
-                        let new_posts = vec_diff_by(&last_posts.0, &posts.0, |l, r| {
+                        let new_posts = helper::diff_by(&last_posts.0, &posts.0, |l, r| {
                             l.platform_unique_id() == r.platform_unique_id()
                         })
                         .collect::<Vec<_>>();
@@ -140,7 +96,7 @@ impl Status {
                 match (&mut stored.kind, new.kind) {
                     (StatusKind::Live(stored), StatusKind::Live(new)) => *stored = new,
                     (StatusKind::Posts(stored), StatusKind::Posts(new)) => {
-                        let mut new = vec_diff_by(&stored.0, new.0, |l, r| {
+                        let mut new = helper::diff_by(&stored.0, new.0, |l, r| {
                             l.platform_unique_id() == r.platform_unique_id()
                         })
                         .collect::<Vec<_>>();
@@ -458,50 +414,24 @@ pub trait FetcherTrait: PlatformTrait + Display {
     }
 }
 
-pub fn fetcher(platform: &ConfigSourcePlatform) -> Box<dyn FetcherTrait> {
+pub fn fetcher(platform: &platform::Config) -> Box<dyn FetcherTrait> {
     match platform {
-        ConfigSourcePlatform::BilibiliLive(p) => Box::new(bilibili::live::Fetcher::new(p.clone())),
-        ConfigSourcePlatform::BilibiliSpace(p) => {
-            Box::new(bilibili::space::Fetcher::new(p.clone()))
+        platform::Config::BilibiliLive(p) => {
+            Box::new(platform::bilibili::live::Fetcher::new(p.clone()))
         }
-        ConfigSourcePlatform::BilibiliVideo(p) => {
-            Box::new(bilibili::video::Fetcher::new(p.clone()))
+        platform::Config::BilibiliSpace(p) => {
+            Box::new(platform::bilibili::space::Fetcher::new(p.clone()))
         }
-        ConfigSourcePlatform::Twitter(p) => Box::new(twitter::Fetcher::new(p.clone())),
+        platform::Config::BilibiliVideo(p) => {
+            Box::new(platform::bilibili::video::Fetcher::new(p.clone()))
+        }
+        platform::Config::Twitter(p) => Box::new(platform::twitter::Fetcher::new(p.clone())),
     }
-}
-
-fn vec_diff_by<'a, T, R, I, F>(prev: &'a [T], new: I, predicate: F) -> impl Iterator<Item = R> + 'a
-where
-    I: IntoIterator<Item = R> + 'a,
-    F: Fn(&R, &T) -> bool + 'a,
-{
-    new.into_iter()
-        .filter(move |n| !prev.iter().any(|p| predicate(n, p)))
-}
-
-#[allow(dead_code)]
-fn vec_diff<'a, T, R, I>(prev: &'a [T], new: I) -> impl Iterator<Item = R> + 'a
-where
-    I: IntoIterator<Item = R> + 'a,
-    T: PartialEq,
-    R: Borrow<T>,
-{
-    vec_diff_by(prev, new, |n, p| p == n.borrow())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn vec_diff_valid() {
-        assert_eq!(
-            vec_diff(&[4, 2, 3, 4], &[1, 2, 3]).collect::<Vec<_>>(),
-            [&1]
-        );
-        assert_eq!(vec_diff(&[4, 2, 3, 4], [1, 2, 3]).collect::<Vec<_>>(), [1]);
-    }
 
     #[test]
     fn status_incremental_update_live() {

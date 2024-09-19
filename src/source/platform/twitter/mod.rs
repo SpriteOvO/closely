@@ -13,14 +13,13 @@ use serde::Deserialize;
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
 
-use super::{FetcherTrait, PostUrl, RepostFrom, User};
 use crate::{
     config::{self, AsSecretRef, Config},
     platform::{PlatformMetadata, PlatformTrait},
     secret_enum,
     source::{
-        Post, PostAttachment, PostAttachmentImage, PostAttachmentVideo, PostUrlClickable, PostUrls,
-        Posts, Status, StatusKind, StatusSource,
+        FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostAttachmentVideo, PostUrl,
+        PostUrlClickable, PostUrls, Posts, RepostFrom, Status, StatusKind, StatusSource, User,
     },
 };
 

@@ -1,66 +1,10 @@
-#[cfg(feature = "qq")]
-pub mod qq;
-pub mod telegram;
+pub mod platform;
 
-use std::{fmt, future::Future, pin::Pin};
+use std::{future::Future, pin::Pin};
 
-use anyhow::anyhow;
-use serde::Deserialize;
 use spdlog::prelude::*;
 
-use crate::{
-    config::{self, Overridable},
-    platform::PlatformTrait,
-    source::Notification,
-};
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(tag = "platform")]
-pub enum ConfigNotify {
-    #[cfg(feature = "qq")]
-    #[serde(rename = "QQ")]
-    Qq(qq::ConfigParams),
-    Telegram(telegram::ConfigParams),
-}
-
-impl ConfigNotify {
-    pub fn validate(&self, global: &config::PlatformGlobal) -> anyhow::Result<()> {
-        match self {
-            #[cfg(feature = "qq")]
-            Self::Qq(p) => p.validate(global),
-            Self::Telegram(p) => p.validate(global),
-        }
-        .map_err(|err| anyhow!("[{self}] {err}"))
-    }
-
-    pub fn override_into(self, new: toml::Value) -> anyhow::Result<Self>
-    where
-        Self: Sized,
-    {
-        match self {
-            #[cfg(feature = "qq")]
-            Self::Qq(n) => {
-                let new: <qq::ConfigParams as config::Overridable>::Override = new.try_into()?;
-                Ok(Self::Qq(n.override_into(new)))
-            }
-            Self::Telegram(n) => {
-                let new: <telegram::ConfigParams as config::Overridable>::Override =
-                    new.try_into()?;
-                Ok(Self::Telegram(n.override_into(new)))
-            }
-        }
-    }
-}
-
-impl fmt::Display for ConfigNotify {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            #[cfg(feature = "qq")]
-            Self::Qq(p) => write!(f, "{p}"),
-            Self::Telegram(p) => write!(f, "{p}"),
-        }
-    }
-}
+use crate::{platform::PlatformTrait, source::Notification};
 
 pub trait NotifierTrait: PlatformTrait {
     fn notify<'a>(
@@ -69,11 +13,11 @@ pub trait NotifierTrait: PlatformTrait {
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + '_>>;
 }
 
-pub fn notifier(params: ConfigNotify) -> Box<dyn NotifierTrait> {
+pub fn notifier(params: platform::Config) -> Box<dyn NotifierTrait> {
     match params {
         #[cfg(feature = "qq")]
-        ConfigNotify::Qq(p) => Box::new(qq::Notifier::new(p)),
-        ConfigNotify::Telegram(p) => Box::new(telegram::Notifier::new(p)),
+        platform::Config::Qq(p) => Box::new(platform::qq::Notifier::new(p)),
+        platform::Config::Telegram(p) => Box::new(platform::telegram::Notifier::new(p)),
     }
 }
 

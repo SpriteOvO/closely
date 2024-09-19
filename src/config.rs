@@ -9,8 +9,7 @@ use serde::{de::DeserializeOwned, Deserialize};
 use crate::{
     helper, notify,
     reporter::{ConfigReporterRaw, ReporterParams},
-    serde_impl_default_for,
-    source::{self, ConfigSourcePlatform},
+    serde_impl_default_for, source,
 };
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -122,11 +121,11 @@ impl Config {
 pub struct PlatformGlobal {
     #[cfg(feature = "qq")]
     #[serde(rename = "QQ")]
-    pub qq: Option<notify::qq::ConfigGlobal>,
+    pub qq: Option<notify::platform::qq::ConfigGlobal>,
     #[serde(rename = "Telegram")]
-    pub telegram: Option<notify::telegram::ConfigGlobal>,
+    pub telegram: Option<notify::platform::telegram::ConfigGlobal>,
     #[serde(rename = "Twitter")]
-    pub twitter: Option<source::twitter::ConfigGlobal>,
+    pub twitter: Option<source::platform::twitter::ConfigGlobal>,
 }
 
 impl PlatformGlobal {
@@ -149,7 +148,7 @@ impl PlatformGlobal {
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct SubscriptionRaw {
-    pub platform: ConfigSourcePlatform,
+    pub platform: source::platform::Config,
     #[serde(default, with = "humantime_serde")]
     pub interval: Option<Duration>,
     #[serde(rename = "notify")]
@@ -158,9 +157,9 @@ pub struct SubscriptionRaw {
 
 #[derive(Debug, PartialEq)]
 pub struct SubscriptionRef<'a> {
-    pub platform: &'a ConfigSourcePlatform,
+    pub platform: &'a source::platform::Config,
     pub interval: Option<Duration>,
-    pub notify: Vec<notify::ConfigNotify>,
+    pub notify: Vec<notify::platform::Config>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -223,10 +222,10 @@ impl NotifyRef {
 }
 
 #[derive(Debug, Default, PartialEq, Deserialize)]
-pub struct NotifyMap(#[serde(default)] HashMap<String, notify::ConfigNotify>);
+pub struct NotifyMap(#[serde(default)] HashMap<String, notify::platform::Config>);
 
 impl NotifyMap {
-    pub fn get_by_ref(&self, notify_ref: &NotifyRef) -> anyhow::Result<notify::ConfigNotify> {
+    pub fn get_by_ref(&self, notify_ref: &NotifyRef) -> anyhow::Result<notify::platform::Config> {
         let original = self
             .0
             .get(notify_ref.name())
@@ -406,41 +405,41 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                     }),
                 }),
                 platform: Some(PlatformGlobal {
-                    qq: Some(notify::qq::ConfigGlobal {
-                        lagrange: notify::qq::lagrange::ConfigLagrange {
+                    qq: Some(notify::platform::qq::ConfigGlobal {
+                        lagrange: notify::platform::qq::lagrange::ConfigLagrange {
                             http_host: "localhost".into(),
                             http_port: 8000,
                             access_token: None,
                         }
                     }),
-                    telegram: Some(notify::telegram::ConfigGlobal {
-                        token: Some(notify::telegram::ConfigToken::Token("ttt".into())),
+                    telegram: Some(notify::platform::telegram::ConfigGlobal {
+                        token: Some(notify::platform::telegram::ConfigToken::Token("ttt".into())),
                         experimental: Default::default()
                     }),
-                    twitter: Some(source::twitter::ConfigGlobal {
-                        auth: source::twitter::ConfigCookies::Cookies("a=b;c=d;ct0=blah".into())
+                    twitter: Some(source::platform::twitter::ConfigGlobal {
+                        auth: source::platform::twitter::ConfigCookies::Cookies("a=b;c=d;ct0=blah".into())
                     })
                 }),
                 notify_map: NotifyMap(HashMap::from_iter([
                     (
                         "meow".into(),
-                        notify::ConfigNotify::Telegram(notify::telegram::ConfigParams {
+                        notify::platform::Config::Telegram(notify::platform::telegram::ConfigParams {
                             notifications: Notifications::default(),
-                            chat: notify::telegram::ConfigChat::Id(1234),
+                            chat: notify::platform::telegram::ConfigChat::Id(1234),
                             thread_id: Some(123),
-                            token: Some(notify::telegram::ConfigToken::Token("xxx".into())),
+                            token: Some(notify::platform::telegram::ConfigToken::Token("xxx".into())),
                         })
                     ),
                     (
                         "woof".into(),
-                        notify::ConfigNotify::Telegram(notify::telegram::ConfigParams {
+                        notify::platform::Config::Telegram(notify::platform::telegram::ConfigParams {
                             notifications: Notifications {
                                 live_online: true,
                                 live_title: false,
                                 post: false,
                                 log: true,
                             },
-                            chat: notify::telegram::ConfigChat::Id(5678),
+                            chat: notify::platform::telegram::ConfigChat::Id(5678),
                             thread_id: Some(900),
                             token: None,
                         })
@@ -450,15 +449,15 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                     "meow".into(),
                     vec![
                         SubscriptionRaw {
-                            platform: ConfigSourcePlatform::BilibiliLive(
-                                source::bilibili::live::ConfigParams { user_id: 123456 }
+                            platform: source::platform::Config::BilibiliLive(
+                                source::platform::bilibili::live::ConfigParams { user_id: 123456 }
                             ),
                             interval: Some(Duration::from_secs(30)),
                             notify_ref: vec![NotifyRef::Direct("meow".into())],
                         },
                         SubscriptionRaw {
-                            platform: ConfigSourcePlatform::Twitter(
-                                source::twitter::ConfigParams {
+                            platform: source::platform::Config::Twitter(
+                                source::platform::twitter::ConfigParams {
                                     username: "meowww".into()
                                 }
                             ),
@@ -469,8 +468,8 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                             ],
                         },
                         SubscriptionRaw {
-                            platform: ConfigSourcePlatform::Twitter(
-                                source::twitter::ConfigParams {
+                            platform: source::platform::Config::Twitter(
+                                source::platform::twitter::ConfigParams {
                                     username: "meowww2".into()
                                 }
                             ),
@@ -591,32 +590,44 @@ notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", notificatio
             vec![(
                 "meow".into(),
                 SubscriptionRef {
-                    platform: &ConfigSourcePlatform::BilibiliLive(
-                        source::bilibili::live::ConfigParams { user_id: 123456 }
+                    platform: &source::platform::Config::BilibiliLive(
+                        source::platform::bilibili::live::ConfigParams { user_id: 123456 }
                     ),
                     interval: None,
                     notify: vec![
-                        notify::ConfigNotify::Telegram(notify::telegram::ConfigParams {
-                            notifications: Notifications::default(),
-                            chat: notify::telegram::ConfigChat::Id(1234),
-                            thread_id: Some(123),
-                            token: Some(notify::telegram::ConfigToken::Token("xxx".into())),
-                        }),
-                        notify::ConfigNotify::Telegram(notify::telegram::ConfigParams {
-                            notifications: Notifications::default(),
-                            chat: notify::telegram::ConfigChat::Id(5678),
-                            thread_id: Some(114),
-                            token: Some(notify::telegram::ConfigToken::Token("yyy".into())),
-                        }),
-                        notify::ConfigNotify::Telegram(notify::telegram::ConfigParams {
-                            notifications: Notifications {
-                                post: false,
-                                ..Default::default()
-                            },
-                            chat: notify::telegram::ConfigChat::Id(5678),
-                            thread_id: Some(456),
-                            token: Some(notify::telegram::ConfigToken::Token("yyy".into())),
-                        })
+                        notify::platform::Config::Telegram(
+                            notify::platform::telegram::ConfigParams {
+                                notifications: Notifications::default(),
+                                chat: notify::platform::telegram::ConfigChat::Id(1234),
+                                thread_id: Some(123),
+                                token: Some(notify::platform::telegram::ConfigToken::Token(
+                                    "xxx".into()
+                                )),
+                            }
+                        ),
+                        notify::platform::Config::Telegram(
+                            notify::platform::telegram::ConfigParams {
+                                notifications: Notifications::default(),
+                                chat: notify::platform::telegram::ConfigChat::Id(5678),
+                                thread_id: Some(114),
+                                token: Some(notify::platform::telegram::ConfigToken::Token(
+                                    "yyy".into()
+                                )),
+                            }
+                        ),
+                        notify::platform::Config::Telegram(
+                            notify::platform::telegram::ConfigParams {
+                                notifications: Notifications {
+                                    post: false,
+                                    ..Default::default()
+                                },
+                                chat: notify::platform::telegram::ConfigChat::Id(5678),
+                                thread_id: Some(456),
+                                token: Some(notify::platform::telegram::ConfigToken::Token(
+                                    "yyy".into()
+                                )),
+                            }
+                        )
                     ],
                 }
             ),]
