@@ -18,8 +18,9 @@ use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     secret_enum,
     source::{
-        FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostAttachmentVideo, PostUrl,
-        PostUrlClickable, PostUrls, Posts, RepostFrom, Status, StatusKind, StatusSource, User,
+        FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostAttachmentVideo, PostContent,
+        PostUrl, PostUrlClickable, PostUrls, Posts, RepostFrom, Status, StatusKind, StatusSource,
+        User,
     },
 };
 
@@ -576,7 +577,7 @@ fn parse_tweet(tweet: data::Tweet) -> Post {
 
     Post {
         user: Some(tweet.core.user_results.result.into()),
-        content: content.unwrap_or_else(|| "".into()),
+        content: PostContent::plain(content.unwrap_or_else(|| "".into())),
         urls,
         repost_from,
         attachments,

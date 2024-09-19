@@ -12,8 +12,8 @@ use super::*;
 use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     source::{
-        FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostUrl, PostUrls, Posts,
-        RepostFrom, Status, StatusKind, StatusSource, User,
+        FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostContent, PostUrl, PostUrls,
+        Posts, RepostFrom, Status, StatusKind, StatusSource, User,
     },
 };
 
@@ -513,7 +513,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
 
         Ok(Post {
             user: Some(item.modules.author.clone().into()),
-            content,
+            content: PostContent::plain(content),
             urls: PostUrls::from_iter(urls)?,
             repost_from: original.map(|original| RepostFrom::Recursion(Box::new(original))),
             attachments: item

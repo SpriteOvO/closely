@@ -8,8 +8,8 @@ use super::*;
 use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     source::{
-        FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostUrl, Posts, Status,
-        StatusKind, StatusSource,
+        FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostContent, PostUrl, Posts,
+        Status, StatusKind, StatusSource,
     },
 };
 
@@ -122,7 +122,7 @@ fn parse_response(resp: data::SeriesArchives) -> anyhow::Result<Posts> {
         .into_iter()
         .map(|archive| Post {
             user: None,
-            content: archive.title,
+            content: PostContent::plain(archive.title),
             urls: PostUrl::new_clickable(
                 format!("https://www.bilibili.com/video/{}", archive.bvid),
                 "查看视频",

@@ -16,7 +16,7 @@ use spdlog::prelude::*;
 use super::ConfigChat;
 use crate::{
     helper,
-    source::{PostAttachmentImage, PostAttachmentVideo},
+    source::{PostAttachmentImage, PostAttachmentVideo, PostContent, PostContentPart},
 };
 
 pub struct Request<'a> {
@@ -748,6 +748,12 @@ impl<'a> Text<'a> {
         content(self);
         self.entities
             .push((begin..self.text.encode_utf16().count(), Entity::Quote));
+    }
+
+    pub fn push_content(&mut self, content: &PostContent) {
+        content.parts().for_each(|part| match part {
+            PostContentPart::Plain(text) => self.push_plain(text),
+        });
     }
 
     fn into_json(self) -> (json::Value, json::Value) {

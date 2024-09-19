@@ -211,18 +211,23 @@ impl Notifier {
         match &post.repost_from {
             Some(RepostFrom::Recursion(repost_from)) => {
                 if !post.content.is_empty() {
-                    writeln!(content, "💬 {}\n", post.content)?;
+                    writeln!(content, "💬 {}\n", post.content.fallback())?;
                 }
 
                 content.write_str("🔁 ")?;
 
                 if let Some(user) = &repost_from.user {
-                    write!(content, "{}: {}", user.nickname, repost_from.content)?;
+                    write!(
+                        content,
+                        "{}: {}",
+                        user.nickname,
+                        repost_from.content.fallback()
+                    )?;
                 } else {
-                    write!(content, "{}", repost_from.content)?;
+                    write!(content, "{}", repost_from.content.fallback())?;
                 }
             }
-            None => content.write_str(&post.content)?,
+            None => content.write_str(&post.content.fallback())?,
         }
         content.write_str("\n")?;
         for url in post

@@ -436,7 +436,9 @@ impl Notifier {
         match &post.repost_from {
             Some(RepostFrom::Recursion(repost_from)) => {
                 if !post.content.is_empty() {
-                    text.push_plain(format!("💬 {}\n", post.content));
+                    text.push_plain("💬 ");
+                    text.push_content(&post.content);
+                    text.push_plain("\n");
                 }
 
                 text.push_quote(|text| {
@@ -454,10 +456,10 @@ impl Notifier {
                         }
                         text.push_plain(": ");
                     }
-                    text.push_plain(&repost_from.content);
+                    text.push_content(&repost_from.content);
                 });
             }
-            None => text.push_plain(&post.content),
+            None => text.push_content(&post.content),
         }
 
         const DISABLE_NOTIFICATION: bool = true; // TODO: Make it configurable
