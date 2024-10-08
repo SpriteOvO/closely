@@ -6,7 +6,7 @@ use norec::NoRec;
 use reqwest::Url;
 use serde::Deserialize;
 use spdlog::{
-    formatter::{pattern, Formatter, PatternFormatter},
+    formatter::{pattern, Formatter, FormatterContext, PatternFormatter},
     prelude::*,
     sink::Sink,
     Record, StringBuf,
@@ -173,7 +173,8 @@ impl Sink for TelegramNotifySink {
         }
 
         let mut buf = StringBuf::new();
-        let _extra_info = self.formatter.format(record, &mut buf)?;
+        let mut ctx = FormatterContext::new();
+        self.formatter.format(record, &mut buf, &mut ctx)?;
 
         let notification = Notification {
             kind: NotificationKind::Log(buf),

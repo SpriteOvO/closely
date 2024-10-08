@@ -840,7 +840,7 @@ fn form_append_json(form: Form, obj: &json::Map<String, json::Value>) -> Form {
 
 fn media_into_part(i: usize, bytes: Bytes, is_photo: bool) -> anyhow::Result<Part> {
     let part = if is_photo {
-        let image_reader = image::io::Reader::new(Cursor::new(&bytes))
+        let image_reader = image::ImageReader::new(Cursor::new(&bytes))
             .with_guessed_format()
             .map_err(|err| anyhow!("failed to guess format for downloaded image: {err}"))?;
 
