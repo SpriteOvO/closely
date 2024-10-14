@@ -509,7 +509,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
                                 .with_plain(&common.common.desc),
                         ),
                         data::ModuleDynamicMajor::Pgc(pgc) => Some(
-                            PostContent::plain("番剧《")
+                            PostContent::plain("剧集《")
                                 .with_plain(&pgc.pgc.title)
                                 .with_plain("》"),
                         ),
@@ -547,31 +547,32 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
                 parent_item.unwrap().id_str.as_ref().unwrap()
             ))
         };
-        let mut urls = vec![major_url];
-        item.modules
+        let url = item
+            .modules
             .dynamic
             .major
             .as_ref()
-            .inspect(|major| match major {
+            .and_then(|major| match major {
                 data::ModuleDynamicMajor::None(_)
                 | data::ModuleDynamicMajor::Opus(_)
                 | data::ModuleDynamicMajor::Draw(_)
                 | data::ModuleDynamicMajor::Common(_) => {
                     // No need to add extra URLs
+                    None
                 }
-                data::ModuleDynamicMajor::Archive(archive) => urls.push(PostUrl::new_clickable(
+                data::ModuleDynamicMajor::Archive(archive) => Some(PostUrl::new_clickable(
                     format!("https://www.bilibili.com/video/{}", archive.archive.bvid),
                     "查看视频",
                 )),
-                data::ModuleDynamicMajor::Article(article) => urls.push(PostUrl::new_clickable(
+                data::ModuleDynamicMajor::Article(article) => Some(PostUrl::new_clickable(
                     format!("https://www.bilibili.com/read/cv{}", article.article.id),
                     "查看文章",
                 )),
-                data::ModuleDynamicMajor::Pgc(pgc) => urls.push(PostUrl::new_clickable(
+                data::ModuleDynamicMajor::Pgc(pgc) => Some(PostUrl::new_clickable(
                     format!("https://www.bilibili.com/bangumi/play/ep{}", pgc.pgc.epid),
-                    "查看文章",
+                    "查看剧集",
                 )),
-                data::ModuleDynamicMajor::Live(live) => urls.push(PostUrl::new_clickable(
+                data::ModuleDynamicMajor::Live(live) => Some(PostUrl::new_clickable(
                     format!("https://live.bilibili.com/{}", live.live.id),
                     "前往直播间",
                 )),
@@ -579,12 +580,13 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
                     critical!("unexpected major type: {major:?}");
                     unreachable!()
                 }
-            });
+            })
+            .unwrap_or(major_url);
 
         Ok(Post {
             user: Some(item.modules.author.clone().into()),
             content,
-            urls: PostUrls::from_iter(urls)?,
+            urls: PostUrls::new(url),
             repost_from: original.map(|original| RepostFrom::Recursion(Box::new(original))),
             attachments: item
                 .modules
