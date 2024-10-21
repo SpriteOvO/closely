@@ -294,6 +294,10 @@ mod data {
                         PostContentPart::Plain(node.orig_text.clone())
                     }
                 }
+                RichTextNodeKind::Bv { rid, .. } => PostContentPart::Link {
+                    display: node.text.clone(),
+                    url: format!("https://www.bilibili.com/video/{rid}"),
+                },
                 // We treat these nodes as plain text
                 RichTextNodeKind::Emoji { .. } | RichTextNodeKind::Lottery { .. } => {
                     PostContentPart::Plain(node.orig_text.clone())
@@ -329,6 +333,8 @@ mod data {
         Topic { jump_url: String },
         #[serde(rename = "RICH_TEXT_NODE_TYPE_LOTTERY")]
         Lottery { rid: String },
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_BV")]
+        Bv { jump_url: String, rid: String },
         #[serde(untagged)]
         Unknown(json::Value),
     }
