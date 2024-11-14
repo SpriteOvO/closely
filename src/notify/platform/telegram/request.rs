@@ -1,4 +1,4 @@
-use std::{borrow::Cow, io::Cursor, ops::Range};
+use std::{borrow::Cow, io::Cursor, mem, ops::Range};
 
 use anyhow::anyhow;
 use bytes::Bytes;
@@ -593,11 +593,50 @@ impl<'a> SendMediaGroup<'a> {
         }
     }
 
-    pub async fn send(self) -> anyhow::Result<Response<Vec<ResultMessage>>> {
+    pub async fn send(mut self) -> anyhow::Result<Response<Vec<ResultMessage>>> {
         assert!(!self.medias.is_empty());
 
-        let mut media = self
-            .medias
+        let mut ret = vec![];
+
+        if self.medias.len() > 10 {
+            warn!(
+                "media group size '{}' exceeds 10, splitting into multiple messages",
+                self.medias.len()
+            );
+        }
+
+        let mut medias = vec![];
+        mem::swap(&mut self.medias, &mut medias);
+
+        let mut iter = medias.chunks(10).peekable();
+        while let Some(chunk) = iter.next() {
+            let is_last_chunk = iter.peek().is_none();
+            let text = is_last_chunk.then(|| self.text.take()).flatten();
+
+            let resp = self.send_inner(chunk, text).await?;
+
+            // If any chunk fails, return the response immediately
+            if !resp.ok {
+                return Ok(resp);
+            }
+            ret.append(&mut resp.result.unwrap());
+        }
+
+        Ok(Response {
+            ok: true,
+            description: None,
+            result: Some(ret),
+        })
+    }
+
+    async fn send_inner(
+        &self,
+        medias: impl IntoIterator<Item = &'a Media<'a>>,
+        text: Option<Text<'a>>,
+    ) -> anyhow::Result<Response<Vec<ResultMessage>>> {
+        let medias = medias.into_iter().collect_vec();
+
+        let mut media = medias
             .iter()
             .map(|media| match media {
                 Media::Photo(photo) => {
@@ -616,7 +655,7 @@ impl<'a> SendMediaGroup<'a> {
                 }
             })
             .collect::<Vec<_>>();
-        if let Some(text) = self.text {
+        if let Some(text) = text {
             let (text, entities) = text.into_json();
             let first_media = media.first_mut().unwrap().as_object_mut().unwrap();
             first_media.insert("caption".into(), text);
@@ -638,7 +677,7 @@ impl<'a> SendMediaGroup<'a> {
                 .as_array_mut()
                 .unwrap()
                 .iter_mut()
-                .zip(self.medias)
+                .zip(medias)
                 .enumerate()
                 .map(|(i, (media, kind))| {
                     media["media"] = format_attach_url(i).into();
