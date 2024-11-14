@@ -14,7 +14,7 @@ pub fn reqwest_client_with(
 ) -> anyhow::Result<reqwest::Client> {
     configure(
         reqwest::ClientBuilder::new()
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(60) * 3)
             .default_headers(HeaderMap::from_iter([(
                 header::USER_AGENT,
                 HeaderValue::from_str(&prop::user_agent(false)).unwrap(),
