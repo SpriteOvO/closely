@@ -132,7 +132,7 @@ pub struct VersionInfo {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct MessageId {
-    pub message_id: u64,
+    pub message_id: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
