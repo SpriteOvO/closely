@@ -33,22 +33,33 @@ impl<'a> Request<'a> {
         method: &str,
         body: &json::Value,
     ) -> anyhow::Result<Response<T>> {
-        Self::send_request_with_files(self, method, body, None as Option<[FileUrl; 0]>).await
+        self.send_request_inner(method, body, None, true).await
     }
 
     async fn send_request_with_files<T: DeserializeOwned>(
         &self,
         method: &str,
         body: &json::Value,
+        file_urls: impl IntoIterator<Item = FileUrl<'_>>,
+    ) -> anyhow::Result<Response<T>> {
+        self.send_request_inner(method, body, Some(file_urls.into_iter().collect()), true)
+            .await
+    }
+
+    async fn send_request_inner<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        body: &json::Value,
         // If `file_urls` specified, the media fields in body should be replaced with
         // "attach://{index}"
-        file_urls: Option<impl IntoIterator<Item = FileUrl<'_>>>,
+        file_urls: Option<Vec<FileUrl<'_>>>,
+        retry: bool,
     ) -> anyhow::Result<Response<T>> {
         let url = format!("https://api.telegram.org/bot{}/{}", self.token, method);
 
         let mut client = helper::reqwest_client()?.post(url);
 
-        if let Some(file_urls) = file_urls {
+        if let Some(file_urls) = file_urls.clone() {
             let form = form_append_json(Form::new(), body.as_object().unwrap());
             let form = futures::stream::iter(file_urls)
                 .enumerate()
@@ -103,6 +114,25 @@ impl<'a> Request<'a> {
         let resp: Response<T> = json::from_str(&text).map_err(|err| {
             anyhow!("failed to deserialize response: {err}, status: {status}, text: '{text}', request '{body}'")
         })?;
+
+        if retry && !resp.ok && resp.description.is_some() {
+            if let Some(after) = resp
+                .description
+                .as_deref()
+                .unwrap()
+                .strip_prefix("Too Many Requests: retry after ")
+            {
+                warn!("Telegram rate limited, retry after '{}' + 1 seconds", after);
+
+                let after = after
+                    .parse::<u64>()
+                    .map_err(|err| anyhow!("failed to parse rate limit duration: {err}"))?;
+                tokio::time::sleep(tokio::time::Duration::from_secs(after + 1)).await;
+
+                return Box::pin(self.send_request_inner(method, body, file_urls, false)).await;
+            }
+        }
+
         Ok(resp)
     }
 
@@ -182,7 +212,7 @@ impl<'a> Request<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct FileUrl<'a> {
     url: &'a str,
     is_photo: bool,
@@ -504,7 +534,7 @@ impl<'a> SendMedia<'a> {
             };
             resp = self
                 .base
-                .send_request_with_files(method, &body, Some([file_url]))
+                .send_request_with_files(method, &body, [file_url])
                 .await?;
         }
         Ok(resp)
@@ -623,7 +653,7 @@ impl<'a> SendMediaGroup<'a> {
 
             resp = self
                 .base
-                .send_request_with_files("sendMediaGroup", &body, Some(file_urls))
+                .send_request_with_files("sendMediaGroup", &body, file_urls)
                 .await?;
         }
         Ok(resp)
