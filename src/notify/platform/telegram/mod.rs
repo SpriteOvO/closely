@@ -464,7 +464,7 @@ impl Notifier {
 
         const DISABLE_NOTIFICATION: bool = true; // TODO: Make it configurable
 
-        let attachments = post.attachments_recursive();
+        let attachments = post.attachments_recursive(true);
         let num_attachments = attachments.len();
 
         let resp = match num_attachments {

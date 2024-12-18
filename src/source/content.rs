@@ -1,3 +1,5 @@
+use super::PostAttachment;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PostContent(Vec<PostContentPart>);
 
@@ -16,6 +18,10 @@ impl PostContent {
             .map(|part| match part {
                 PostContentPart::Plain(text) => text.as_str(),
                 PostContentPart::Link { url, .. } => url.as_str(),
+                PostContentPart::InlineAttachment(attachment) => match attachment {
+                    PostAttachment::Image(attachment) => attachment.media_url.as_str(),
+                    PostAttachment::Video(attachment) => attachment.media_url.as_str(),
+                },
             })
             .collect::<String>()
     }
@@ -65,4 +71,5 @@ impl PostContent {
 pub enum PostContentPart {
     Plain(String),
     Link { display: String, url: String },
+    InlineAttachment(PostAttachment),
 }

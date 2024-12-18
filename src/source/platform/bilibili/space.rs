@@ -298,6 +298,22 @@ mod data {
                     display: node.text.clone(),
                     url: format!("https://www.bilibili.com/video/{rid}"),
                 },
+                RichTextNodeKind::ViewPicture { pics, .. } => {
+                    if pics.len() != 1 {
+                        warn!(
+                            "bilibili rich text view-pic node has pics.len() = {}",
+                            pics.len()
+                        );
+                        PostContentPart::Plain(node.orig_text.clone())
+                    } else {
+                        PostContentPart::InlineAttachment(PostAttachment::Image(
+                            PostAttachmentImage {
+                                media_url: pics.first().unwrap().src.clone(),
+                                has_spoiler: false,
+                            },
+                        ))
+                    }
+                }
                 // We treat these nodes as plain text
                 RichTextNodeKind::Emoji { .. } | RichTextNodeKind::Lottery { .. } => {
                     PostContentPart::Plain(node.orig_text.clone())
@@ -335,6 +351,12 @@ mod data {
         Lottery { rid: String },
         #[serde(rename = "RICH_TEXT_NODE_TYPE_BV")]
         Bv { jump_url: String, rid: String },
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_VIEW_PICTURE")]
+        ViewPicture {
+            jump_url: String,
+            pics: Vec<RichTextNodeViewPicturePic>,
+            rid: String,
+        },
         #[serde(untagged)]
         Unknown(json::Value),
     }
@@ -345,6 +367,14 @@ mod data {
         pub text: String,
         // pub size: u64
         // pub type: u64
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct RichTextNodeViewPicturePic {
+        pub src: String,
+        // pub height: u64
+        // pub width: u64
+        // pub size: u64
     }
 }
 

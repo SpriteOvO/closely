@@ -823,6 +823,9 @@ impl<'a> Text<'a> {
         content.parts().for_each(|part| match part {
             PostContentPart::Plain(text) => self.push_plain(text),
             PostContentPart::Link { display, url } => self.push_link(display, url),
+            PostContentPart::InlineAttachment(_) => {
+                // Ignore, we handle it in post.attachments
+            }
         });
     }
 

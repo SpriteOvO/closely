@@ -239,7 +239,7 @@ impl Notifier {
         }
 
         let images = post
-            .attachments_recursive()
+            .attachments_recursive(true)
             .into_iter()
             .filter_map(|attachment| match attachment {
                 PostAttachment::Image(image) => Some(image.media_url.as_str()),

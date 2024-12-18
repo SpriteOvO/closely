@@ -253,11 +253,21 @@ pub enum RepostFrom {
 }
 
 impl Post {
-    pub fn attachments_recursive(&self) -> Vec<&PostAttachment> {
+    pub fn attachments_recursive(&self, include_inlined: bool) -> Vec<&PostAttachment> {
         if let Some(RepostFrom::Recursion(repost_from)) = &self.repost_from {
             self.attachments
                 .iter()
-                .chain(repost_from.attachments_recursive())
+                .chain(self.content.parts().filter_map(|content| {
+                    if !include_inlined {
+                        return None;
+                    }
+                    if let PostContentPart::InlineAttachment(attachment) = content {
+                        Some(attachment)
+                    } else {
+                        None
+                    }
+                }))
+                .chain(repost_from.attachments_recursive(include_inlined))
                 .collect()
         } else {
             self.attachments.iter().collect()
