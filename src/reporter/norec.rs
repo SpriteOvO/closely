@@ -29,7 +29,7 @@ pub struct NoRecGuard<'a> {
     no_rec: &'a NoRec,
 }
 
-impl<'a> Drop for NoRecGuard<'a> {
+impl Drop for NoRecGuard<'_> {
     fn drop(&mut self) {
         self.no_rec.exit();
     }

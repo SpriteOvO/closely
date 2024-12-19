@@ -377,7 +377,7 @@ pub struct Notification<'a> {
     pub source: &'a StatusSource,
 }
 
-impl<'a> fmt::Display for Notification<'a> {
+impl fmt::Display for Notification<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.kind)
     }
@@ -391,7 +391,7 @@ pub enum NotificationKind<'a> {
     Log(String),
 }
 
-impl<'a> fmt::Display for NotificationKind<'a> {
+impl fmt::Display for NotificationKind<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::LiveOnline(live_status) => write!(f, "{live_status}"),
@@ -411,7 +411,7 @@ pub trait FetcherTrait: PlatformTrait + Display {
     fn post_filter<'a>(
         &'a self,
         notification: Notification<'a>,
-    ) -> Pin<Box<dyn Future<Output = Option<Notification<'a>>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Option<Notification<'a>>> + Send + 'a>> {
         Box::pin(async move { Some(notification) })
     }
 }

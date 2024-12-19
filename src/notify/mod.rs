@@ -10,7 +10,7 @@ pub trait NotifierTrait: PlatformTrait {
     fn notify<'a>(
         &'a self,
         notification: &'a Notification<'_>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + '_>>;
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>>;
 }
 
 pub fn notifier(params: platform::Config) -> Box<dyn NotifierTrait> {

@@ -256,7 +256,7 @@ pub enum Markup<'a> {
     InlineKeyboard(Vec<Vec<Button<'a>>>),
 }
 
-impl<'a> Markup<'a> {
+impl Markup<'_> {
     fn into_json(self) -> json::Value {
         match self {
             Markup::InlineKeyboard(buttons) => {

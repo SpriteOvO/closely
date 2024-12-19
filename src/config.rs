@@ -247,7 +247,7 @@ impl NotifyMap {
 }
 
 pub trait AsSecretRef<'a, T = &'a str> {
-    fn as_secret_ref(&'a self) -> SecretRef<'_, T>;
+    fn as_secret_ref(&'a self) -> SecretRef<'a, T>;
 }
 
 pub enum SecretRef<'a, T = &'a str> {

@@ -103,7 +103,7 @@ impl NotifierTrait for Notifier {
     fn notify<'a>(
         &'a self,
         notification: &'a Notification<'_>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>> {
         Box::pin(self.notify_impl(notification))
     }
 }
