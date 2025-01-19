@@ -314,6 +314,10 @@ mod data {
                         ))
                     }
                 }
+                RichTextNodeKind::Goods { jump_url } => PostContentPart::Link {
+                    display: node.text.clone(),
+                    url: jump_url.clone(),
+                },
                 // We treat these nodes as plain text
                 RichTextNodeKind::Emoji { .. } | RichTextNodeKind::Lottery { .. } => {
                     PostContentPart::Plain(node.orig_text.clone())
@@ -357,6 +361,8 @@ mod data {
             pics: Vec<RichTextNodeViewPicturePic>,
             rid: String,
         },
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_GOODS")]
+        Goods { jump_url: String },
         #[serde(untagged)]
         Unknown(json::Value),
     }
