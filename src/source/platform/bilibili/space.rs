@@ -319,9 +319,9 @@ mod data {
                     url: jump_url.clone(),
                 },
                 // We treat these nodes as plain text
-                RichTextNodeKind::Emoji { .. } | RichTextNodeKind::Lottery { .. } => {
-                    PostContentPart::Plain(node.orig_text.clone())
-                }
+                RichTextNodeKind::Emoji { .. }
+                | RichTextNodeKind::Lottery { .. }
+                | RichTextNodeKind::Vote => PostContentPart::Plain(node.orig_text.clone()),
                 RichTextNodeKind::Unknown(info) => {
                     warn!("unexpected bilibili rich text node '{info}'");
                     PostContentPart::Plain(node.orig_text.clone())
@@ -363,6 +363,8 @@ mod data {
         },
         #[serde(rename = "RICH_TEXT_NODE_TYPE_GOODS")]
         Goods { jump_url: String },
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_VOTE")]
+        Vote,
         #[serde(untagged)]
         Unknown(json::Value),
     }
