@@ -84,6 +84,22 @@ mod data {
         pub struct Result<T> {
             pub result: T,
         }
+
+        #[derive(Clone, Debug, PartialEq, Deserialize)]
+        #[serde(untagged, deny_unknown_fields)]
+        pub enum MaybeEmpty<T> {
+            Empty {},
+            Value(T),
+        }
+
+        impl<T> MaybeEmpty<T> {
+            pub fn into_option(self) -> Option<T> {
+                match self {
+                    Self::Empty {} => None,
+                    Self::Value(value) => Some(value),
+                }
+            }
+        }
     }
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -214,7 +230,7 @@ mod data {
         pub rest_id: String,
         pub core: TweetCore,
         pub card: Option<TweetCard>,
-        pub quoted_status_result: Option<wrapper::Result<Box<ResultTweet>>>,
+        pub quoted_status_result: Option<wrapper::MaybeEmpty<wrapper::Result<Box<ResultTweet>>>>,
         pub legacy: TweetLegacy,
     }
 
@@ -474,7 +490,7 @@ fn parse_tweet(tweet: data::Tweet) -> Post {
     let repost_from = if !tweet.legacy.is_quote_status {
         tweet.legacy.retweeted_status_result
     } else {
-        tweet.quoted_status_result
+        tweet.quoted_status_result.and_then(|q| q.into_option())
     }
     .map(|result| RepostFrom::Recursion(Box::new(parse_tweet(result.result.into_tweet()))));
 
