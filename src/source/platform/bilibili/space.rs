@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt, future::Future, ops::DerefMut, pin::Pin};
+use std::{collections::HashSet, fmt, fmt::Display, future::Future, ops::DerefMut, pin::Pin};
 
 use anyhow::{anyhow, bail, Ok};
 use once_cell::sync::Lazy;
@@ -33,6 +33,22 @@ mod data {
     use crate::source::PostContentPart;
 
     #[derive(Debug, Deserialize)]
+    #[serde(untagged, deny_unknown_fields)]
+    pub enum StrOrNumber {
+        Str(String),
+        Number(u64),
+    }
+
+    impl Display for StrOrNumber {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                StrOrNumber::Str(s) => write!(f, "{s}"),
+                StrOrNumber::Number(n) => write!(f, "{n}"),
+            }
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
     pub struct SpaceHistory {
         pub has_more: bool,
         pub items: Vec<Item>,
@@ -40,7 +56,8 @@ mod data {
 
     #[derive(Debug, Deserialize)]
     pub struct Item {
-        pub id_str: Option<String>, // `None` if the item is deleted
+        // `None` if the item is deleted
+        pub id_str: Option<StrOrNumber /* WTF? bilibili devs? */>,
         pub modules: Modules,
         pub orig: Option<Box<Item>>,
     }
@@ -716,15 +733,15 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
         })
         .filter(|item| {
             item.id_str
-                .as_deref()
+                .as_ref()
                 .map(|id_str| {
                     if matches!(
                         item.modules.dynamic.major,
                         Some(data::ModuleDynamicMajor::Blocked)
                     ) {
-                        blocked.0.insert(id_str.into());
+                        blocked.0.insert(id_str.to_string());
                         false
-                    } else if blocked.0.contains(id_str) {
+                    } else if blocked.0.contains(&id_str.to_string()) {
                         let rustfmt_bug = "filtered out a bilibili space item";
                         let rustfmt_bug2 = "as it was blocked and probobly a fans-only post";
                         warn!("{rustfmt_bug} '{id_str}' {rustfmt_bug2}");
