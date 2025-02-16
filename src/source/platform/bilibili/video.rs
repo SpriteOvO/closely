@@ -1,6 +1,7 @@
 use std::{fmt, future::Future, pin::Pin};
 
 use anyhow::{anyhow, ensure};
+use chrono::DateTime;
 use serde::Deserialize;
 use serde_json as json;
 
@@ -42,6 +43,8 @@ mod data {
     pub struct Archive {
         pub aid: u64,
         pub title: String,
+        pub pubdate: u64,
+        pub ctime: u64,
         pub pic: String, // Image URL
         pub bvid: String,
     }
@@ -120,21 +123,27 @@ fn parse_response(resp: data::SeriesArchives) -> anyhow::Result<Posts> {
     let videos = resp
         .archives
         .into_iter()
-        .map(|archive| Post {
-            user: None,
-            content: PostContent::plain(archive.title),
-            urls: PostUrl::new_clickable(
-                format!("https://www.bilibili.com/video/{}", archive.bvid),
-                "查看视频",
-            )
-            .into(),
-            repost_from: None,
-            attachments: vec![PostAttachment::Image(PostAttachmentImage {
-                media_url: upgrade_to_https(&archive.pic),
-                has_spoiler: false,
-            })],
+        .map(|archive| -> anyhow::Result<Post> {
+            let time = DateTime::from_timestamp(archive.ctime as i64, 0)
+                .ok_or_else(|| anyhow!("invalid ctime {}, aid={}", archive.ctime, archive.aid))?
+                .into();
+            Ok(Post {
+                user: None,
+                content: PostContent::plain(archive.title),
+                urls: PostUrl::new_clickable(
+                    format!("https://www.bilibili.com/video/{}", archive.bvid),
+                    "查看视频",
+                )
+                .into(),
+                time,
+                repost_from: None,
+                attachments: vec![PostAttachment::Image(PostAttachmentImage {
+                    media_url: upgrade_to_https(&archive.pic),
+                    has_spoiler: false,
+                })],
+            })
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     Ok(Posts(videos))
 }

@@ -1,6 +1,7 @@
 use std::{collections::HashSet, fmt, fmt::Display, future::Future, ops::DerefMut, pin::Pin};
 
-use anyhow::{anyhow, bail, Ok};
+use anyhow::{anyhow, bail, ensure};
+use chrono::DateTime;
 use once_cell::sync::Lazy;
 use reqwest::header::{self, HeaderValue};
 use serde::Deserialize;
@@ -81,6 +82,16 @@ mod data {
         Pgc(ModuleAuthorPgc),
     }
 
+    impl ModuleAuthor {
+        pub fn pub_time(&self) -> Option<u64> {
+            let pub_ts = match self {
+                ModuleAuthor::Normal(normal) => normal.pub_ts,
+                ModuleAuthor::Pgc(pgc) => pgc.pub_ts,
+            };
+            (pub_ts != 0).then_some(pub_ts)
+        }
+    }
+
     impl From<ModuleAuthor> for User {
         fn from(value: ModuleAuthor) -> Self {
             match value {
@@ -111,6 +122,7 @@ mod data {
         pub face: String, // URL
         pub mid: u64,
         pub name: String,
+        pub pub_ts: u64, // Always 0?
     }
 
     #[derive(Debug, Deserialize)]
@@ -644,10 +656,24 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
             })
             .unwrap_or(major_url);
 
+        let time = item
+            .modules
+            .author
+            .pub_time()
+            .or(parent_item.and_then(|p| p.modules.author.pub_time()));
+        ensure!(
+            time.is_some(),
+            "bilibili space found a post with no time: '{item:?}'"
+        );
+        let time = DateTime::from_timestamp(time.unwrap() as i64, 0)
+            .ok_or_else(|| anyhow!("invalid pub time, url={url:?}"))?
+            .into();
+
         Ok(Post {
             user: Some(item.modules.author.clone().into()),
             content,
             urls: PostUrls::new(url),
+            time,
             repost_from: original.map(|original| RepostFrom::Recursion(Box::new(original))),
             attachments: item
                 .modules

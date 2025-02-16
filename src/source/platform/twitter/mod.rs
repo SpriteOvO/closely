@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
+use chrono::DateTime;
 use request::*;
 use serde::Deserialize;
 use spdlog::prelude::*;
@@ -463,13 +464,13 @@ impl FetcherInner {
             })
             .map(|result| result.result.into_tweet())
             .map(parse_tweet)
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Posts(posts))
     }
 }
 
-fn parse_tweet(tweet: data::Tweet) -> Post {
+fn parse_tweet(tweet: data::Tweet) -> anyhow::Result<Post> {
     let content = if tweet.legacy.retweeted_status_result.is_none() {
         Some(replace_entities(
             tweet.legacy.full_text,
@@ -492,7 +493,12 @@ fn parse_tweet(tweet: data::Tweet) -> Post {
     } else {
         tweet.quoted_status_result.and_then(|q| q.into_option())
     }
-    .map(|result| RepostFrom::Recursion(Box::new(parse_tweet(result.result.into_tweet()))));
+    .map(|result| -> anyhow::Result<RepostFrom> {
+        Ok(RepostFrom::Recursion(Box::new(parse_tweet(
+            result.result.into_tweet(),
+        )?)))
+    })
+    .transpose()?;
 
     let possibly_sensitive = tweet.legacy.possibly_sensitive.unwrap_or(false);
 
@@ -591,13 +597,23 @@ fn parse_tweet(tweet: data::Tweet) -> Post {
         })
         .collect();
 
-    Post {
+    let time = DateTime::parse_from_str(&tweet.legacy.created_at, "%a %b %d %H:%M:%S %z %Y")
+        .map_err(|err| {
+            anyhow!(
+                "failed to parse tweet time '{}', err: {err}, urls={urls:?}",
+                tweet.legacy.created_at
+            )
+        })?
+        .into();
+
+    Ok(Post {
         user: Some(tweet.core.user_results.result.into()),
         content: PostContent::plain(content.unwrap_or_else(|| "".into())),
         urls,
+        time,
         repost_from,
         attachments,
-    }
+    })
 }
 
 enum ReplaceKind<'a> {

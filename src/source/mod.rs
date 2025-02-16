@@ -5,6 +5,7 @@ pub mod platform;
 use std::{fmt, fmt::Display, future::Future, pin::Pin, slice, vec};
 
 use anyhow::ensure;
+use chrono::{DateTime, Local};
 pub use content::*;
 
 use crate::platform::{PlatformMetadata, PlatformTrait};
@@ -146,6 +147,7 @@ pub struct Post {
     pub user: Option<User>,
     pub content: PostContent,
     urls: PostUrls,
+    pub time: DateTime<Local>,
     pub repost_from: Option<RepostFrom>,
     attachments: Vec<PostAttachment>,
 }
@@ -503,6 +505,7 @@ mod tests {
                 user: None,
                 content: PostContent::plain("content1"),
                 urls: PostUrls::new(PostUrl::Identity("id1".into())),
+                time: DateTime::UNIX_EPOCH.into(),
                 repost_from: None,
                 attachments: vec![],
             }])),
@@ -525,6 +528,7 @@ mod tests {
                     user: None,
                     content: PostContent::plain("content1"),
                     urls: PostUrls::new(PostUrl::Identity("id1".into())),
+                    time: DateTime::UNIX_EPOCH.into(),
                     repost_from: None,
                     attachments: vec![],
                 },
@@ -532,6 +536,7 @@ mod tests {
                     user: None,
                     content: PostContent::plain("content2"),
                     urls: PostUrls::new(PostUrl::Identity("id2".into())),
+                    time: DateTime::UNIX_EPOCH.into(),
                     repost_from: None,
                     attachments: vec![],
                 },
@@ -549,6 +554,7 @@ mod tests {
                     user: None,
                     content: PostContent::plain("content1"),
                     urls: PostUrls::new(PostUrl::Identity("id1".into())),
+                    time: DateTime::UNIX_EPOCH.into(),
                     repost_from: None,
                     attachments: vec![],
                 },
@@ -556,6 +562,7 @@ mod tests {
                     user: None,
                     content: PostContent::plain("content2"),
                     urls: PostUrls::new(PostUrl::Identity("id2".into())),
+                    time: DateTime::UNIX_EPOCH.into(),
                     repost_from: None,
                     attachments: vec![],
                 },
@@ -588,6 +595,7 @@ mod tests {
                 user: None,
                 content: PostContent::plain("content3"),
                 urls: PostUrls::new(PostUrl::Identity("id3".into())),
+                time: DateTime::UNIX_EPOCH.into(),
                 repost_from: None,
                 attachments: vec![],
             }])),
@@ -607,6 +615,7 @@ mod tests {
                     user: None,
                     content: PostContent::plain("content1"),
                     urls: PostUrls::new(PostUrl::Identity("id1".into())),
+                    time: DateTime::UNIX_EPOCH.into(),
                     repost_from: None,
                     attachments: vec![],
                 },
@@ -614,6 +623,7 @@ mod tests {
                     user: None,
                     content: PostContent::plain("content2"),
                     urls: PostUrls::new(PostUrl::Identity("id2".into())),
+                    time: DateTime::UNIX_EPOCH.into(),
                     repost_from: None,
                     attachments: vec![],
                 },
@@ -621,6 +631,7 @@ mod tests {
                     user: None,
                     content: PostContent::plain("content3"),
                     urls: PostUrls::new(PostUrl::Identity("id3".into())),
+                    time: DateTime::UNIX_EPOCH.into(),
                     repost_from: None,
                     attachments: vec![],
                 },
@@ -673,6 +684,7 @@ mod tests {
                 user: None,
                 content: PostContent::plain("content1"),
                 urls: PostUrls::new(PostUrl::Identity("id1".into())),
+                time: DateTime::UNIX_EPOCH.into(),
                 repost_from: None,
                 attachments: vec![],
             }])),
