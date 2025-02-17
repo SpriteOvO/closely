@@ -40,6 +40,17 @@ impl Status {
         Self(Some(StatusInner { kind, source }))
     }
 
+    pub fn sort(&mut self) {
+        if let Some(StatusInner {
+            kind: StatusKind::Posts(posts),
+            ..
+        }) = &mut self.0
+        {
+            // Latest first
+            posts.0.sort_by(|l, r| r.time.cmp(&l.time));
+        }
+    }
+
     pub fn generate_notifications<'a>(&'a self, last_status: &'a Status) -> Vec<Notification<'a>> {
         self.0
             .as_ref()
@@ -446,6 +457,8 @@ pub fn fetcher(platform: &platform::Config) -> Box<dyn FetcherTrait> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Days;
+
     use super::*;
 
     #[test]
@@ -709,5 +722,64 @@ mod tests {
                 }),
             },
         ));
+    }
+
+    #[test]
+    fn status_posts_sort() {
+        let mut status = Status::new(
+            StatusKind::Posts(Posts(vec![
+                Post {
+                    user: None,
+                    content: PostContent::plain("content2"),
+                    urls: PostUrls::new(PostUrl::Identity("id2".into())),
+                    time: DateTime::UNIX_EPOCH
+                        .checked_add_days(Days::new(1))
+                        .unwrap()
+                        .into(),
+                    is_pinned: true,
+                    repost_from: None,
+                    attachments: vec![],
+                },
+                Post {
+                    user: None,
+                    content: PostContent::plain("content3"),
+                    urls: PostUrls::new(PostUrl::Identity("id3".into())),
+                    time: DateTime::UNIX_EPOCH
+                        .checked_add_days(Days::new(2))
+                        .unwrap()
+                        .into(),
+                    is_pinned: false,
+                    repost_from: None,
+                    attachments: vec![],
+                },
+                Post {
+                    user: None,
+                    content: PostContent::plain("content1"),
+                    urls: PostUrls::new(PostUrl::Identity("id1".into())),
+                    time: DateTime::UNIX_EPOCH.into(),
+                    is_pinned: false,
+                    repost_from: None,
+                    attachments: vec![],
+                },
+            ])),
+            StatusSource {
+                platform: PlatformMetadata {
+                    display_name: "test",
+                },
+                user: Some(StatusSourceUser {
+                    display_name: "user2".into(),
+                    profile_url: "profile1".into(),
+                }),
+            },
+        );
+
+        status.sort();
+
+        let StatusKind::Posts(posts) = status.0.unwrap().kind else {
+            panic!()
+        };
+        assert_eq!(posts.0[0].content.fallback(), "content3");
+        assert_eq!(posts.0[1].content.fallback(), "content2");
+        assert_eq!(posts.0[2].content.fallback(), "content1");
     }
 }

@@ -51,13 +51,15 @@ impl TaskSubscription {
     }
 
     async fn run_once(&mut self) -> anyhow::Result<()> {
-        let status = self.fetcher.fetch_status().await.map_err(|err| {
+        let mut status = self.fetcher.fetch_status().await.map_err(|err| {
             anyhow!(
                 "failed to fetch status for '{}' on '{}': {err}",
                 self.name,
                 self.fetcher
             )
         })?;
+
+        status.sort();
 
         trace!(
             "status of '{}' on '{}' now is '{status:?}'",
