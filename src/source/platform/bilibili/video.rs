@@ -136,6 +136,7 @@ fn parse_response(resp: data::SeriesArchives) -> anyhow::Result<Posts> {
                 )
                 .into(),
                 time,
+                is_pinned: false,
                 repost_from: None,
                 attachments: vec![PostAttachment::Image(PostAttachmentImage {
                     media_url: upgrade_to_https(&archive.pic),

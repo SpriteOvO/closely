@@ -154,6 +154,7 @@ mod data {
         pub description: String,
         pub location: String,
         pub name: String,
+        pub pinned_tweet_ids_str: Vec<String>,
         pub profile_banner_url: Option<String>,
         pub profile_image_url_https: String, // Very small..
         pub screen_name: String,
@@ -606,11 +607,20 @@ fn parse_tweet(tweet: data::Tweet) -> anyhow::Result<Post> {
         })?
         .into();
 
+    let is_pinned = tweet
+        .core
+        .user_results
+        .result
+        .legacy
+        .pinned_tweet_ids_str
+        .contains(&tweet.rest_id);
+
     Ok(Post {
         user: Some(tweet.core.user_results.result.into()),
         content: PostContent::plain(content.unwrap_or_else(|| "".into())),
         urls,
         time,
+        is_pinned,
         repost_from,
         attachments,
     })

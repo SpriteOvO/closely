@@ -71,6 +71,13 @@ mod data {
         pub author: ModuleAuthor,
         #[serde(rename = "module_dynamic")]
         pub dynamic: ModuleDynamic,
+        #[serde(rename = "module_tag")]
+        pub tag: Option<ModuleTag>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleTag {
+        pub text: String,
     }
 
     #[derive(Clone, Debug, Deserialize)]
@@ -669,11 +676,18 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
             .ok_or_else(|| anyhow!("invalid pub time, url={url:?}"))?
             .into();
 
+        let is_pinned = item
+            .modules
+            .tag
+            .as_ref()
+            .is_some_and(|tag| tag.text == "置顶");
+
         Ok(Post {
             user: Some(item.modules.author.clone().into()),
             content,
             urls: PostUrls::new(url),
             time,
+            is_pinned,
             repost_from: original.map(|original| RepostFrom::Recursion(Box::new(original))),
             attachments: item
                 .modules
