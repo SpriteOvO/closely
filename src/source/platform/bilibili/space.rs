@@ -1,4 +1,11 @@
-use std::{collections::HashSet, fmt, fmt::Display, future::Future, ops::DerefMut, pin::Pin};
+use std::{
+    collections::HashSet,
+    fmt::{self, Display},
+    future::Future,
+    ops::DerefMut,
+    pin::Pin,
+    sync::{Arc, Mutex as StdMutex},
+};
 
 use anyhow::{anyhow, bail, ensure};
 use chrono::DateTime;
@@ -478,7 +485,7 @@ impl Fetcher {
 struct BlockedPostIds(HashSet<String>);
 
 #[allow(clippy::type_complexity)] // No, I don't think it's complex XD
-static GUEST_COOKIES: Lazy<Mutex<Option<Vec<(String, String)>>>> = Lazy::new(|| Mutex::new(None));
+static GUEST_TOKEN: Lazy<Mutex<Option<GuestToken>>> = Lazy::new(|| Mutex::new(None));
 
 async fn fetch_space_history(user_id: u64, blocked: &mut BlockedPostIds) -> anyhow::Result<Posts> {
     fetch_space_history_impl(user_id, blocked, true).await
@@ -490,22 +497,22 @@ fn fetch_space_history_impl<'a>(
     retry: bool,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<Posts>> + Send + 'a>> {
     Box::pin(async move {
-        let mut guest_cookies = GUEST_COOKIES.lock().await;
-        if guest_cookies.is_none() {
-            *guest_cookies = Some(
+        let mut guest_token = GUEST_TOKEN.lock().await;
+        if guest_token.is_none() {
+            *guest_token = Some(
                 obtain_guest_cookies()
                     .await
-                    .map_err(|err| anyhow!("failed to obtain guest cookies: {err}"))?,
+                    .map_err(|err| anyhow!("failed to obtain guest token: {err}"))?,
             );
         }
-        let cookies = guest_cookies
-            .as_ref()
-            .unwrap()
+        let token = guest_token.as_ref().unwrap();
+        let cookies = token
+            .cookies
             .iter()
             .map(|(name, value)| format!("{}={}", name, value))
             .collect::<Vec<_>>()
             .join("; ");
-        let resp = bilibili_request_builder()?
+        let resp = bilibili_request_builder_with_user_agent(&token.user_agent)?
             .get(format!(
                 "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={}&features=itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard,forwardListHidden,ugcDelete,onlyfansQaCard&dm_img_list=[]&dm_img_str=V2ViR0wgMS&dm_cover_img_str=REDACTED",
                 user_id
@@ -534,8 +541,8 @@ fn fetch_space_history_impl<'a>(
                 // Auth error
                 if retry {
                     // Invalidate the guest cookies and retry
-                    *guest_cookies = None;
-                    drop(guest_cookies);
+                    *guest_token = None;
+                    drop(guest_token);
                     warn!("bilibili guest token expired, retrying with new token");
                     return fetch_space_history_impl(user_id, blocked, false).await;
                 } else {
@@ -802,9 +809,21 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
     Ok(Posts(items))
 }
 
-async fn obtain_guest_cookies() -> anyhow::Result<Vec<(String, String)>> {
+struct GuestToken {
+    cookies: Vec<(String, String)>,
+    user_agent: String,
+}
+
+async fn obtain_guest_cookies() -> anyhow::Result<GuestToken> {
     // Okay, I gave up on cracking the auth process
-    use headless_chrome::{Browser, LaunchOptionsBuilder};
+    use headless_chrome::{
+        browser::{
+            tab::{RequestInterceptor, RequestPausedDecision},
+            transport::{SessionId, Transport},
+        },
+        protocol::cdp::Fetch::{events::RequestPausedEvent, RequestPattern, RequestStage},
+        Browser, LaunchOptionsBuilder,
+    };
 
     let browser = Browser::new(
         LaunchOptionsBuilder::default()
@@ -812,16 +831,56 @@ async fn obtain_guest_cookies() -> anyhow::Result<Vec<(String, String)>> {
             .sandbox(false)
             .build()?,
     )?;
+
+    struct Interceptor {
+        user_agent: StdMutex<Option<String>>,
+    }
+
+    impl RequestInterceptor for Interceptor {
+        fn intercept(
+            &self,
+            _: Arc<Transport>,
+            _: SessionId,
+            event: RequestPausedEvent,
+        ) -> RequestPausedDecision {
+            if let json::Value::Object(mut headers) = event.params.request.headers.0.unwrap() {
+                if let json::map::Entry::Occupied(user_agent) = headers.entry("User-Agent") {
+                    if let json::Value::String(user_agent) = user_agent.remove() {
+                        *self.user_agent.lock().unwrap() = Some(user_agent);
+                    }
+                }
+            }
+            RequestPausedDecision::Continue(None)
+        }
+    }
+    let interceptor = Arc::new(Interceptor {
+        user_agent: StdMutex::new(None),
+    });
     let tab = browser.new_tab()?;
+    tab.enable_fetch(
+        Some(&[RequestPattern {
+            url_pattern: None,
+            resource_Type: None,
+            request_stage: Some(RequestStage::Request),
+        }]),
+        None,
+    )?;
+    tab.enable_request_interception(interceptor.clone())?;
     tab.navigate_to("https://space.bilibili.com/8047632/dynamic")?;
     tab.wait_until_navigated()?;
 
-    let kvs = tab
+    let cookies = tab
         .get_cookies()?
         .into_iter()
         .map(|cookie| (cookie.name, cookie.value))
         .collect();
-    Ok(kvs)
+
+    let user_agent = interceptor.user_agent.lock().unwrap().take().unwrap();
+
+    Ok(GuestToken {
+        cookies,
+        user_agent,
+    })
 }
 
 #[cfg(test)]

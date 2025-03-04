@@ -24,10 +24,14 @@ fn upgrade_to_https(url: &str) -> String {
 }
 
 fn bilibili_request_builder() -> anyhow::Result<reqwest::Client> {
+    bilibili_request_builder_with_user_agent(&prop::user_agent(true))
+}
+
+fn bilibili_request_builder_with_user_agent(user_agent: &str) -> anyhow::Result<reqwest::Client> {
     helper::reqwest_client_with(|builder| {
         builder.default_headers(HeaderMap::from_iter([(
             header::USER_AGENT,
-            HeaderValue::from_str(&prop::user_agent(true)).unwrap(),
+            HeaderValue::from_str(user_agent).unwrap(),
         )]))
     })
 }
