@@ -9,6 +9,7 @@ anyhow = "1.0.89"
 bytes = "1.7.2"
 chrono = "0.4.39"
 clap = { version = "4.5.19", features = ["derive"] }
+const_format = "0.2.34"
 futures = "0.3.31"
 headless_chrome = "1.0.15"
 humantime-serde = "1.1.1"

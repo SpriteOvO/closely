@@ -1,9 +1,14 @@
-use std::{collections::HashSet, fmt, fmt::Display, future::Future, ops::DerefMut, pin::Pin};
+use std::{
+    collections::HashSet,
+    fmt::{self, Display},
+    future::Future,
+    ops::DerefMut,
+    pin::Pin,
+    sync::{Arc, Mutex as StdMutex},
+};
 
 use anyhow::{anyhow, bail, ensure};
 use chrono::DateTime;
-use once_cell::sync::Lazy;
-use reqwest::header::{self, HeaderValue};
 use serde::Deserialize;
 use serde_json::{self as json};
 use spdlog::prelude::*;
@@ -477,71 +482,28 @@ impl Fetcher {
 // Fans-only posts
 struct BlockedPostIds(HashSet<String>);
 
-#[allow(clippy::type_complexity)] // No, I don't think it's complex XD
-static GUEST_COOKIES: Lazy<Mutex<Option<Vec<(String, String)>>>> = Lazy::new(|| Mutex::new(None));
-
 async fn fetch_space_history(user_id: u64, blocked: &mut BlockedPostIds) -> anyhow::Result<Posts> {
-    fetch_space_history_impl(user_id, blocked, true).await
+    fetch_space_history_impl(user_id, blocked).await
 }
 
 fn fetch_space_history_impl<'a>(
     user_id: u64,
     blocked: &'a mut BlockedPostIds,
-    retry: bool,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<Posts>> + Send + 'a>> {
     Box::pin(async move {
-        let mut guest_cookies = GUEST_COOKIES.lock().await;
-        if guest_cookies.is_none() {
-            *guest_cookies = Some(
-                obtain_guest_cookies()
-                    .await
-                    .map_err(|err| anyhow!("failed to obtain guest cookies: {err}"))?,
-            );
-        }
-        let cookies = guest_cookies
-            .as_ref()
-            .unwrap()
-            .iter()
-            .map(|(name, value)| format!("{}={}", name, value))
-            .collect::<Vec<_>>()
-            .join("; ");
-        let resp = bilibili_request_builder()?
-            .get(format!(
-                "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={}&features=itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard,forwardListHidden,ugcDelete,onlyfansQaCard&dm_img_list=[]&dm_img_str=V2ViR0wgMS&dm_cover_img_str=REDACTED",
-                user_id
-            ))
-            .header(header::COOKIE, HeaderValue::from_str(&cookies)?)
-            .send()
+        let (status, text) = fetch_space(user_id)
             .await
             .map_err(|err| anyhow!("failed to send request: {err}"))?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            bail!("response status is not success: {resp:?}");
+        if status != 200 {
+            bail!("response status is not success: {text:?}");
         }
-
-        let text = resp
-            .text()
-            .await
-            .map_err(|err| anyhow!("failed to obtain text from response: {err}"))?;
 
         let resp: Response<data::SpaceHistory> = json::from_str(&text)
             .map_err(|err| anyhow!("failed to deserialize response: {err}"))?;
 
         match resp.code {
             0 => {} // Success
-            -352 => {
-                // Auth error
-                if retry {
-                    // Invalidate the guest cookies and retry
-                    *guest_cookies = None;
-                    drop(guest_cookies);
-                    warn!("bilibili guest token expired, retrying with new token");
-                    return fetch_space_history_impl(user_id, blocked, false).await;
-                } else {
-                    bail!("bilibili failed with token expired, and already retried once")
-                }
-            }
+            -352 => bail!("auth error"),
             _ => bail!("response contains error, response '{text}'"),
         }
 
@@ -802,7 +764,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
     Ok(Posts(items))
 }
 
-async fn obtain_guest_cookies() -> anyhow::Result<Vec<(String, String)>> {
+async fn fetch_space(user_id: u64) -> anyhow::Result<(u32, String)> {
     // Okay, I gave up on cracking the auth process
     use headless_chrome::{Browser, LaunchOptionsBuilder};
 
@@ -812,16 +774,45 @@ async fn obtain_guest_cookies() -> anyhow::Result<Vec<(String, String)>> {
             .sandbox(false)
             .build()?,
     )?;
+
     let tab = browser.new_tab()?;
-    tab.navigate_to("https://space.bilibili.com/8047632/dynamic")?;
+    let body_res = Arc::new(StdMutex::new(None));
+    tab.register_response_handling(
+        "",
+        Box::new({
+            let body_res = Arc::clone(&body_res);
+            move |event, fetch_body| {
+                if event
+                    .response
+                    .url
+                    .starts_with("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space")
+                {
+                    *body_res.lock().unwrap() = Some((event.response.status, fetch_body()));
+                }
+            }
+        }),
+    )?;
+
+    // To Bilibili Dev:
+    //
+    // If you are seeing this, please let me know an appropriate rate to request via
+    // email. This project is not intended to be a bad thing, just for personal use.
+    //
+    tab.set_user_agent(&prop::UserAgent::Mocked.as_str(), None, None)?;
+    tab.navigate_to(&format!("https://space.bilibili.com/{}/dynamic", user_id))?;
     tab.wait_until_navigated()?;
 
-    let kvs = tab
-        .get_cookies()?
-        .into_iter()
-        .map(|cookie| (cookie.name, cookie.value))
-        .collect();
-    Ok(kvs)
+    let mut body_res = body_res.lock().unwrap();
+    let (status, body) = body_res
+        .take()
+        .ok_or_else(|| anyhow!("headless browser did not catch the expected response"))?;
+    let body = body.map_err(|err| anyhow!("headless browser failed to fetch the body: {err}"))?;
+    ensure!(
+        !body.base_64_encoded,
+        "headless browser returned a base64 encoded body"
+    );
+
+    Ok((status, body.body))
 }
 
 #[cfg(test)]

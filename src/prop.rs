@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use const_format::formatcp;
 use rand::distributions::{Alphanumeric, DistString};
 
 pub struct Package {
@@ -12,19 +13,53 @@ pub const PACKAGE: Package = Package {
     version: env!("CARGO_PKG_VERSION"),
 };
 
-pub fn user_agent(dynamic: bool) -> String {
-    format!(
-        "{}/{} (FAIR USE, PLEASE DO NOT BLOCK. Source opened on github.com/SpriteOvO/{}{})",
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION"),
-        env!("CARGO_PKG_NAME"),
-        if dynamic {
-            Cow::Owned(format!(
-                ". {}",
+pub enum UserAgent {
+    Logo,
+    LogoDynamic,
+    Mocked,
+}
+
+impl UserAgent {
+    pub fn as_str(&self) -> Cow<str> {
+        match self {
+            Self::Logo => Cow::Borrowed(formatcp!(
+                "{}/{} (FAIR USE, PLEASE DO NOT BLOCK. Source opened on github.com/SpriteOvO/{})",
+                PACKAGE.name,
+                PACKAGE.version,
+                PACKAGE.name,
+            )),
+            Self::LogoDynamic => Cow::Owned(format!(
+                "{} {})",
+                Self::Logo.as_str().strip_suffix(')').unwrap(),
                 Alphanumeric.sample_string(&mut rand::thread_rng(), 8)
-            ))
-        } else {
-            Cow::Borrowed("")
+            )),
+            Self::Mocked => Cow::Borrowed(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0",
+            ),
         }
-    )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_agent() {
+        assert_eq!(
+            UserAgent::Logo.as_str(),
+            format!(
+                "closely/{} (FAIR USE, PLEASE DO NOT BLOCK. Source opened on github.com/SpriteOvO/closely)",
+                env!("CARGO_PKG_VERSION"),
+            )
+        );
+
+        let dynamic = UserAgent::LogoDynamic.as_str();
+        assert!(dynamic.starts_with(&format!(
+            "closely/{} (FAIR USE, PLEASE DO NOT BLOCK. Source opened on github.com/SpriteOvO/closely ",
+            env!("CARGO_PKG_VERSION"),
+        )));
+        assert!(dynamic.ends_with(")"));
+        assert_eq!(dynamic.len(), UserAgent::Logo.as_str().len() + 9);
+    }
 }

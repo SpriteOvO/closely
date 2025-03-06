@@ -17,7 +17,7 @@ pub fn reqwest_client_with(
             .timeout(Duration::from_secs(60) * 3)
             .default_headers(HeaderMap::from_iter([(
                 header::USER_AGENT,
-                HeaderValue::from_str(&prop::user_agent(false)).unwrap(),
+                HeaderValue::from_str(&prop::UserAgent::Logo.as_str()).unwrap(),
             )])),
     )
     .build()

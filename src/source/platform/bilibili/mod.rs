@@ -27,7 +27,7 @@ fn bilibili_request_builder() -> anyhow::Result<reqwest::Client> {
     helper::reqwest_client_with(|builder| {
         builder.default_headers(HeaderMap::from_iter([(
             header::USER_AGENT,
-            HeaderValue::from_str(&prop::user_agent(true)).unwrap(),
+            HeaderValue::from_str(&prop::UserAgent::LogoDynamic.as_str()).unwrap(),
         )]))
     })
 }
