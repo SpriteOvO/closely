@@ -1,14 +1,16 @@
 mod request;
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     fmt,
     future::Future,
     pin::Pin,
+    sync::Mutex as StdMutex,
 };
 
 use anyhow::{anyhow, bail};
 use chrono::DateTime;
+use once_cell::sync::Lazy;
 use request::*;
 use serde::Deserialize;
 use spdlog::prelude::*;
@@ -539,13 +541,23 @@ fn parse_tweet(tweet: data::Tweet) -> anyhow::Result<Post> {
                     .iter()
                     .any(|kv| matches!(kv.value, data::TweetCardValue::Image { .. }))
                 {
-                    let rustfmt_bug =
-                        "expected image key not found in card, but the card contains image.";
-                    warn!(
-                        "{rustfmt_bug} tweet: {:?}, card kv: {:?}",
-                        urls.major(),
-                        card.legacy.binding_values
-                    );
+                    // TODO: Make it more general for using in other places
+                    static REPORTED: Lazy<StdMutex<HashSet<String>>> =
+                        Lazy::new(|| StdMutex::new(HashSet::new()));
+
+                    if REPORTED
+                        .lock()
+                        .unwrap()
+                        .insert(urls.major().unique_id().into())
+                    {
+                        let rustfmt_bug =
+                            "expected image key not found in card, but the card contains image.";
+                        warn!(
+                            "{rustfmt_bug} tweet: {:?}, card kv: {:?}",
+                            urls.major(),
+                            card.legacy.binding_values
+                        );
+                    }
                 }
                 None
             }
