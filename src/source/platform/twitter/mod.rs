@@ -325,8 +325,8 @@ mod data {
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
     pub struct TweetLegacyEntityUrl {
-        pub display_url: String,  // Displayed on web page, incomplete real URL
-        pub expanded_url: String, // Complete real URL
+        pub display_url: String, // Displayed on web page, incomplete real URL
+        pub expanded_url: Option<String>, // Complete real URL
         pub url: String, // The part presented in `full_text` (https://t.co/), needs to be replaced
         pub indices: Indices,
     }
@@ -642,12 +642,12 @@ fn replace_entities(mut text: String, entities: &data::TweetLegacyEntities) -> S
     let mut indices = media_entities
         .into_iter()
         .map(|media| (ReplaceKind::Media, media.indices))
-        .chain(
-            entities
-                .urls
-                .iter()
-                .map(|url| (ReplaceKind::Url(&url.expanded_url), url.indices)),
-        )
+        .chain(entities.urls.iter().map(|url| {
+            (
+                ReplaceKind::Url(url.expanded_url.as_deref().unwrap_or(&url.url)),
+                url.indices,
+            )
+        }))
         .map(|(entity, indices)| (entity, (indices.0 as usize, indices.1 as usize)))
         .collect::<Vec<_>>();
     if is_indices_overlap(
