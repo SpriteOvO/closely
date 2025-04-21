@@ -11,7 +11,6 @@ use tokio::sync::Mutex;
 
 use crate::{
     config::{self, AsSecretRef, Config},
-    helper,
     notify::NotifierTrait,
     platform::{PlatformMetadata, PlatformTrait},
     secret_enum, serde_impl_default_for,
@@ -31,8 +30,8 @@ pub struct ConfigGlobal {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigExperimental {
-    #[serde(default = "helper::refl_bool::<false>")]
-    pub send_live_image_as_preview: bool,
+    #[deprecated = "enabled by default"]
+    pub send_live_image_as_preview: Option<bool>,
 }
 
 serde_impl_default_for!(ConfigExperimental);
@@ -167,14 +166,6 @@ impl Notifier {
         }
     }
 
-    fn exp_send_live_image_as_preview(&self) -> bool {
-        Config::platform_global()
-            .telegram
-            .as_ref()
-            .map(|telegram| telegram.experimental.send_live_image_as_preview)
-            .unwrap_or_default()
-    }
-
     fn token(&self) -> anyhow::Result<Cow<str>> {
         self.params
             .token
@@ -237,36 +228,14 @@ impl Notifier {
         let title_history = VecDeque::from([live_status.title.clone()]);
 
         let text = make_live_text(&title_history, live_status, source);
-        let (resp, link_preview) = if !self.exp_send_live_image_as_preview() {
-            let link_preview = LinkPreviewOwned::Disabled;
-            (
-                Request::new(&token)
-                    .send_photo(
-                        &self.params.chat,
-                        MediaPhoto {
-                            url: &live_status.cover_image_url,
-                            has_spoiler: false,
-                        },
-                    )
-                    .thread_id_opt(self.params.thread_id)
-                    .text(text)
-                    .send()
-                    .await,
-                link_preview,
-            )
-        } else {
-            let link_preview = LinkPreviewOwned::Above(live_status.cover_image_url.clone());
-            (
-                Request::new(&token)
-                    .send_message(&self.params.chat, text)
-                    .thread_id_opt(self.params.thread_id)
-                    .link_preview(link_preview.as_ref())
-                    .send()
-                    .await,
-                link_preview,
-            )
-        };
-        let resp = resp.map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+        let link_preview = LinkPreviewOwned::Above(live_status.cover_image_url.clone());
+        let resp = Request::new(&token)
+            .send_message(&self.params.chat, text)
+            .thread_id_opt(self.params.thread_id)
+            .link_preview(link_preview.as_ref())
+            .send()
+            .await
+            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
         ensure!(
             resp.ok,
             "response contains error, description '{}'",
@@ -293,20 +262,12 @@ impl Notifier {
             let token = self.token()?;
 
             let text = make_live_text(&last_live_message.title_history, live_status, source);
-            let resp = if !self.exp_send_live_image_as_preview() {
-                Request::new(&token)
-                    .edit_message_caption(&self.params.chat, last_live_message.id)
-                    .text(text)
-                    .send()
-                    .await
-            } else {
-                Request::new(&token)
-                    .edit_message_text(&self.params.chat, last_live_message.id, text)
-                    .link_preview(last_live_message.link_preview.as_ref())
-                    .send()
-                    .await
-            }
-            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+            let resp = Request::new(&token)
+                .edit_message_text(&self.params.chat, last_live_message.id, text)
+                .link_preview(last_live_message.link_preview.as_ref())
+                .send()
+                .await
+                .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
             ensure!(
                 resp.ok,
                 "response contains error, description '{}'",
@@ -379,20 +340,12 @@ impl Notifier {
                 .push_front(live_status.title.clone());
 
             let text = make_live_text(&last_live_message.title_history, live_status, source);
-            let resp = if !self.exp_send_live_image_as_preview() {
-                Request::new(&token)
-                    .edit_message_caption(&self.params.chat, last_live_message.id)
-                    .text(text)
-                    .send()
-                    .await
-            } else {
-                Request::new(&token)
-                    .edit_message_text(&self.params.chat, last_live_message.id, text)
-                    .link_preview(last_live_message.link_preview.as_ref())
-                    .send()
-                    .await
-            }
-            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+            let resp = Request::new(&token)
+                .edit_message_text(&self.params.chat, last_live_message.id, text)
+                .link_preview(last_live_message.link_preview.as_ref())
+                .send()
+                .await
+                .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
             ensure!(
                 resp.ok,
                 "response contains error, description '{}'",

@@ -5,6 +5,7 @@ use std::{
 use anyhow::{anyhow, bail};
 use once_cell::sync::OnceCell;
 use serde::{de::DeserializeOwned, Deserialize};
+use spdlog::prelude::*;
 
 use crate::{
     helper, notify,
@@ -137,6 +138,10 @@ impl PlatformGlobal {
         if let Some(telegram) = &self.telegram {
             if let Some(token) = &telegram.token {
                 token.as_secret_ref().validate()?;
+            }
+            #[allow(deprecated)]
+            if telegram.experimental.send_live_image_as_preview.is_some() {
+                warn!("config option 'platform.Telegram.experimental.send_live_image_as_preview' is deprecated, it's now always enabled");
             }
         }
         if let Some(twitter) = &self.twitter {
