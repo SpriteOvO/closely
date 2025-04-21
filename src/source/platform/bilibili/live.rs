@@ -1,4 +1,10 @@
-use std::{collections::HashMap, fmt, future::Future, pin::Pin};
+use std::{
+    collections::HashMap,
+    fmt,
+    future::Future,
+    pin::Pin,
+    time::{Duration, SystemTime},
+};
 
 use anyhow::{anyhow, bail};
 use serde::Deserialize;
@@ -47,6 +53,7 @@ struct ResponseDataRoom {
     room_id: u64,
     #[allow(dead_code)]
     uid: u64,
+    live_time: u64,   // Unix timestamp
     live_status: u64, // 0: offline, 1: online, 2: replay
     uname: String,
     cover_from_user: String, // Empty for no cover (not yet updated)
@@ -111,7 +118,10 @@ impl Fetcher {
                 kind: match (is_banned, data.live_status) {
                     (true, _) => LiveStatusKind::Banned,
                     (false, 0 | 2) => LiveStatusKind::Offline,
-                    (false, 1) => LiveStatusKind::Online,
+                    (false, 1) => LiveStatusKind::Online {
+                        start_time: (data.live_time != 0)
+                            .then(|| SystemTime::UNIX_EPOCH + Duration::from_secs(data.live_time)),
+                    },
                     (false, _) => {
                         critical!("unexpected live status. data: {data:?}, is_banned: {is_banned}");
                         LiveStatusKind::Offline

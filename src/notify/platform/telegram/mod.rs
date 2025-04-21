@@ -1,6 +1,6 @@
 mod request;
 
-use std::{borrow::Cow, collections::VecDeque, fmt, future::Future, pin::Pin};
+use std::{borrow::Cow, collections::VecDeque, fmt, future::Future, pin::Pin, time::SystemTime};
 
 use anyhow::{anyhow, bail, ensure};
 use request::*;
@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     config::{self, AsSecretRef, Config},
+    helper,
     notify::NotifierTrait,
     platform::{PlatformMetadata, PlatformTrait},
     secret_enum, serde_impl_default_for,
@@ -152,7 +153,7 @@ impl fmt::Display for ConfigChat {
 
 pub struct Notifier {
     params: config::Accessor<ConfigParams>,
-    last_live_message: Mutex<Option<SentMessage>>,
+    current_live: Mutex<Option<CurrentLive>>,
 }
 
 impl PlatformTrait for Notifier {
@@ -176,7 +177,7 @@ impl Notifier {
     pub fn new(params: config::Accessor<ConfigParams>) -> Self {
         Self {
             params,
-            last_live_message: Mutex::new(None),
+            current_live: Mutex::new(None),
         }
     }
 
@@ -226,7 +227,10 @@ impl Notifier {
         }
 
         match live_status.kind {
-            LiveStatusKind::Online => self.notify_live_online(live_status, source).await,
+            LiveStatusKind::Online { start_time } => {
+                self.notify_live_online(live_status, source, start_time)
+                    .await
+            }
             LiveStatusKind::Offline | LiveStatusKind::Banned => {
                 self.notify_live_offline(live_status, source).await
             }
@@ -237,12 +241,14 @@ impl Notifier {
         &self,
         live_status: &LiveStatus,
         source: &StatusSource,
+        start_time: Option<SystemTime>,
     ) -> anyhow::Result<()> {
         let token = self.token()?;
 
         let title_history = VecDeque::from([live_status.title.clone()]);
+        let start_time = start_time.unwrap_or_else(SystemTime::now);
 
-        let text = make_live_text(&title_history, live_status, source);
+        let text = make_live_text(&title_history, live_status, source, start_time);
         let link_preview = LinkPreviewOwned::Above(live_status.cover_image_url.clone());
         let resp = Request::new(&token)
             .send_message(&self.params.chat, text)
@@ -258,9 +264,10 @@ impl Notifier {
                 .unwrap_or_else(|| "*no description*".into())
         );
 
-        *self.last_live_message.lock().await = Some(SentMessage {
+        *self.current_live.lock().await = Some(CurrentLive {
+            start_time,
             // The doc guarantees `result` to be present if `ok` == `true`
-            id: resp.result.unwrap().message_id,
+            message_id: resp.result.unwrap().message_id,
             link_preview,
             title_history,
         });
@@ -273,13 +280,18 @@ impl Notifier {
         live_status: &LiveStatus,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
-        if let Some(last_live_message) = self.last_live_message.lock().await.take() {
+        if let Some(current_live) = self.current_live.lock().await.take() {
             let token = self.token()?;
 
-            let text = make_live_text(&last_live_message.title_history, live_status, source);
+            let text = make_live_text(
+                &current_live.title_history,
+                live_status,
+                source,
+                current_live.start_time,
+            );
             let resp = Request::new(&token)
-                .edit_message_text(&self.params.chat, last_live_message.id, text)
-                .link_preview(last_live_message.link_preview.as_ref())
+                .edit_message_text(&self.params.chat, current_live.message_id, text)
+                .link_preview(current_live.link_preview.as_ref())
                 .send()
                 .await
                 .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
@@ -347,17 +359,22 @@ impl Notifier {
         live_status: &LiveStatus,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
-        if let Some(last_live_message) = self.last_live_message.lock().await.as_mut() {
+        if let Some(current_live) = self.current_live.lock().await.as_mut() {
             let token = self.token()?;
 
-            last_live_message
+            current_live
                 .title_history
                 .push_front(live_status.title.clone());
 
-            let text = make_live_text(&last_live_message.title_history, live_status, source);
+            let text = make_live_text(
+                &current_live.title_history,
+                live_status,
+                source,
+                current_live.start_time,
+            );
             let resp = Request::new(&token)
-                .edit_message_text(&self.params.chat, last_live_message.id, text)
-                .link_preview(last_live_message.link_preview.as_ref())
+                .edit_message_text(&self.params.chat, current_live.message_id, text)
+                .link_preview(current_live.link_preview.as_ref())
                 .send()
                 .await
                 .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
@@ -555,22 +572,34 @@ fn make_live_text<'a>(
     title_history: impl IntoIterator<Item = &'a String>,
     live_status: &'a LiveStatus,
     source: &StatusSource,
+    start_time: SystemTime,
 ) -> Text<'a> {
     let text = format!(
-        "[{}] {} {}",
+        "[{}]{} {}{}",
         source.platform.display_name,
         match live_status.kind {
-            LiveStatusKind::Online => "🟢",
-            LiveStatusKind::Offline => "🟠",
-            LiveStatusKind::Banned => "🔴",
+            LiveStatusKind::Online { start_time: _ } => " 🟢",
+            LiveStatusKind::Offline => " 🟠",
+            LiveStatusKind::Banned => " 🔴",
         },
         itertools::join(title_history, " ⬅️ "),
+        if live_status.kind == LiveStatusKind::Offline || live_status.kind == LiveStatusKind::Banned
+        {
+            if let Ok(dur) = start_time.elapsed() {
+                Cow::Owned(format!(" ({})", helper::format_duration_in_min(dur)))
+            } else {
+                Cow::Borrowed("")
+            }
+        } else {
+            Cow::Borrowed("")
+        },
     );
     Text::link(text, &live_status.live_url)
 }
 
-struct SentMessage {
-    id: i64,
+struct CurrentLive {
+    start_time: SystemTime,
+    message_id: i64,
     link_preview: LinkPreviewOwned,
     // The first is the current title, the last is the oldest title
     title_history: VecDeque<String>,

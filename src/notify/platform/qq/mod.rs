@@ -154,7 +154,7 @@ impl Notifier {
             return Ok(());
         }
 
-        if let LiveStatusKind::Online = live_status.kind {
+        if let LiveStatusKind::Online { start_time: _ } = live_status.kind {
             let message = lagrange::Message::builder()
                 .image(&live_status.cover_image_url)
                 .text(format!(

@@ -2,11 +2,19 @@ mod content;
 mod helper;
 pub mod platform;
 
-use std::{fmt, fmt::Display, future::Future, pin::Pin, slice, vec};
+use std::{
+    fmt::{self, Display},
+    future::Future,
+    pin::Pin,
+    slice,
+    time::SystemTime,
+    vec,
+};
 
 use anyhow::ensure;
 use chrono::{DateTime, Local};
 pub use content::*;
+use humantime_serde::re::humantime;
 
 use crate::{
     config,
@@ -338,7 +346,7 @@ impl PartialEq for PostAttachmentVideo {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LiveStatusKind {
-    Online,
+    Online { start_time: Option<SystemTime> },
     Offline,
     Banned,
 }
@@ -346,7 +354,7 @@ pub enum LiveStatusKind {
 impl fmt::Display for LiveStatusKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Online => write!(f, "online"),
+            Self::Online { start_time: _ } => write!(f, "online"),
             Self::Offline => write!(f, "offline"),
             Self::Banned => write!(f, "banned"),
         }
@@ -365,8 +373,13 @@ pub struct LiveStatus {
 impl fmt::Display for LiveStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "'{}' {}", self.streamer_name, self.kind)?;
-        if let LiveStatusKind::Online = self.kind {
-            write!(f, " with title {}", self.title)?;
+        if let LiveStatusKind::Online { start_time } = self.kind {
+            write!(
+                f,
+                " with title '{}' started at {:?}",
+                self.title,
+                start_time.map(humantime::format_rfc3339)
+            )?;
         }
         Ok(())
     }
@@ -471,7 +484,7 @@ mod tests {
 
         let new = Status::new(
             StatusKind::Live(LiveStatus {
-                kind: LiveStatusKind::Online,
+                kind: LiveStatusKind::Online { start_time: None },
                 title: "title1".into(),
                 streamer_name: "streamer1".into(),
                 cover_image_url: "cover1".into(),
@@ -492,7 +505,7 @@ mod tests {
 
         let new = Status::new(
             StatusKind::Live(LiveStatus {
-                kind: LiveStatusKind::Online,
+                kind: LiveStatusKind::Online { start_time: None },
                 title: "title2".into(),
                 streamer_name: "streamer2".into(),
                 cover_image_url: "cover2".into(),
@@ -686,7 +699,7 @@ mod tests {
 
         let new = Status::new(
             StatusKind::Live(LiveStatus {
-                kind: LiveStatusKind::Online,
+                kind: LiveStatusKind::Online { start_time: None },
                 title: "title1".into(),
                 streamer_name: "streamer1".into(),
                 cover_image_url: "cover1".into(),
