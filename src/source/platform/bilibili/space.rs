@@ -16,6 +16,7 @@ use tokio::sync::Mutex;
 
 use super::*;
 use crate::{
+    config,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostContent, PostUrl, PostUrls,
@@ -26,6 +27,12 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
     pub user_id: u64,
+}
+
+impl config::Validator for ConfigParams {
+    fn validate(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 impl fmt::Display for ConfigParams {
@@ -428,7 +435,7 @@ mod data {
 }
 
 pub struct Fetcher {
-    params: ConfigParams,
+    params: config::Accessor<ConfigParams>,
     // We cache all blocked posts and filter them again later, because the API sometimes
     // incorrectly returns fans-only posts for guests, this leads us to incorrectly assume that
     // these are new normal posts.
@@ -456,7 +463,7 @@ impl fmt::Display for Fetcher {
 }
 
 impl Fetcher {
-    pub fn new(params: ConfigParams) -> Self {
+    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
         Self {
             params,
             blocked: Mutex::new(BlockedPostIds(HashSet::new())),

@@ -14,20 +14,22 @@ use crate::config::{self, Overridable};
 pub enum Config {
     #[cfg(feature = "qq")]
     #[serde(rename = "QQ")]
-    Qq(qq::ConfigParams),
-    Telegram(telegram::ConfigParams),
+    Qq(config::Accessor<qq::ConfigParams>),
+    Telegram(config::Accessor<telegram::ConfigParams>),
 }
 
-impl Config {
-    pub fn validate(&self, global: &config::PlatformGlobal) -> anyhow::Result<()> {
+impl config::Validator for Config {
+    fn validate(&self) -> anyhow::Result<()> {
         match self {
             #[cfg(feature = "qq")]
-            Self::Qq(p) => p.validate(global),
-            Self::Telegram(p) => p.validate(global),
+            Self::Qq(p) => p.validate(),
+            Self::Telegram(p) => p.validate(),
         }
         .map_err(|err| anyhow!("[{self}] {err}"))
     }
+}
 
+impl Config {
     pub fn override_into(self, new: toml::Value) -> anyhow::Result<Self>
     where
         Self: Sized,
@@ -36,12 +38,16 @@ impl Config {
             #[cfg(feature = "qq")]
             Self::Qq(n) => {
                 let new: <qq::ConfigParams as config::Overridable>::Override = new.try_into()?;
-                Ok(Self::Qq(n.override_into(new)))
+                Ok(Self::Qq(config::Accessor::new_then_validate(
+                    n.into_inner().override_into(new),
+                )?))
             }
             Self::Telegram(n) => {
                 let new: <telegram::ConfigParams as config::Overridable>::Override =
                     new.try_into()?;
-                Ok(Self::Telegram(n.override_into(new)))
+                Ok(Self::Telegram(config::Accessor::new_then_validate(
+                    n.into_inner().override_into(new),
+                )?))
             }
         }
     }

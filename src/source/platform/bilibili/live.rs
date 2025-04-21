@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 
 use super::*;
 use crate::{
+    config,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, LiveStatus, LiveStatusKind, Status, StatusKind, StatusSource,
@@ -18,6 +19,12 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
     pub user_id: u64,
+}
+
+impl config::Validator for ConfigParams {
+    fn validate(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 impl fmt::Display for ConfigParams {
@@ -46,7 +53,7 @@ struct ResponseDataRoom {
 }
 
 pub struct Fetcher {
-    params: ConfigParams,
+    params: config::Accessor<ConfigParams>,
     room_data_cache: Mutex<Option<ResponseDataRoom>>,
 }
 
@@ -71,7 +78,7 @@ impl fmt::Display for Fetcher {
 }
 
 impl Fetcher {
-    pub fn new(params: ConfigParams) -> Self {
+    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
         Self {
             params,
             room_data_cache: Mutex::new(None),

@@ -32,6 +32,13 @@ pub struct ConfigGlobal {
     pub auth: ConfigCookies,
 }
 
+impl config::Validator for ConfigGlobal {
+    fn validate(&self) -> anyhow::Result<()> {
+        self.auth.validate()?;
+        Ok(())
+    }
+}
+
 secret_enum! {
     #[derive(Clone, Debug, PartialEq, Deserialize)]
     #[serde(rename_all = "snake_case")]
@@ -45,13 +52,11 @@ pub struct ConfigParams {
     pub username: String,
 }
 
-impl ConfigParams {
-    pub fn validate(&self, global: &config::PlatformGlobal) -> anyhow::Result<()> {
-        match &global.twitter {
+impl config::Validator for ConfigParams {
+    fn validate(&self) -> anyhow::Result<()> {
+        match &*config::Config::global().platform().twitter {
             Some(global_twitter) => {
-                let secret = global_twitter.auth.as_secret_ref();
-                secret.validate()?;
-                TwitterCookies::new(secret.get_str()?)?;
+                TwitterCookies::new(global_twitter.auth.as_secret_ref().get_str()?)?;
                 Ok(())
             }
             None => bail!("cookies in global are missing"),
@@ -344,7 +349,7 @@ mod data {
 //
 
 pub struct Fetcher {
-    params: ConfigParams,
+    params: config::Accessor<ConfigParams>,
     inner: FetcherInner,
 }
 
@@ -369,8 +374,9 @@ impl fmt::Display for Fetcher {
 }
 
 impl Fetcher {
-    pub fn new(params: ConfigParams) -> Self {
-        let cookies = Config::platform_global()
+    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
+        let cookies = Config::global()
+            .platform()
             .twitter
             .as_ref()
             .unwrap()

@@ -8,7 +8,10 @@ use anyhow::ensure;
 use chrono::{DateTime, Local};
 pub use content::*;
 
-use crate::platform::{PlatformMetadata, PlatformTrait};
+use crate::{
+    config,
+    platform::{PlatformMetadata, PlatformTrait},
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StatusSource {
@@ -440,8 +443,8 @@ pub trait FetcherTrait: PlatformTrait + Display {
     }
 }
 
-pub fn fetcher(platform: &platform::Config) -> Box<dyn FetcherTrait> {
-    match platform {
+pub fn fetcher(platform: &config::Accessor<platform::Config>) -> Box<dyn FetcherTrait> {
+    match &**platform {
         platform::Config::BilibiliLive(p) => {
             Box::new(platform::bilibili::live::Fetcher::new(p.clone()))
         }

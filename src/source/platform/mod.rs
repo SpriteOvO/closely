@@ -5,27 +5,29 @@ use std::fmt;
 
 use serde::Deserialize;
 
-use crate::config::PlatformGlobal;
+use crate::config;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(tag = "name")]
 #[allow(clippy::enum_variant_names)]
 pub enum Config {
     #[serde(rename = "bilibili.live")]
-    BilibiliLive(bilibili::live::ConfigParams),
+    BilibiliLive(config::Accessor<bilibili::live::ConfigParams>),
     #[serde(rename = "bilibili.space")]
-    BilibiliSpace(bilibili::space::ConfigParams),
+    BilibiliSpace(config::Accessor<bilibili::space::ConfigParams>),
     #[serde(rename = "bilibili.video")]
-    BilibiliVideo(bilibili::video::ConfigParams),
+    BilibiliVideo(config::Accessor<bilibili::video::ConfigParams>),
     #[serde(rename = "Twitter")]
-    Twitter(twitter::ConfigParams),
+    Twitter(config::Accessor<twitter::ConfigParams>),
 }
 
-impl Config {
-    pub fn validate(&self, global: &PlatformGlobal) -> anyhow::Result<()> {
+impl config::Validator for Config {
+    fn validate(&self) -> anyhow::Result<()> {
         match self {
-            Self::BilibiliLive(_) | Self::BilibiliSpace(_) | Self::BilibiliVideo(_) => Ok(()),
-            Self::Twitter(p) => p.validate(global),
+            Self::BilibiliLive(p) => p.validate(),
+            Self::BilibiliSpace(p) => p.validate(),
+            Self::BilibiliVideo(p) => p.validate(),
+            Self::Twitter(p) => p.validate(),
         }
     }
 }

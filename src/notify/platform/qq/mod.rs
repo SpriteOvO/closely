@@ -25,6 +25,12 @@ pub struct ConfigGlobal {
     pub lagrange: lagrange::ConfigLagrange,
 }
 
+impl config::Validator for ConfigGlobal {
+    fn validate(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
     #[serde(default)]
@@ -33,9 +39,12 @@ pub struct ConfigParams {
     pub chat: ConfigChat,
 }
 
-impl ConfigParams {
-    pub fn validate(&self, global: &config::PlatformGlobal) -> anyhow::Result<()> {
-        ensure!(global.qq.is_some(), "qq in global is missing");
+impl config::Validator for ConfigParams {
+    fn validate(&self) -> anyhow::Result<()> {
+        ensure!(
+            config::Config::global().platform().qq.is_some(),
+            "qq in global is missing"
+        );
         Ok(())
     }
 }
@@ -89,7 +98,7 @@ impl fmt::Display for ConfigChat {
 }
 
 pub struct Notifier {
-    params: ConfigParams,
+    params: config::Accessor<ConfigParams>,
     backend: lagrange::LagrangeOnebot<'static>,
 }
 
@@ -109,9 +118,10 @@ impl NotifierTrait for Notifier {
 }
 
 impl Notifier {
-    pub fn new(params: ConfigParams) -> Self {
-        let lagrange =
-            lagrange::LagrangeOnebot::new(&Config::platform_global().qq.as_ref().unwrap().lagrange);
+    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
+        let lagrange = lagrange::LagrangeOnebot::new(
+            &Config::global().platform().qq.as_ref().unwrap().lagrange,
+        );
         Self {
             params,
             backend: lagrange,

@@ -52,7 +52,7 @@ impl TaskReporter {
 
 impl Task for TaskReporter {
     fn kind(&self) -> TaskKind {
-        match self.params.heartbeat {
+        match *self.params.heartbeat {
             Some(_) => TaskKind::Poll,
             None => TaskKind::Noop,
         }

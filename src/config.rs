@@ -1,9 +1,16 @@
 use std::{
-    borrow::Cow, collections::HashMap, env, error::Error as StdError, str::FromStr, time::Duration,
+    borrow::Cow,
+    collections::HashMap,
+    env,
+    error::Error as StdError,
+    fmt::Display,
+    ops,
+    str::FromStr,
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
 };
 
-use anyhow::{anyhow, bail};
-use once_cell::sync::OnceCell;
+use anyhow::anyhow;
 use serde::{de::DeserializeOwned, Deserialize};
 use spdlog::prelude::*;
 
@@ -13,36 +20,173 @@ use crate::{
     serde_impl_default_for, source,
 };
 
+pub trait Validator {
+    fn validate(&self) -> anyhow::Result<()>;
+}
+
+impl<T: Validator> Validator for Option<T> {
+    fn validate(&self) -> anyhow::Result<()> {
+        if let Some(data) = self {
+            data.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(transparent)]
+pub struct Accessor<T> {
+    #[serde(skip)]
+    is_validated: AtomicBool,
+    #[serde(flatten)]
+    data: T,
+}
+
+impl<T: Clone> Clone for Accessor<T> {
+    fn clone(&self) -> Self {
+        Self {
+            is_validated: AtomicBool::new(self.is_validated()),
+            data: self.data.clone(),
+        }
+    }
+}
+
+impl<T: PartialEq> PartialEq for Accessor<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data.eq(&other.data)
+    }
+}
+
+impl<T: Display> Display for Accessor<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.data.fmt(f)
+    }
+}
+
+impl<T> Accessor<T> {
+    pub fn new(data: T) -> Self {
+        Self {
+            is_validated: AtomicBool::new(false),
+            data,
+        }
+    }
+
+    pub fn is_validated(&self) -> bool {
+        self.is_validated.load(Ordering::Relaxed)
+    }
+
+    fn ensure_invalidated(&self) {
+        if !self.is_validated() {
+            panic!("config accessed before validation");
+        }
+    }
+
+    pub fn into_inner(self) -> T {
+        self.ensure_invalidated();
+        self.data
+    }
+}
+
+impl<T: Validator> Accessor<T> {
+    pub fn new_then_validate(data: T) -> anyhow::Result<Self> {
+        let accessor = Self::new(data);
+        accessor.validate().map(|_| accessor)
+    }
+}
+
+impl<T: Validator> Validator for Accessor<T> {
+    fn validate(&self) -> anyhow::Result<()> {
+        if !self.is_validated() {
+            self.data.validate()?;
+            self.is_validated.store(true, Ordering::Relaxed);
+        } else {
+            trace!("config validated multiple times");
+        }
+        Ok(())
+    }
+}
+
+impl<T: Validator> ops::Deref for Accessor<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.ensure_invalidated();
+        &self.data
+    }
+}
+
+impl<T: Validator> ops::DerefMut for Accessor<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ensure_invalidated();
+        &mut self.data
+    }
+}
+
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Config {
     #[serde(with = "humantime_serde")]
     pub interval: Duration,
-    reporter: Option<ConfigReporterRaw>,
-    platform: Option<PlatformGlobal>,
+    reporter: Accessor<Option<ConfigReporterRaw>>,
+    #[serde(default)]
+    platform: Accessor<PlatformGlobal>,
     #[serde(rename = "notify", default)]
-    notify_map: NotifyMap,
+    notify_map: Accessor<NotifyMap>,
     subscription: HashMap<String, Vec<SubscriptionRaw>>,
 }
 
-static PLATFORM_GLOBAL: OnceCell<PlatformGlobal> = OnceCell::new();
+#[cfg(not(test))]
+static CONFIG: once_cell::sync::OnceCell<Config> = once_cell::sync::OnceCell::new();
+#[cfg(test)]
+static CONFIG: std::sync::Mutex<Option<std::sync::Arc<Config>>> = std::sync::Mutex::new(None);
 
 impl Config {
-    pub async fn init(input: impl AsRef<str>) -> anyhow::Result<Self> {
-        let mut config = Self::from_str(input)?;
-        if let Some(reporter) = &config.reporter {
+    pub async fn init(input: impl AsRef<str>) -> anyhow::Result<&'static Self> {
+        let config = toml::from_str::<Self>(input.as_ref())?;
+
+        #[cfg(not(test))]
+        CONFIG
+            .set(config)
+            .map_err(|_| anyhow!("config was initialized before"))?;
+        #[cfg(test)]
+        drop(config); // Suppress the warning of unused variable
+
+        let config = Self::global();
+        config
+            .validate()
+            .map_err(|err| anyhow!("invalid configuration: {err}"))?;
+        if let Some(reporter) = &*config.reporter {
             reporter
                 .init(&config.notify_map)
                 .map_err(|err| anyhow!("failed to initialize reporter: {err}"))?;
         }
-        PLATFORM_GLOBAL
-            .set(config.platform.take().unwrap_or_default())
-            .map_err(|_| anyhow!("config was initialized before"))?;
-        PLATFORM_GLOBAL.get().unwrap().init().await?;
         Ok(config)
     }
 
-    pub fn platform_global() -> &'static PlatformGlobal {
-        PLATFORM_GLOBAL.get().expect("config was not initialized")
+    #[cfg(test)]
+    fn from_str_for_test(input: impl AsRef<str>) -> anyhow::Result<&'static Self> {
+        let config = toml::from_str::<Self>(input.as_ref())?;
+        *CONFIG.lock().unwrap() = Some(std::sync::Arc::new(config));
+
+        Self::global()
+            .validate()
+            .map_err(|err| anyhow!("invalid configuration: {err}"))?;
+        Ok(Self::global())
+    }
+
+    pub fn global() -> &'static Self {
+        #[cfg(not(test))]
+        let ret = &CONFIG.get().expect("config was not initialized");
+        #[cfg(test)]
+        let ret = Box::leak(Box::new(CONFIG.lock().unwrap().clone().unwrap()));
+        ret
+    }
+
+    pub fn platform(&self) -> &Accessor<PlatformGlobal> {
+        &self.platform
+    }
+
+    pub fn notify_map(&self) -> &Accessor<NotifyMap> {
+        &self.notify_map
     }
 
     pub fn subscriptions(&self) -> impl Iterator<Item = (String, SubscriptionRef<'_>)> {
@@ -69,38 +213,23 @@ impl Config {
     }
 }
 
-impl Config {
-    fn from_str(input: impl AsRef<str>) -> anyhow::Result<Self> {
-        let config = toml::from_str::<Self>(input.as_ref())?;
-        config
-            .validate()
-            .map_err(|err| anyhow!("invalid configuration: {err}"))?;
-        Ok(config)
-    }
-
+impl Validator for Config {
     fn validate(&self) -> anyhow::Result<()> {
-        let global = self
-            .platform
-            .as_ref()
-            .map(Cow::Borrowed)
-            .unwrap_or(Cow::Owned(PlatformGlobal::default()));
+        // Validate reporter
+        self.platform.validate()?;
 
-        // Validate platform_global
-        if let Some(platform) = &self.platform {
-            platform.validate()?;
-        }
+        // Validate notify_map
+        self.notify_map.validate()?;
 
         // Validate reporter
-        if let Some(reporter) = &self.reporter {
-            reporter.validate(&self.notify_map)?;
-        }
+        self.reporter.validate()?;
 
         // Validate source
         self.subscription
             .values()
             .flatten()
             .map(|subscription| &subscription.platform)
-            .map(|platform| platform.validate(&global))
+            .map(|platform| platform.validate())
             .collect::<Result<Vec<_>, _>>()?;
 
         // Validate notify ref
@@ -111,9 +240,6 @@ impl Config {
             .map(|notify_ref| self.notify_map.get_by_ref(notify_ref))
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Validate notify_map
-        self.notify_map.validate(&global)?;
-
         Ok(())
     }
 }
@@ -122,38 +248,26 @@ impl Config {
 pub struct PlatformGlobal {
     #[cfg(feature = "qq")]
     #[serde(rename = "QQ")]
-    pub qq: Option<notify::platform::qq::ConfigGlobal>,
+    pub qq: Accessor<Option<notify::platform::qq::ConfigGlobal>>,
     #[serde(rename = "Telegram")]
-    pub telegram: Option<notify::platform::telegram::ConfigGlobal>,
+    pub telegram: Accessor<Option<notify::platform::telegram::ConfigGlobal>>,
     #[serde(rename = "Twitter")]
-    pub twitter: Option<source::platform::twitter::ConfigGlobal>,
+    pub twitter: Accessor<Option<source::platform::twitter::ConfigGlobal>>,
 }
 
-impl PlatformGlobal {
-    async fn init(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-
+impl Validator for PlatformGlobal {
     fn validate(&self) -> anyhow::Result<()> {
-        if let Some(telegram) = &self.telegram {
-            if let Some(token) = &telegram.token {
-                token.as_secret_ref().validate()?;
-            }
-            #[allow(deprecated)]
-            if telegram.experimental.send_live_image_as_preview.is_some() {
-                warn!("config option 'platform.Telegram.experimental.send_live_image_as_preview' is deprecated, it's now always enabled");
-            }
-        }
-        if let Some(twitter) = &self.twitter {
-            twitter.auth.as_secret_ref().validate()?;
-        }
+        #[cfg(feature = "qq")]
+        self.qq.validate()?;
+        self.telegram.validate()?;
+        self.twitter.validate()?;
         Ok(())
     }
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct SubscriptionRaw {
-    pub platform: source::platform::Config,
+    pub platform: Accessor<source::platform::Config>,
     #[serde(default, with = "humantime_serde")]
     pub interval: Option<Duration>,
     #[serde(rename = "notify")]
@@ -162,9 +276,9 @@ pub struct SubscriptionRaw {
 
 #[derive(Debug, PartialEq)]
 pub struct SubscriptionRef<'a> {
-    pub platform: &'a source::platform::Config,
+    pub platform: &'a Accessor<source::platform::Config>,
     pub interval: Option<Duration>,
-    pub notify: Vec<notify::platform::Config>,
+    pub notify: Vec<Accessor<notify::platform::Config>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -227,10 +341,19 @@ impl NotifyRef {
 }
 
 #[derive(Debug, Default, PartialEq, Deserialize)]
-pub struct NotifyMap(#[serde(default)] HashMap<String, notify::platform::Config>);
+pub struct NotifyMap(#[serde(default)] HashMap<String, Accessor<notify::platform::Config>>);
+
+impl Validator for NotifyMap {
+    fn validate(&self) -> anyhow::Result<()> {
+        self.0.values().try_for_each(|notify| notify.validate())
+    }
+}
 
 impl NotifyMap {
-    pub fn get_by_ref(&self, notify_ref: &NotifyRef) -> anyhow::Result<notify::platform::Config> {
+    pub fn get_by_ref(
+        &self,
+        notify_ref: &NotifyRef,
+    ) -> anyhow::Result<Accessor<notify::platform::Config>> {
         let original = self
             .0
             .get(notify_ref.name())
@@ -239,15 +362,11 @@ impl NotifyMap {
         match notify_ref {
             NotifyRef::Direct(_name) => Ok(original),
             NotifyRef::Override { name: _name, new } => original
+                .into_inner()
                 .override_into(new.clone())
-                .map_err(|err| anyhow!("failed to override notify: {err}")),
+                .map(Accessor::new_then_validate)
+                .map_err(|err| anyhow!("failed to override notify: {err}"))?,
         }
-    }
-
-    fn validate(&self, global: &PlatformGlobal) -> anyhow::Result<()> {
-        self.0
-            .values()
-            .try_for_each(|notify| notify.validate(global))
     }
 }
 
@@ -258,18 +377,6 @@ pub trait AsSecretRef<'a, T = &'a str> {
 pub enum SecretRef<'a, T = &'a str> {
     Lit(T),
     Env(&'a str),
-}
-
-impl<T> SecretRef<'_, T> {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        match self {
-            Self::Lit(_) => Ok(()),
-            Self::Env(key) => match env::var(key) {
-                Ok(_) => Ok(()),
-                Err(err) => bail!("{err} ({key})"),
-            },
-        }
-    }
 }
 
 impl<'a> SecretRef<'a, &'a str> {
@@ -311,33 +418,81 @@ macro_rules! secret_enum {
     ( $($(#[$attr:meta])* $vis:vis enum $name:ident { $field:ident($type:ident)$(,)? })+ ) => {
         $(
             paste::paste! {
-                $(#[$attr])* $vis enum $name {
-                    $field($type),
-                    [<$field Env>](String),
+                mod secret_enum_private {
+                    use super::*;
+
+                    $(#[$attr])* pub enum $name {
+                        $field($type),
+                        [<$field Env>](String),
+                    }
+
+                    impl $crate::config::Validator for $name {
+                        fn validate(&self) -> anyhow::Result<()> {
+                            match self {
+                                Self::$field(_) => Ok(()),
+                                Self::[<$field Env>](key) => match std::env::var(key) {
+                                    Ok(_) => Ok(()),
+                                    Err(err) => bail!("{err} ({key})"),
+                                },
+                            }
+                        }
+                    }
+                }
+
+                $(#[$attr])* $vis struct $name($crate::config::Accessor<secret_enum_private::$name>);
+
+                impl $name {
+                    pub fn with_env(key: impl Into<String>) -> Self {
+                        paste::paste! {
+                            Self($crate::config::Accessor::new(secret_enum_private::$name::[<$field Env>](key.into())))
+                        }
+                    }
+                }
+
+                impl $crate::config::Validator for $name {
+                    fn validate(&self) -> anyhow::Result<()> {
+                        self.0.validate()
+                    }
                 }
             }
             secret_enum!(@IMPL($type) => $name, $field);
         )+
     };
     ( @IMPL(String) => $name:ident, $field:ident ) => {
+        impl $name {
+            pub fn with_raw(raw: impl Into<String>) -> Self {
+                paste::paste! {
+                    Self($crate::config::Accessor::new(secret_enum_private::$name::$field(raw.into())))
+                }
+            }
+        }
+
         impl $crate::config::AsSecretRef<'_> for $name {
             fn as_secret_ref(&self) -> $crate::config::SecretRef {
                 paste::paste! {
-                    match self {
-                        Self::$field(value) => $crate::config::SecretRef::Lit(value),
-                        Self::[<$field Env>](key) => $crate::config::SecretRef::Env(key),
+                    match &*self.0 {
+                        secret_enum_private::$name::$field(value) => $crate::config::SecretRef::Lit(value),
+                        secret_enum_private::$name::[<$field Env>](key) => $crate::config::SecretRef::Env(key),
                     }
                 }
             }
         }
     };
     ( @IMPL($type:ty) => $name:ident, $field:ident ) => {
+        impl $name {
+            pub fn with_raw(raw: impl Into<$type>) -> Self {
+                paste::paste! {
+                    Self(secret_enum_private::$name::$field(raw.into()))
+                }
+            }
+        }
+
         impl $crate::config::AsSecretRef<'_, $type> for $name {
             fn as_secret_ref(&self) -> $crate::config::SecretRef<'_, $type> {
                 paste::paste! {
-                    match self {
-                        Self::$field(value) => $crate::config::SecretRef::Lit(*value),
-                        Self::[<$field Env>](key) => $crate::config::SecretRef::Env(key),
+                    match &self.0 {
+                        secret_enum_private::$name::$field(value) => $crate::config::SecretRef::Lit(*value),
+                        secret_enum_private::$name::[<$field Env>](key) => $crate::config::SecretRef::Env(key),
                     }
                 }
             }
@@ -363,7 +518,7 @@ mod tests {
     #[test]
     fn deser() {
         assert_eq!(
-            Config::from_str(
+            Config::from_str_for_test(
                 r#"
 interval = '1min'
 reporter = { log = { notify = ["meow"] }, heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
@@ -396,48 +551,48 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                 "#,
             )
             .unwrap(),
-            Config {
+            &Config {
                 interval: Duration::from_secs(60), // 1min
-                reporter: Some(ConfigReporterRaw {
-                    log: Some(ConfigReporterLog {
+                reporter: Accessor::new(Some(ConfigReporterRaw {
+                    log: Accessor::new(Some(ConfigReporterLog {
                         notify_ref: vec![NotifyRef::Direct("meow".into())],
-                    }),
-                    heartbeat: Some(ConfigHeartbeat {
+                    })),
+                    heartbeat: Accessor::new(Some(ConfigHeartbeat {
                         kind: ConfigHeartbeatKind::HttpGet(ConfigHeartbeatHttpGet {
                             url: "https://example.com/".into(),
                         }),
                         interval: Duration::from_secs(60),
-                    }),
-                }),
-                platform: Some(PlatformGlobal {
-                    qq: Some(notify::platform::qq::ConfigGlobal {
+                    })),
+                })),
+                platform: Accessor::new(PlatformGlobal {
+                    qq: Accessor::new(Some(notify::platform::qq::ConfigGlobal {
                         lagrange: notify::platform::qq::lagrange::ConfigLagrange {
                             http_host: "localhost".into(),
                             http_port: 8000,
                             access_token: None,
                         }
-                    }),
-                    telegram: Some(notify::platform::telegram::ConfigGlobal {
-                        token: Some(notify::platform::telegram::ConfigToken::Token("ttt".into())),
+                    })),
+                    telegram: Accessor::new(Some(notify::platform::telegram::ConfigGlobal {
+                        token: Some(notify::platform::telegram::ConfigToken::with_raw("ttt")),
                         experimental: Default::default()
-                    }),
-                    twitter: Some(source::platform::twitter::ConfigGlobal {
-                        auth: source::platform::twitter::ConfigCookies::Cookies("a=b;c=d;ct0=blah".into())
-                    })
+                    })),
+                    twitter: Accessor::new(Some(source::platform::twitter::ConfigGlobal {
+                        auth: source::platform::twitter::ConfigCookies::with_raw("a=b;c=d;ct0=blah")
+                    }))
                 }),
-                notify_map: NotifyMap(HashMap::from_iter([
+                notify_map: Accessor::new(NotifyMap(HashMap::from_iter([
                     (
                         "meow".into(),
-                        notify::platform::Config::Telegram(notify::platform::telegram::ConfigParams {
+                        Accessor::new(notify::platform::Config::Telegram(Accessor::new(notify::platform::telegram::ConfigParams {
                             notifications: Notifications::default(),
                             chat: notify::platform::telegram::ConfigChat::Id(1234),
                             thread_id: Some(123),
-                            token: Some(notify::platform::telegram::ConfigToken::Token("xxx".into())),
-                        })
+                            token: Some(notify::platform::telegram::ConfigToken::with_raw("xxx")),
+                        })))
                     ),
                     (
                         "woof".into(),
-                        notify::platform::Config::Telegram(notify::platform::telegram::ConfigParams {
+                        Accessor::new(notify::platform::Config::Telegram(Accessor::new(notify::platform::telegram::ConfigParams {
                             notifications: Notifications {
                                 live_online: true,
                                 live_title: false,
@@ -447,25 +602,25 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                             chat: notify::platform::telegram::ConfigChat::Id(5678),
                             thread_id: Some(900),
                             token: None,
-                        })
+                        })))
                     )
-                ])),
+                ]))),
                 subscription: HashMap::from_iter([(
                     "meow".into(),
                     vec![
                         SubscriptionRaw {
-                            platform: source::platform::Config::BilibiliLive(
-                                source::platform::bilibili::live::ConfigParams { user_id: 123456 }
-                            ),
+                            platform: Accessor::new(source::platform::Config::BilibiliLive(
+                                Accessor::new(source::platform::bilibili::live::ConfigParams { user_id: 123456 })
+                            )),
                             interval: Some(Duration::from_secs(30)),
                             notify_ref: vec![NotifyRef::Direct("meow".into())],
                         },
                         SubscriptionRaw {
-                            platform: source::platform::Config::Twitter(
-                                source::platform::twitter::ConfigParams {
+                            platform: Accessor::new(source::platform::Config::Twitter(
+                                Accessor::new(source::platform::twitter::ConfigParams {
                                     username: "meowww".into()
-                                }
-                            ),
+                                })
+                            )),
                             interval: None,
                             notify_ref: vec![
                                 NotifyRef::Direct("meow".into()),
@@ -473,11 +628,11 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                             ],
                         },
                         SubscriptionRaw {
-                            platform: source::platform::Config::Twitter(
-                                source::platform::twitter::ConfigParams {
+                            platform: Accessor::new(source::platform::Config::Twitter(
+                                Accessor::new(source::platform::twitter::ConfigParams {
                                     username: "meowww2".into()
-                                }
-                            ),
+                                })
+                            )),
                             interval: None,
                             notify_ref: vec![
                                 NotifyRef::Direct("meow".into()),
@@ -496,7 +651,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
             }
         );
 
-        assert!(Config::from_str(
+        assert!(Config::from_str_for_test(
             r#"
 interval = '1min'
 reporter = { notify = ["meow"], heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
@@ -511,7 +666,7 @@ notify = ["meow"]
         )
         .is_ok());
 
-        assert!(Config::from_str(
+        assert!(Config::from_str_for_test(
             r#"
 interval = '1min'
 reporter = { log = { notify = ["reporter_notify"] }, heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
@@ -525,7 +680,7 @@ notify = []
         .to_string()
         .ends_with("reference of notify not found 'reporter_notify'"));
 
-        assert!(Config::from_str(
+        assert!(Config::from_str_for_test(
             r#"
 interval = '1min'
 
@@ -538,7 +693,7 @@ notify = ["meow"]
         .to_string()
         .ends_with("reference of notify not found 'meow'"));
 
-        assert!(Config::from_str(
+        assert!(Config::from_str_for_test(
             r#"
 interval = '1min'
 
@@ -554,7 +709,7 @@ notify = ["meow", "woof"]
         .to_string()
         .ends_with("reference of notify not found 'woof'"));
 
-        assert!(Config::from_str(
+        assert!(Config::from_str_for_test(
             r#"
 interval = '1min'
 
@@ -573,7 +728,7 @@ notify = ["meow"]
 
     #[test]
     fn option_override() {
-        let config = Config::from_str(
+        let config = Config::from_str_for_test(
             r#"
 interval = '1min'
 
@@ -595,32 +750,34 @@ notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", notificatio
             vec![(
                 "meow".into(),
                 SubscriptionRef {
-                    platform: &source::platform::Config::BilibiliLive(
-                        source::platform::bilibili::live::ConfigParams { user_id: 123456 }
-                    ),
+                    platform: &Accessor::new(source::platform::Config::BilibiliLive(
+                        Accessor::new(source::platform::bilibili::live::ConfigParams {
+                            user_id: 123456
+                        })
+                    )),
                     interval: None,
                     notify: vec![
-                        notify::platform::Config::Telegram(
+                        Accessor::new(notify::platform::Config::Telegram(Accessor::new(
                             notify::platform::telegram::ConfigParams {
                                 notifications: Notifications::default(),
                                 chat: notify::platform::telegram::ConfigChat::Id(1234),
                                 thread_id: Some(123),
-                                token: Some(notify::platform::telegram::ConfigToken::Token(
-                                    "xxx".into()
+                                token: Some(notify::platform::telegram::ConfigToken::with_raw(
+                                    "xxx"
                                 )),
                             }
-                        ),
-                        notify::platform::Config::Telegram(
+                        ))),
+                        Accessor::new(notify::platform::Config::Telegram(Accessor::new(
                             notify::platform::telegram::ConfigParams {
                                 notifications: Notifications::default(),
                                 chat: notify::platform::telegram::ConfigChat::Id(5678),
                                 thread_id: Some(114),
-                                token: Some(notify::platform::telegram::ConfigToken::Token(
-                                    "yyy".into()
+                                token: Some(notify::platform::telegram::ConfigToken::with_raw(
+                                    "yyy"
                                 )),
                             }
-                        ),
-                        notify::platform::Config::Telegram(
+                        ))),
+                        Accessor::new(notify::platform::Config::Telegram(Accessor::new(
                             notify::platform::telegram::ConfigParams {
                                 notifications: Notifications {
                                     post: false,
@@ -628,11 +785,11 @@ notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", notificatio
                                 },
                                 chat: notify::platform::telegram::ConfigChat::Id(5678),
                                 thread_id: Some(456),
-                                token: Some(notify::platform::telegram::ConfigToken::Token(
-                                    "yyy".into()
+                                token: Some(notify::platform::telegram::ConfigToken::with_raw(
+                                    "yyy"
                                 )),
                             }
-                        )
+                        )))
                     ],
                 }
             ),]

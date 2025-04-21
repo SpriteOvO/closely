@@ -4,7 +4,7 @@ use std::{future::Future, pin::Pin};
 
 use spdlog::prelude::*;
 
-use crate::{platform::PlatformTrait, source::Notification};
+use crate::{config, platform::PlatformTrait, source::Notification};
 
 pub trait NotifierTrait: PlatformTrait {
     fn notify<'a>(
@@ -13,8 +13,8 @@ pub trait NotifierTrait: PlatformTrait {
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>>;
 }
 
-pub fn notifier(params: platform::Config) -> Box<dyn NotifierTrait> {
-    match params {
+pub fn notifier(params: config::Accessor<platform::Config>) -> Box<dyn NotifierTrait> {
+    match params.into_inner() {
         #[cfg(feature = "qq")]
         platform::Config::Qq(p) => Box::new(platform::qq::Notifier::new(p)),
         platform::Config::Telegram(p) => Box::new(platform::telegram::Notifier::new(p)),

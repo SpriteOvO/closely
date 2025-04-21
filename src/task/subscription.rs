@@ -6,7 +6,7 @@ use tokio::time::MissedTickBehavior;
 
 use super::{Task, TaskKind};
 use crate::{
-    notify,
+    config, notify,
     source::{self, Status},
 };
 
@@ -22,8 +22,8 @@ impl TaskSubscription {
     pub fn new(
         name: String,
         interval: Duration,
-        notify: Vec<notify::platform::Config>,
-        source_platform: &source::platform::Config,
+        notify: Vec<config::Accessor<notify::platform::Config>>,
+        source_platform: &config::Accessor<source::platform::Config>,
     ) -> Self {
         Self {
             name,

@@ -20,23 +20,21 @@ use crate::{
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct ConfigReporterRaw {
-    pub(crate) log: Option<ConfigReporterLog>,
-    pub(crate) heartbeat: Option<ConfigHeartbeat>,
+    pub(crate) log: config::Accessor<Option<ConfigReporterLog>>,
+    pub(crate) heartbeat: config::Accessor<Option<ConfigHeartbeat>>,
+}
+
+impl config::Validator for ConfigReporterRaw {
+    fn validate(&self) -> anyhow::Result<()> {
+        self.log.validate()?;
+        self.heartbeat.validate()?;
+        Ok(())
+    }
 }
 
 impl ConfigReporterRaw {
-    pub fn validate(&self, notify_map: &config::NotifyMap) -> anyhow::Result<()> {
-        if let Some(log) = &self.log {
-            log.validate(notify_map)?;
-        }
-        if let Some(heartbeat) = &self.heartbeat {
-            heartbeat.validate()?;
-        }
-        Ok(())
-    }
-
     pub fn init(&self, notify_map: &config::NotifyMap) -> anyhow::Result<()> {
-        if let Some(log) = &self.log {
+        if let Some(log) = &*self.log {
             log.init(notify_map)?;
         }
         Ok(())
@@ -55,15 +53,17 @@ pub struct ConfigReporterLog {
     pub(crate) notify_ref: Vec<config::NotifyRef>,
 }
 
-impl ConfigReporterLog {
-    pub fn validate(&self, notify_map: &config::NotifyMap) -> anyhow::Result<()> {
+impl config::Validator for ConfigReporterLog {
+    fn validate(&self) -> anyhow::Result<()> {
         self.notify_ref
             .iter()
-            .map(|notify_ref| notify_map.get_by_ref(notify_ref))
+            .map(|notify_ref| config::Config::global().notify_map().get_by_ref(notify_ref))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(())
     }
+}
 
+impl ConfigReporterLog {
     pub fn init(&self, notify_map: &config::NotifyMap) -> anyhow::Result<()> {
         let notify = self
             .notify_ref
@@ -90,9 +90,11 @@ pub struct ConfigHeartbeat {
     pub interval: Duration,
 }
 
-impl ConfigHeartbeat {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        self.kind.validate()?;
+impl config::Validator for ConfigHeartbeat {
+    fn validate(&self) -> anyhow::Result<()> {
+        match &self.kind {
+            ConfigHeartbeatKind::HttpGet(http_get) => _ = Url::parse(&http_get.url)?,
+        }
         Ok(())
     }
 }
@@ -103,32 +105,19 @@ pub enum ConfigHeartbeatKind {
     HttpGet(ConfigHeartbeatHttpGet),
 }
 
-impl ConfigHeartbeatKind {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        match self {
-            Self::HttpGet(http_get) => http_get.validate(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigHeartbeatHttpGet {
     pub(crate) url: String,
 }
 
 impl ConfigHeartbeatHttpGet {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        Url::parse(&self.url)?;
-        Ok(())
-    }
-
     pub fn url(&self) -> Url {
         Url::parse(&self.url).unwrap()
     }
 }
 
 pub struct ReporterParams {
-    pub heartbeat: Option<ConfigHeartbeat>,
+    pub heartbeat: config::Accessor<Option<ConfigHeartbeat>>,
 }
 
 // TODO: Make it configurable
@@ -143,7 +132,7 @@ struct TelegramNotifySink {
 }
 
 impl TelegramNotifySink {
-    fn new(notify: Vec<notify::platform::Config>) -> Self {
+    fn new(notify: Vec<config::Accessor<notify::platform::Config>>) -> Self {
         Self {
             rt: tokio::runtime::Handle::current(),
             source: StatusSource {

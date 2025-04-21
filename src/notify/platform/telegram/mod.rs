@@ -28,6 +28,19 @@ pub struct ConfigGlobal {
     pub experimental: ConfigExperimental,
 }
 
+impl config::Validator for ConfigGlobal {
+    fn validate(&self) -> anyhow::Result<()> {
+        if let Some(token) = &self.token {
+            token.validate()?;
+        }
+        #[allow(deprecated)]
+        if self.experimental.send_live_image_as_preview.is_some() {
+            warn!("config option 'platform.Telegram.experimental.send_live_image_as_preview' is deprecated, it's now always enabled");
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigExperimental {
     #[deprecated = "enabled by default"]
@@ -47,16 +60,17 @@ pub struct ConfigParams {
     pub token: Option<ConfigToken>,
 }
 
-impl ConfigParams {
-    pub fn validate(&self, global: &config::PlatformGlobal) -> anyhow::Result<()> {
+impl config::Validator for ConfigParams {
+    fn validate(&self) -> anyhow::Result<()> {
         match &self.token {
-            Some(token) => token.as_secret_ref().validate(),
-            None => match global
+            Some(token) => token.validate(),
+            None => match config::Config::global()
+                .platform()
                 .telegram
                 .as_ref()
                 .and_then(|telegram| telegram.token.as_ref())
             {
-                Some(token) => token.as_secret_ref().validate(),
+                Some(token) => token.validate(),
                 None => bail!("both token in global and notify are missing"),
             },
         }
@@ -137,7 +151,7 @@ impl fmt::Display for ConfigChat {
 }
 
 pub struct Notifier {
-    params: ConfigParams,
+    params: config::Accessor<ConfigParams>,
     last_live_message: Mutex<Option<SentMessage>>,
 }
 
@@ -159,7 +173,7 @@ impl NotifierTrait for Notifier {
 }
 
 impl Notifier {
-    pub fn new(params: ConfigParams) -> Self {
+    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
         Self {
             params,
             last_live_message: Mutex::new(None),
@@ -171,7 +185,8 @@ impl Notifier {
             .token
             .as_ref()
             .unwrap_or_else(|| {
-                Config::platform_global()
+                Config::global()
+                    .platform()
                     .telegram
                     .as_ref()
                     .unwrap()
