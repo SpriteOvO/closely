@@ -53,7 +53,7 @@ notify = ["Suzume", "Personal"]
 platform = { name = "bilibili.live", user_id = 14172231 }
 interval = '30s' # optional, override the global interval value for this individual subscription
 # use `Personal` as the notification target, but with the parameter `thread_id = 514` overridden
-notify = [ { ref = "Personal", thread_id = 514 } ]
+notify = [ { to = "Personal", thread_id = 514 } ]
 ```
 
 > [!NOTE]

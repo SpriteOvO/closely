@@ -218,7 +218,7 @@ pub struct NotificationsOverride {
 pub enum NotifyRef {
     Direct(String),
     Override {
-        #[serde(rename = "ref")]
+        #[serde(rename = "to", alias = "ref")]
         name: String,
         #[serde(flatten)]
         new: toml::Value,
@@ -418,6 +418,21 @@ meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 [[subscription.meow]]
 platform = { name = "bilibili.live", user_id = 123456 }
 notify = ["meow"]
+                "#
+        )
+        .is_ok());
+
+        // Notify ref key alias, "ref" or "to"
+        assert!(Config::from_str_for_test(
+            r#"
+interval = '1min'
+
+[notify]
+meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
+
+[[subscription.meow]]
+platform = { name = "bilibili.live", user_id = 123456 }
+notify = [ { ref = "meow" }, { to = "meow" } ]
                 "#
         )
         .is_ok());
