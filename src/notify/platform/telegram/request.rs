@@ -1106,7 +1106,8 @@ fn is_media_failure<T>(resp: &Response<T>) -> bool {
 
     description.contains("WEBPAGE_") || // https://core.telegram.org/method/messages.sendMedia
     description.contains("failed to get HTTP URL content") ||
-    description.contains("wrong file identifier/HTTP URL specified")
+    description.contains("wrong file identifier/HTTP URL specified") ||
+    description.contains("wrong type of the web page content")
 }
 
 fn form_append_json(form: Form, obj: &json::Map<String, json::Value>) -> Form {
