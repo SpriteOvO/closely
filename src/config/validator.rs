@@ -62,14 +62,14 @@ impl<T> Accessor<T> {
         self.is_validated.load(Ordering::Relaxed)
     }
 
-    fn ensure_invalidated(&self) {
+    fn ensure_validated(&self) {
         if !self.is_validated() {
             panic!("config accessed before validation");
         }
     }
 
     pub fn into_inner(self) -> T {
-        self.ensure_invalidated();
+        self.ensure_validated();
         self.data
     }
 }
@@ -97,14 +97,14 @@ impl<T: Validator> ops::Deref for Accessor<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.ensure_invalidated();
+        self.ensure_validated();
         &self.data
     }
 }
 
 impl<T: Validator> ops::DerefMut for Accessor<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ensure_invalidated();
+        self.ensure_validated();
         &mut self.data
     }
 }
