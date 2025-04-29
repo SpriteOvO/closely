@@ -1,8 +1,9 @@
-use std::{convert::identity, time::Duration};
+use std::{convert::identity, path::Path, time::Duration};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, ensure};
 use humantime_serde::re::humantime;
 use reqwest::header::{self, HeaderMap, HeaderValue};
+use tokio::process::Command;
 
 use crate::prop;
 
@@ -63,6 +64,60 @@ pub fn format_duration_in_min(dur: Duration) -> String {
         return "0m".to_string();
     }
     humantime::format_duration(Duration::from_secs(mins * 60)).to_string()
+}
+
+pub async fn ffmpeg_copy(from: &Path, to: &Path) -> anyhow::Result<()> {
+    let mut cmd = Command::new("ffmpeg");
+    cmd.arg("-i").arg(from).arg("-c").arg("copy").arg(to);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|err| anyhow!("failed to run ffmpeg-copy: {err}"))?;
+    ensure!(
+        output.status.success(),
+        "ffmpeg-copy failed with status: {}. stderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct VideoResolution {
+    pub width: u32,
+    pub height: u32,
+}
+
+pub async fn ffprobe_resolution(video: &Path) -> anyhow::Result<VideoResolution> {
+    let mut cmd = Command::new("ffprobe");
+    cmd.arg("-v")
+        .arg("error")
+        .arg("-select_streams")
+        .arg("v:0")
+        .arg("-show_entries")
+        .arg("stream=width,height")
+        .arg("-of")
+        .arg("csv=p=0:s=x")
+        .arg(video);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|err| anyhow!("failed to run ffprobe: {err}"))?;
+    ensure!(
+        output.status.success(),
+        "ffprobe failed with status: {}. stderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let resolution = String::from_utf8_lossy(&output.stdout);
+    let (width, height) = resolution
+        .trim()
+        .split_once('x')
+        .and_then(|(w, h)| w.parse().ok().zip(h.parse().ok()))
+        .ok_or_else(|| anyhow!("failed to parse ffprobe resolution '{resolution}'"))?;
+    Ok(VideoResolution { width, height })
 }
 
 #[cfg(test)]

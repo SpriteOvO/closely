@@ -1,21 +1,19 @@
-use std::{pin::Pin, time::Duration};
+use std::{fmt::Display, future::Future, pin::Pin, time::Duration};
 
-use anyhow::anyhow;
 use spdlog::prelude::*;
-use tokio::time::MissedTickBehavior;
+use tokio::{sync::mpsc, time::MissedTickBehavior};
 
-use super::{Task, TaskKind};
+use super::Task;
 use crate::{
     config, notify,
-    source::{self, Status},
+    source::{self, sourcer, FetcherTrait, Sourcer, Status, Update},
 };
 
 pub struct TaskSubscription {
     name: String,
     interval: Duration,
     notifiers: Vec<Box<dyn notify::NotifierTrait>>,
-    fetcher: Box<dyn source::FetcherTrait>,
-    last_status: Status,
+    sourcer: Option<Sourcer>, // took when the task is running
 }
 
 impl TaskSubscription {
@@ -29,68 +27,90 @@ impl TaskSubscription {
             name,
             interval,
             notifiers: notify.into_iter().map(notify::notifier).collect(),
-            fetcher: source::fetcher(source_platform),
-            last_status: Status::empty(),
+            sourcer: Some(sourcer(source_platform)),
         }
     }
 
-    async fn run_impl(&mut self) {
+    // Handler for poll-based subscription
+    async fn continuous_fetch(&mut self, fetcher: Box<dyn FetcherTrait>) {
         let mut interval = tokio::time::interval(self.interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
+        let mut last_status = Status::empty();
+
         loop {
             interval.tick().await;
-            if let Err(err) = self.run_once().await {
+
+            let Ok(mut status) = fetcher.fetch_status().await.inspect_err(|err| {
                 error!(
-                    "error occurred while updating subscription '{}': {err}",
-                    self.name
-                );
-            }
+                    "failed to fetch status for '{}' on '{}': {err}",
+                    self.name, fetcher
+                )
+            }) else {
+                continue;
+            };
+
+            status.sort();
+
+            trace!(
+                "status of '{}' on '{fetcher}' now is '{status:?}'",
+                self.name
+            );
+
+            let notifications = status.generate_notifications(&last_status);
+            self.notify(notifications, &fetcher).await;
+
+            last_status.update_incrementally(status);
             trace!("subscription '{}' updated once", self.name);
         }
     }
 
-    async fn run_once(&mut self) -> anyhow::Result<()> {
-        let mut status = self.fetcher.fetch_status().await.map_err(|err| {
-            anyhow!(
-                "failed to fetch status for '{}' on '{}': {err}",
-                self.name,
-                self.fetcher
-            )
-        })?;
+    // Handler for listen-based subscription
+    async fn continuous_wait(
+        &mut self,
+        mut receiver: mpsc::Receiver<Update>,
+        platform: impl Display,
+    ) {
+        while let Some(update) = receiver.recv().await {
+            trace!(
+                "event of '{}' on '{platform}' received an update '{update:?}'",
+                self.name
+            );
 
-        status.sort();
+            let notifications = update.generate_notifications().await;
+            self.notify(notifications, &platform).await;
+        }
+    }
 
-        trace!(
-            "status of '{}' on '{}' now is '{status:?}'",
-            self.name,
-            self.fetcher
-        );
-
-        let notifications = status.generate_notifications(&self.last_status);
+    async fn notify(&self, notifications: Vec<source::Notification<'_>>, platform: &impl Display) {
         for notification in notifications {
-            if let Some(notification) = self.fetcher.post_filter(notification).await {
-                info!(
-                    "'{}' needs to send a notification for '{}': '{notification}'",
-                    self.name, self.fetcher
-                );
+            info!(
+                "'{}' needs to send a notification for '{platform}': '{notification}'",
+                self.name
+            );
 
-                for notifier in &self.notifiers {
-                    notify::notify(&**notifier, &notification).await;
-                }
+            for notifier in &self.notifiers {
+                notify::notify(&**notifier, &notification).await;
             }
         }
-        self.last_status.update_incrementally(status);
-        Ok(())
     }
 }
 
 impl Task for TaskSubscription {
-    fn kind(&self) -> TaskKind {
-        TaskKind::Poll
-    }
-
-    fn run(&mut self) -> Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(self.run_impl())
+    fn run(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        match self.sourcer.take().unwrap() {
+            Sourcer::Fetcher(fetcher) => Box::pin(self.continuous_fetch(fetcher)),
+            Sourcer::Listener(mut listener) => {
+                let (sender, receiver) = mpsc::channel(1);
+                // TODO: A bit hacky, improve it?
+                let platform = listener.to_string();
+                Box::pin(async move {
+                    tokio::join!(
+                        listener.listen(sender),
+                        self.continuous_wait(receiver, platform)
+                    );
+                })
+            }
+        }
     }
 }

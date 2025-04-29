@@ -7,13 +7,7 @@ pub use reporter::TaskReporter;
 use spdlog::prelude::*;
 pub use subscription::TaskSubscription;
 
-pub enum TaskKind {
-    Noop,
-    Poll,
-}
-
 pub trait Task: Send {
-    fn kind(&self) -> TaskKind;
     fn run(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
@@ -34,12 +28,7 @@ impl Runner {
 pub async fn run_tasks(tasks: impl IntoIterator<Item = Box<dyn Task>>) -> anyhow::Result<Runner> {
     let join_handles = tasks
         .into_iter()
-        .filter_map(|mut task| match task.kind() {
-            TaskKind::Noop => None,
-            TaskKind::Poll => Some(tokio::spawn(async move {
-                task.run().await;
-            })),
-        })
+        .map(|mut task| tokio::spawn(async move { task.run().await }))
         .collect::<Vec<_>>();
 
     info!("{} tasks are running", join_handles.len());

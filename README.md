@@ -15,6 +15,7 @@ Subscribe to updates from people you follow, from any platform to any platform.
 
 - Live streaming
   - [bilibili 直播 (live.bilibili.com)](https://live.bilibili.com/)
+  - [bilibili 录播 (BililiveRecorder)](https://rec.danmuji.org/)
 
 ### Notification target
 

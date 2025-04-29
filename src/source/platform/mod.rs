@@ -17,6 +17,8 @@ pub enum Config {
     BilibiliSpace(config::Accessor<bilibili::space::ConfigParams>),
     #[serde(rename = "bilibili.video")]
     BilibiliVideo(config::Accessor<bilibili::video::ConfigParams>),
+    #[serde(rename = "bilibili.playback")]
+    BilibiliPlayback(config::Accessor<bilibili::playback::ConfigParams>),
     #[serde(rename = "Twitter")]
     Twitter(config::Accessor<twitter::ConfigParams>),
 }
@@ -27,6 +29,7 @@ impl config::Validator for Config {
             Self::BilibiliLive(p) => p.validate(),
             Self::BilibiliSpace(p) => p.validate(),
             Self::BilibiliVideo(p) => p.validate(),
+            Self::BilibiliPlayback(p) => p.validate(),
             Self::Twitter(p) => p.validate(),
         }
     }
@@ -38,6 +41,7 @@ impl fmt::Display for Config {
             Self::BilibiliLive(p) => write!(f, "{p}"),
             Self::BilibiliSpace(p) => write!(f, "{p}"),
             Self::BilibiliVideo(p) => write!(f, "{p}"),
+            Self::BilibiliPlayback(p) => write!(f, "{p}"),
             Self::Twitter(p) => write!(f, "{p}"),
         }
     }

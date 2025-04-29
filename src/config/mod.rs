@@ -147,6 +147,8 @@ pub struct PlatformGlobal {
     pub telegram: Accessor<Option<notify::platform::telegram::ConfigGlobal>>,
     #[serde(rename = "Twitter")]
     pub twitter: Accessor<Option<source::platform::twitter::ConfigGlobal>>,
+    #[serde(rename = "bilibili")]
+    pub bilibili: Accessor<Option<source::platform::bilibili::ConfigGlobal>>,
 }
 
 impl Validator for PlatformGlobal {
@@ -155,6 +157,7 @@ impl Validator for PlatformGlobal {
         self.qq.validate()?;
         self.telegram.validate()?;
         self.twitter.validate()?;
+        self.bilibili.validate()?;
         Ok(())
     }
 }
@@ -185,6 +188,10 @@ pub struct Notifications {
     pub post: bool,
     #[serde(default = "helper::refl_bool::<true>")]
     pub log: bool,
+    #[serde(default = "helper::refl_bool::<true>")]
+    pub playback: bool,
+    #[serde(default = "helper::refl_bool::<true>")]
+    pub document: bool,
 }
 
 serde_impl_default_for!(Notifications);
@@ -201,6 +208,8 @@ impl Overridable for Notifications {
             live_title: new.live_title.unwrap_or(self.live_title),
             post: new.post.unwrap_or(self.post),
             log: new.log.unwrap_or(self.log),
+            playback: new.playback.unwrap_or(self.playback),
+            document: new.document.unwrap_or(self.document),
         }
     }
 }
@@ -211,6 +220,8 @@ pub struct NotificationsOverride {
     pub live_title: Option<bool>,
     pub post: Option<bool>,
     pub log: Option<bool>,
+    pub playback: Option<bool>,
+    pub document: Option<bool>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -288,6 +299,9 @@ token = "ttt"
 [platform.Twitter]
 auth = { cookies = "a=b;c=d;ct0=blah" }
 
+[platform.bilibili]
+playback = { bililive_recorder = { listen_webhook = { host = "127.0.0.1", port = 8888 }, working_directory = "/brec/" } }
+
 [notify]
 meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 woof = { platform = "Telegram", id = 5678, thread_id = 900, notifications = { post = false } }
@@ -330,11 +344,23 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                     })),
                     telegram: Accessor::new(Some(notify::platform::telegram::ConfigGlobal {
                         token: Some(notify::platform::telegram::ConfigToken::with_raw("ttt")),
+                        api_server: None,
                         experimental: Default::default()
                     })),
                     twitter: Accessor::new(Some(source::platform::twitter::ConfigGlobal {
                         auth: source::platform::twitter::ConfigCookies::with_raw("a=b;c=d;ct0=blah")
-                    }))
+                    })),
+                    bilibili: Accessor::new(Some(source::platform::bilibili::ConfigGlobal {
+                        playback: Accessor::new(Some(source::platform::bilibili::playback::ConfigGlobal {
+                            bililive_recorder: Accessor::new(source::platform::bilibili::playback::bililive_recorder::ConfigBililiveRecorder {
+                                listen_webhook: source::platform::bilibili::playback::bililive_recorder::ConfigListen {
+                                    host: "127.0.0.1".into(),
+                                    port: 8888
+                                },
+                                working_directory: "/brec/".into()
+                            })
+                        }))
+                    })),
                 }),
                 notify_map: Accessor::new(NotifyMap(HashMap::from_iter([
                     (
@@ -354,6 +380,8 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                 live_title: false,
                                 post: false,
                                 log: true,
+                                playback: true,
+                                document: true
                             },
                             chat: notify::platform::telegram::ConfigChat::Id(5678),
                             thread_id: Some(900),

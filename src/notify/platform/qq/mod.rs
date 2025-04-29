@@ -141,6 +141,8 @@ impl Notifier {
             }
             NotificationKind::Posts(posts) => self.notify_posts(posts, notification.source).await,
             NotificationKind::Log(message) => self.notify_log(message).await,
+            NotificationKind::Playback(_) => unimplemented!(),
+            NotificationKind::Document(_) => unimplemented!(),
         }
     }
 

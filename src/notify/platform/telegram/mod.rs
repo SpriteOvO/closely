@@ -3,6 +3,7 @@ mod request;
 use std::{borrow::Cow, collections::VecDeque, fmt, future::Future, pin::Pin, time::SystemTime};
 
 use anyhow::{anyhow, bail, ensure};
+use http::Uri;
 use request::*;
 use serde::Deserialize;
 use serde_json as json;
@@ -16,8 +17,9 @@ use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     secret_enum, serde_impl_default_for,
     source::{
-        LiveStatus, LiveStatusKind, Notification, NotificationKind, Post, PostAttachment, PostUrl,
-        PostsRef, RepostFrom, StatusSource,
+        DocumentRef, FileRef, LiveStatus, LiveStatusKind, Notification, NotificationKind,
+        PlaybackFormat, PlaybackRef, Post, PostAttachment, PostUrl, PostsRef, RepostFrom,
+        StatusSource,
     },
 };
 
@@ -25,6 +27,8 @@ use crate::{
 pub struct ConfigGlobal {
     #[serde(flatten)]
     pub token: Option<ConfigToken>,
+    #[serde(default)]
+    pub api_server: Option<ConfigApiServer>,
     #[serde(default)]
     pub experimental: ConfigExperimental,
 }
@@ -40,6 +44,17 @@ impl config::Validator for ConfigGlobal {
         }
         Ok(())
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum ConfigApiServer {
+    Url(#[serde(with = "http_serde::uri")] Uri),
+    UrlOpts {
+        #[serde(with = "http_serde::uri")]
+        url: Uri,
+        as_necessary: bool,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -213,6 +228,12 @@ impl Notifier {
             }
             NotificationKind::Posts(posts) => self.notify_posts(posts, notification.source).await,
             NotificationKind::Log(message) => self.notify_log(message).await,
+            NotificationKind::Playback(playback) => {
+                self.notify_playback(playback, notification.source).await
+            }
+            NotificationKind::Document(document) => {
+                self.notify_document(document, notification.source).await
+            }
         }
     }
 
@@ -566,6 +587,113 @@ impl Notifier {
 
         Ok(())
     }
+
+    // TODO: Parallel notify
+    async fn notify_playback(
+        &self,
+        playback: &PlaybackRef<'_>,
+        source: &StatusSource,
+    ) -> anyhow::Result<()> {
+        if !self.params.notifications.playback {
+            info!("playback notification is disabled, skip notifying");
+            return Ok(());
+        }
+
+        const FORMAT: PlaybackFormat = PlaybackFormat::Mp4;
+
+        let playback = playback.get(FORMAT).await?;
+
+        let token = self.token()?;
+
+        // Send "uploading" message
+
+        let resp = Request::new(&token)
+            .send_message(
+                &self.params.chat,
+                make_file_text("⏳", &playback.file, source),
+            )
+            .thread_id_opt(self.params.thread_id)
+            .link_preview(LinkPreview::Disabled)
+            // .disable_notification() // TODO: Make it configurable
+            .send()
+            .await
+            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+        ensure!(
+            resp.ok,
+            "response contains error, description '{}'",
+            resp.description
+                .unwrap_or_else(|| "*no description*".into())
+        );
+
+        // Edit the media
+
+        trace!("uploading playback to Telegram '{}'", playback.file);
+
+        let resp = Request::new(&token)
+            .edit_message_media(
+                &self.params.chat,
+                resp.result.unwrap().message_id,
+                Media::Video(MediaVideo {
+                    input: MediaInput::Memory {
+                        data: playback.file.data.clone(),
+                        filename: Some(&playback.file.name),
+                    },
+                    resolution: Some(playback.resolution),
+                    has_spoiler: false,
+                }),
+            )
+            .text(make_file_text("🎥", &playback.file, source))
+            .prefer_self_host()
+            .send()
+            .await
+            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+        ensure!(
+            resp.ok,
+            "response contains error, description '{}'",
+            resp.description
+                .unwrap_or_else(|| "*no description*".into())
+        );
+
+        Ok(())
+    }
+
+    async fn notify_document(
+        &self,
+        document: &DocumentRef<'_>,
+        source: &StatusSource,
+    ) -> anyhow::Result<()> {
+        if !self.params.notifications.document {
+            info!("document notification is disabled, skip notifying");
+            return Ok(());
+        }
+
+        let token = self.token()?;
+
+        let resp = Request::new(&token)
+            .send_document(
+                &self.params.chat,
+                MediaDocument {
+                    input: MediaInput::Memory {
+                        data: document.file.data.clone(),
+                        filename: Some(&document.file.name),
+                    },
+                },
+            )
+            .text(make_file_text("📊", &document.file, source))
+            .thread_id_opt(self.params.thread_id)
+            // .disable_notification() // TODO: Make it configurable
+            .send()
+            .await
+            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+        ensure!(
+            resp.ok,
+            "response contains error, description '{}'",
+            resp.description
+                .unwrap_or_else(|| "*no description*".into())
+        );
+
+        Ok(())
+    }
 }
 
 fn make_live_text<'a>(
@@ -595,6 +723,15 @@ fn make_live_text<'a>(
         },
     );
     Text::link(text, &live_status.live_url)
+}
+
+fn make_file_text<'a>(emoji: &'a str, file: &FileRef<'a>, source: &'a StatusSource) -> Text<'a> {
+    Text::plain(format!(
+        "[{}] {emoji} {} ({})",
+        source.platform.display_name,
+        file.name,
+        humansize::format_size(file.size, humansize::BINARY)
+    ))
 }
 
 struct CurrentLive {

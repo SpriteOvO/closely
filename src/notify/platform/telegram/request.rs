@@ -1,10 +1,11 @@
-use std::{borrow::Cow, io::Cursor, mem, ops::Range};
+use std::{borrow::Cow, io::Cursor, mem, ops::Range, time::Duration};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, ensure};
 use bytes::Bytes;
-use futures::{stream::TryStreamExt, StreamExt};
+use http::Uri;
 use image::{imageops::FilterType as ImageFilterType, GenericImageView};
 use itertools::Itertools;
+use once_cell::sync::Lazy;
 use reqwest::multipart::{Form, Part};
 use serde::{
     de::{DeserializeOwned, IgnoredAny},
@@ -13,9 +14,10 @@ use serde::{
 use serde_json::{self as json, json};
 use spdlog::prelude::*;
 
-use super::ConfigChat;
+use super::{ConfigApiServer, ConfigChat};
 use crate::{
-    helper,
+    config::Config,
+    helper::{self, VideoResolution},
     source::{PostAttachmentImage, PostAttachmentVideo, PostContent, PostContentPart},
 };
 
@@ -32,17 +34,28 @@ impl<'a> Request<'a> {
         &self,
         method: &str,
         body: &json::Value,
+        medias: impl IntoIterator<Item = Media<'_>>,
+        prefer_self_host: bool,
     ) -> anyhow::Result<Response<T>> {
-        self.send_request_inner(method, body, None, true).await
+        self.send_request_inner(
+            method,
+            body,
+            medias.into_iter().collect(),
+            true,
+            prefer_self_host,
+        )
+        .await
     }
 
-    async fn send_request_with_files<T: DeserializeOwned>(
+    async fn send_request_force_download<T: DeserializeOwned>(
         &self,
         method: &str,
         body: &json::Value,
-        file_urls: impl IntoIterator<Item = FileUrl<'_>>,
+        medias: impl IntoIterator<Item = Media<'_>>,
+        prefer_self_host: bool,
     ) -> anyhow::Result<Response<T>> {
-        self.send_request_inner(method, body, Some(file_urls.into_iter().collect()), true)
+        let downloaded = download_files(medias).await?;
+        self.send_request_inner(method, body, downloaded, true, prefer_self_host)
             .await
     }
 
@@ -50,53 +63,40 @@ impl<'a> Request<'a> {
         &self,
         method: &str,
         body: &json::Value,
-        // If `file_urls` specified, the media fields in body should be replaced with
+        // If `files` specified, the media fields in body should be replaced with
         // "attach://{index}"
-        file_urls: Option<Vec<FileUrl<'_>>>,
+        files: Vec<Media<'_>>,
         retry: bool,
+        prefer_self_host: bool,
     ) -> anyhow::Result<Response<T>> {
-        let url = format!("https://api.telegram.org/bot{}/{}", self.token, method);
+        let mut client =
+            helper::reqwest_client()?.post(make_api_url(self.token, method, prefer_self_host));
 
-        let mut client = helper::reqwest_client()?.post(url);
-
-        if let Some(file_urls) = file_urls.clone() {
+        let mem_files = files
+            .clone()
+            .into_iter()
+            .enumerate()
+            .filter(|(_, file)| matches!(file.input(), MediaInput::Memory { .. }))
+            .collect::<Vec<_>>();
+        if !mem_files.is_empty() {
             let form = form_append_json(Form::new(), body.as_object().unwrap());
-            let form = futures::stream::iter(file_urls)
-                .enumerate()
-                // I don't know why `try_fold` in `futures` takes a iterator of `Result`..
-                .map(anyhow::Ok)
-                .try_fold(form, |form, (i, file_url)| async move {
-                    trace!("downloading media from url '{}'", file_url.url);
-
-                    let file = helper::reqwest_client()?
-                        .get(file_url.url)
-                        .send()
-                        .await
-                        .map_err(|err| {
-                            anyhow!("failed to download file: {err} from url '{}'", file_url.url)
-                        })?;
-
-                    let status = file.status();
-                    anyhow::ensure!(
-                        status.is_success(),
-                        "response of downloading file is not success: {status} from url '{}'",
-                        file_url.url
-                    );
-
-                    let bytes = file.bytes().await.map_err(|err| {
-                        let rustfmt_bug = "failed to obtain bytes for downloading file";
-                        anyhow!(
-                            "{rustfmt_bug}: {err}, status: {status} from url '{}'",
-                            file_url.url
-                        )
-                    })?;
-
-                    // TODO: Replace failed image with a fallback image
-
-                    Ok(form.part(i.to_string(), media_into_part(i, bytes, file_url.is_photo)?))
-                })
-                .await?;
-            client = client.multipart(form);
+            let form = mem_files.into_iter().try_fold(
+                form,
+                |mut form, (i, file)| -> anyhow::Result<Form> {
+                    let is_photo = matches!(file, Media::Photo(_));
+                    if let MediaInput::Memory { data, filename } = file.into_input() {
+                        let mut part = media_into_part(i, data, is_photo)?;
+                        if let Some(filename) = filename {
+                            part = part.file_name(filename.to_string());
+                        }
+                        form = form.part(i.to_string(), part);
+                    }
+                    Ok(form)
+                },
+            )?;
+            client = client
+                .multipart(form)
+                .timeout(Duration::from_secs(60 * 60 /* 1 hour */));
         } else {
             client = client.json(&body);
         }
@@ -129,7 +129,14 @@ impl<'a> Request<'a> {
                     .map_err(|err| anyhow!("failed to parse rate limit duration: {err}"))?;
                 tokio::time::sleep(tokio::time::Duration::from_secs(after + 1)).await;
 
-                return Box::pin(self.send_request_inner(method, body, file_urls, false)).await;
+                return Box::pin(self.send_request_inner(
+                    method,
+                    body,
+                    files,
+                    false,
+                    prefer_self_host,
+                ))
+                .await;
             }
         }
 
@@ -157,6 +164,7 @@ impl<'a> Request<'a> {
             text: None,
             disable_notification: false,
             markup: None,
+            prefer_self_host: false,
         }
     }
 
@@ -169,6 +177,20 @@ impl<'a> Request<'a> {
             text: None,
             disable_notification: false,
             markup: None,
+            prefer_self_host: false,
+        }
+    }
+
+    pub fn send_document(self, chat: &'a ConfigChat, document: MediaDocument<'a>) -> SendMedia<'a> {
+        SendMedia {
+            base: self,
+            chat,
+            media: Media::Document(document),
+            thread_id: None,
+            text: None,
+            disable_notification: false,
+            markup: None,
+            prefer_self_host: false,
         }
     }
 
@@ -180,6 +202,7 @@ impl<'a> Request<'a> {
             thread_id: None,
             text: None,
             disable_notification: false,
+            prefer_self_host: false,
         }
     }
 
@@ -210,28 +233,51 @@ impl<'a> Request<'a> {
             text: None,
         }
     }
-}
 
-#[derive(Clone, Debug)]
-struct FileUrl<'a> {
-    url: &'a str,
-    is_photo: bool,
-}
-
-impl<'a> FileUrl<'a> {
-    fn new_photo(url: &'a str) -> Self {
-        Self {
-            url,
-            is_photo: true,
+    pub fn edit_message_media(
+        self,
+        chat: &'a ConfigChat,
+        message_id: i64,
+        media: Media<'a>,
+    ) -> EditMessageMedia<'a> {
+        EditMessageMedia {
+            base: self,
+            chat,
+            message_id,
+            text: None,
+            media,
+            prefer_self_host: false,
         }
     }
+}
 
-    fn new_video(url: &'a str) -> Self {
-        Self {
-            url,
-            is_photo: false,
+fn make_api_url(token: &str, method: &str, prefer_self_host: bool) -> String {
+    static OFFICIAL: Lazy<Uri> = Lazy::new(|| "https://api.telegram.org".parse().unwrap());
+
+    let url_opts = Config::global()
+        .platform()
+        .telegram
+        .as_ref()
+        .and_then(|t| t.api_server.as_ref())
+        .map(|opts| match opts {
+            ConfigApiServer::Url(url) => (url, false),
+            ConfigApiServer::UrlOpts { url, as_necessary } => (url, *as_necessary),
+        });
+    let url = match url_opts {
+        Some((url, as_necessary)) => {
+            if !as_necessary || prefer_self_host {
+                url
+            } else {
+                &*OFFICIAL
+            }
         }
-    }
+        None => &*OFFICIAL,
+    };
+    make_api_url_impl(url, token, method)
+}
+
+fn make_api_url_impl(url: &Uri, token: &str, method: &str) -> String {
+    format!("{url}bot{token}/{method}")
 }
 
 pub enum ButtonKind<'a> {
@@ -401,41 +447,98 @@ impl<'a> SendMessage<'a> {
         if let Some(markup) = self.markup {
             body["reply_markup"] = markup.into_json();
         }
-        self.base.send_request("sendMessage", &body).await
+        self.base
+            .send_request("sendMessage", &body, [], false)
+            .await
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum Media<'a> {
     Photo(MediaPhoto<'a>),
     Video(MediaVideo<'a>),
+    Document(MediaDocument<'a>),
 }
 
+impl<'a> Media<'a> {
+    fn input(&self) -> &MediaInput<'a> {
+        match self {
+            Self::Photo(photo) => &photo.input,
+            Self::Video(video) => &video.input,
+            Self::Document(document) => &document.input,
+        }
+    }
+
+    fn input_mut(&mut self) -> &mut MediaInput<'a> {
+        match self {
+            Self::Photo(photo) => &mut photo.input,
+            Self::Video(video) => &mut video.input,
+            Self::Document(document) => &mut document.input,
+        }
+    }
+
+    fn into_input(self) -> MediaInput<'a> {
+        match self {
+            Self::Photo(photo) => photo.input,
+            Self::Video(video) => video.input,
+            Self::Document(document) => document.input,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum MediaInput<'a> {
+    Url(&'a str),
+    Memory {
+        data: Bytes,
+        filename: Option<&'a str>,
+    },
+}
+
+impl MediaInput<'_> {
+    fn to_url(&self, index: usize) -> Cow<str> {
+        match self {
+            Self::Url(url) => Cow::Borrowed(url),
+            Self::Memory { .. } => Cow::Owned(format!("attach://{index}")),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct MediaPhoto<'a> {
-    pub url: &'a str,
+    pub input: MediaInput<'a>,
     pub has_spoiler: bool,
 }
 
 impl<'a> From<&'a PostAttachmentImage> for MediaPhoto<'a> {
     fn from(value: &'a PostAttachmentImage) -> Self {
         Self {
-            url: &value.media_url,
+            input: MediaInput::Url(&value.media_url),
             has_spoiler: value.has_spoiler,
         }
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct MediaVideo<'a> {
-    pub url: &'a str,
+    pub input: MediaInput<'a>,
+    pub resolution: Option<VideoResolution>,
     pub has_spoiler: bool,
 }
 
 impl<'a> From<&'a PostAttachmentVideo> for MediaVideo<'a> {
     fn from(value: &'a PostAttachmentVideo) -> Self {
         Self {
-            url: &value.media_url,
+            input: MediaInput::Url(&value.media_url),
+            resolution: None,
             has_spoiler: value.has_spoiler,
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct MediaDocument<'a> {
+    pub input: MediaInput<'a>,
 }
 
 pub struct SendMedia<'a> {
@@ -446,6 +549,7 @@ pub struct SendMedia<'a> {
     text: Option<Text<'a>>,
     disable_notification: bool,
     markup: Option<Markup<'a>>,
+    prefer_self_host: bool,
 }
 
 impl<'a> SendMedia<'a> {
@@ -488,6 +592,13 @@ impl<'a> SendMedia<'a> {
         }
     }
 
+    pub fn prefer_self_host(self) -> Self {
+        Self {
+            prefer_self_host: true,
+            ..self
+        }
+    }
+
     pub async fn send(self) -> anyhow::Result<Response<ResultMessage>> {
         let mut body = json!(
             {
@@ -496,16 +607,28 @@ impl<'a> SendMedia<'a> {
                 "disable_notification": self.disable_notification
             }
         );
-        let (method, url) = match &self.media {
+        let (method, url, retry_multipart) = match &self.media {
             Media::Photo(photo) => {
-                body["photo"] = photo.url.into();
+                let url = photo.input.to_url(0);
+                body["photo"] = url.clone().into();
                 body["has_spoiler"] = photo.has_spoiler.into();
-                ("sendPhoto", photo.url)
+                ("sendPhoto", url, matches!(photo.input, MediaInput::Url(_)))
             }
             Media::Video(video) => {
-                body["video"] = video.url.into();
+                let url = video.input.to_url(0);
+                body["video"] = url.clone().into();
+                body["supports_streaming"] = true.into();
                 body["has_spoiler"] = video.has_spoiler.into();
-                ("sendVideo", video.url)
+                ("sendVideo", url, matches!(video.input, MediaInput::Url(_)))
+            }
+            Media::Document(document) => {
+                let url = document.input.to_url(0);
+                body["document"] = url.clone().into();
+                (
+                    "sendDocument",
+                    url,
+                    matches!(document.input, MediaInput::Url(_)),
+                )
             }
         };
         if let Some(text) = self.text {
@@ -518,23 +641,15 @@ impl<'a> SendMedia<'a> {
             body["reply_markup"] = markup.into_json();
         }
 
-        let mut resp = self.base.send_request(method, &body).await?;
-        if is_media_failure(&resp) {
+        let mut resp = self
+            .base
+            .send_request(method, &body, [self.media.clone()], self.prefer_self_host)
+            .await?;
+        if retry_multipart && is_media_failure(&resp) {
             warn!("failed to send media with URL, retrying with HTTP multipart. url '{url}', description '{}'", resp.description.as_deref().unwrap_or("*no description*"));
-
-            let file_url = match self.media {
-                Media::Photo(_) => {
-                    body["photo"] = format_attach_url(0).into();
-                    FileUrl::new_photo(url)
-                }
-                Media::Video(_) => {
-                    body["video"] = format_attach_url(0).into();
-                    FileUrl::new_video(url)
-                }
-            };
             resp = self
                 .base
-                .send_request_with_files(method, &body, [file_url])
+                .send_request_force_download(method, &body, [self.media], self.prefer_self_host)
                 .await?;
         }
         Ok(resp)
@@ -548,6 +663,7 @@ pub struct SendMediaGroup<'a> {
     thread_id: Option<i64>,
     text: Option<Text<'a>>,
     disable_notification: bool,
+    prefer_self_host: bool,
 }
 
 impl<'a> SendMediaGroup<'a> {
@@ -593,6 +709,13 @@ impl<'a> SendMediaGroup<'a> {
         }
     }
 
+    pub fn prefer_self_host(self) -> Self {
+        Self {
+            prefer_self_host: true,
+            ..self
+        }
+    }
+
     pub async fn send(mut self) -> anyhow::Result<Response<Vec<ResultMessage>>> {
         assert!(!self.medias.is_empty());
 
@@ -613,7 +736,7 @@ impl<'a> SendMediaGroup<'a> {
             let is_last_chunk = iter.peek().is_none();
             let text = is_last_chunk.then(|| self.text.take()).flatten();
 
-            let resp = self.send_inner(chunk, text).await?;
+            let resp = self.send_inner(chunk.iter().cloned(), text).await?;
 
             // If any chunk fails, return the response immediately
             if !resp.ok {
@@ -631,26 +754,38 @@ impl<'a> SendMediaGroup<'a> {
 
     async fn send_inner(
         &self,
-        medias: impl IntoIterator<Item = &'a Media<'a>>,
+        medias: impl IntoIterator<Item = Media<'a>>,
         text: Option<Text<'a>>,
     ) -> anyhow::Result<Response<Vec<ResultMessage>>> {
         let medias = medias.into_iter().collect_vec();
 
+        let mut retry_multipart = false;
         let mut media = medias
             .iter()
-            .map(|media| match media {
+            .enumerate()
+            .map(|(i, media)| match media {
                 Media::Photo(photo) => {
+                    retry_multipart |= matches!(photo.input, MediaInput::Url(_));
                     json!({
                         "type": "photo",
-                        "media": photo.url,
+                        "media": photo.input.to_url(i),
                         "has_spoiler": photo.has_spoiler,
                     })
                 }
                 Media::Video(video) => {
+                    retry_multipart |= matches!(video.input, MediaInput::Url(_));
                     json!({
                         "type": "video",
-                        "media": video.url,
+                        "media": video.input.to_url(i),
+                        "supports_streaming": true,
                         "has_spoiler": video.has_spoiler,
+                    })
+                }
+                Media::Document(document) => {
+                    retry_multipart |= matches!(document.input, MediaInput::Url(_));
+                    json!({
+                        "type": "document",
+                        "media": document.input.to_url(i),
                     })
                 }
             })
@@ -662,7 +797,7 @@ impl<'a> SendMediaGroup<'a> {
             first_media.insert("caption_entities".into(), entities);
         }
 
-        let mut body = json!(
+        let body = json!(
             {
                 "chat_id": self.chat.to_json(),
                 "message_thread_id": self.thread_id,
@@ -671,28 +806,20 @@ impl<'a> SendMediaGroup<'a> {
             }
         );
 
-        let mut resp = self.base.send_request("sendMediaGroup", &body).await?;
-        if is_media_failure(&resp) {
-            let file_urls = body.as_object_mut().unwrap()["media"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
-                .zip(medias)
-                .enumerate()
-                .map(|(i, (media, kind))| {
-                    media["media"] = format_attach_url(i).into();
-                    match kind {
-                        Media::Photo(photo) => FileUrl::new_photo(photo.url),
-                        Media::Video(video) => FileUrl::new_video(video.url),
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            warn!("failed to send media group with URLs, retrying with HTTP multipart. urls '{file_urls:?}', description '{}'", resp.description.as_deref().unwrap_or("*no description*"));
-
+        let mut resp = self
+            .base
+            .send_request(
+                "sendMediaGroup",
+                &body,
+                medias.clone(),
+                self.prefer_self_host,
+            )
+            .await?;
+        if retry_multipart && is_media_failure(&resp) {
+            warn!("failed to send media group with URLs, retrying with HTTP multipart. urls '{medias:?}', description '{}'", resp.description.as_deref().unwrap_or("*no description*"));
             resp = self
                 .base
-                .send_request_with_files("sendMediaGroup", &body, file_urls)
+                .send_request_force_download("sendMediaGroup", &body, medias, self.prefer_self_host)
                 .await?;
         }
         Ok(resp)
@@ -731,7 +858,9 @@ impl<'a> EditMessageText<'a> {
         if let Some(link_preview) = self.link_preview {
             body["link_preview_options"] = link_preview.into_json();
         }
-        self.base.send_request("editMessageText", &body).await
+        self.base
+            .send_request("editMessageText", &body, [], false)
+            .await
     }
 }
 
@@ -763,7 +892,99 @@ impl<'a> EditMessageCaption<'a> {
             body.insert("caption".into(), text);
             body.insert("caption_entities".into(), entities);
         }
-        self.base.send_request("editMessageCaption", &body).await
+        self.base
+            .send_request("editMessageCaption", &body, [], false)
+            .await
+    }
+}
+
+pub struct EditMessageMedia<'a> {
+    base: Request<'a>,
+    chat: &'a ConfigChat,
+    message_id: i64,
+    text: Option<Text<'a>>,
+    media: Media<'a>,
+    prefer_self_host: bool,
+}
+
+impl<'a> EditMessageMedia<'a> {
+    pub fn text(self, text: Text<'a>) -> Self {
+        Self {
+            text: Some(text),
+            ..self
+        }
+    }
+
+    pub fn prefer_self_host(self) -> Self {
+        Self {
+            prefer_self_host: true,
+            ..self
+        }
+    }
+
+    pub async fn send(self) -> anyhow::Result<Response<ResultMessage>> {
+        let retry_multipart;
+        let mut body = json!({
+            "chat_id": self.chat.to_json(),
+            "message_id": self.message_id,
+            "media": match &self.media {
+                Media::Photo(photo) => {
+                    retry_multipart = matches!(photo.input, MediaInput::Url(_));
+                    json!({
+                        "type": "photo",
+                        "media": photo.input.to_url(0),
+                        "has_spoiler": photo.has_spoiler,
+                    })
+                }
+                Media::Video(video) => {
+                    retry_multipart = matches!(video.input, MediaInput::Url(_));
+                    json!({
+                        "type": "video",
+                        "media": video.input.to_url(0),
+                        "width": video.resolution.map(|r| r.width),
+                        "height": video.resolution.map(|r| r.height),
+                        "supports_streaming": true,
+                        "has_spoiler": video.has_spoiler,
+                    })
+                }
+                Media::Document(document) => {
+                    retry_multipart = matches!(document.input, MediaInput::Url(_));
+                    json!({
+                        "type": "document",
+                        "media": document.input.to_url(0),
+                    })
+                }
+            }
+        });
+        if let Some(text) = self.text {
+            let (text, entities) = text.into_json();
+            let media = body["media"].as_object_mut().unwrap();
+            media.insert("caption".into(), text);
+            media.insert("caption_entities".into(), entities);
+        }
+
+        let mut resp = self
+            .base
+            .send_request(
+                "editMessageMedia",
+                &body,
+                [self.media.clone()],
+                self.prefer_self_host,
+            )
+            .await?;
+        if retry_multipart && is_media_failure(&resp) {
+            warn!("failed to send media with URL, retrying with HTTP multipart. url '{:?}', description '{}'", self.media.input(), resp.description.as_deref().unwrap_or("*no description*"));
+            resp = self
+                .base
+                .send_request_force_download(
+                    "editMessageMedia",
+                    &body,
+                    [self.media],
+                    self.prefer_self_host,
+                )
+                .await?;
+        }
+        Ok(resp)
     }
 }
 
@@ -888,10 +1109,6 @@ fn is_media_failure<T>(resp: &Response<T>) -> bool {
     description.contains("wrong file identifier/HTTP URL specified")
 }
 
-fn format_attach_url(index: usize) -> String {
-    format!("attach://{index}")
-}
-
 fn form_append_json(form: Form, obj: &json::Map<String, json::Value>) -> Form {
     obj.iter().fold(form, |form, (key, value)| {
         let value = match value {
@@ -908,6 +1125,57 @@ fn form_append_json(form: Form, obj: &json::Map<String, json::Value>) -> Form {
             form
         }
     })
+}
+
+// Converts all Url files into Memory files
+async fn download_files<'a>(
+    files: impl IntoIterator<Item = Media<'a>>,
+) -> anyhow::Result<Vec<Media<'a>>> {
+    let mut ret = vec![];
+
+    for mut file in files.into_iter() {
+        if matches!(file.input(), MediaInput::Memory { .. }) {
+            ret.push(file);
+            continue;
+        }
+
+        let input = file.input_mut();
+
+        let url = match &input {
+            MediaInput::Url(url) => *url,
+            MediaInput::Memory { .. } => unreachable!(),
+        };
+
+        trace!("downloading media from url '{url}'");
+
+        let resp = helper::reqwest_client()?
+            .get(url)
+            .send()
+            .await
+            .map_err(|err| anyhow!("failed to download file: {err} from url '{url}'"))?;
+
+        let status = resp.status();
+        ensure!(
+            status.is_success(),
+            "response of downloading file is not success: {status} from url '{url}'"
+        );
+
+        let data = resp.bytes().await.map_err(|err| {
+            let rustfmt_bug = "failed to obtain bytes for downloading file";
+            anyhow!("{rustfmt_bug}: {err}, status: {status} from url '{url}'")
+        })?;
+
+        *input = MediaInput::Memory {
+            data,
+            filename: None,
+        };
+
+        // TODO: Replace failed image with a fallback image
+
+        ret.push(file);
+    }
+
+    Ok(ret)
 }
 
 fn media_into_part(i: usize, bytes: Bytes, is_photo: bool) -> anyhow::Result<Part> {
@@ -952,4 +1220,37 @@ fn media_into_part(i: usize, bytes: Bytes, is_photo: bool) -> anyhow::Result<Par
     .file_name("");
 
     Ok(part)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn api_urls() {
+        assert_eq!(
+            make_api_url_impl(
+                &Uri::from_static("https://api.telegram.org"),
+                "TOKEN",
+                "sendMessage"
+            ),
+            "https://api.telegram.org/botTOKEN/sendMessage"
+        );
+        assert_eq!(
+            make_api_url_impl(
+                &Uri::from_static("https://api.telegram.org/"),
+                "TOKEN",
+                "sendMessage"
+            ),
+            "https://api.telegram.org/botTOKEN/sendMessage"
+        );
+        assert_eq!(
+            make_api_url_impl(
+                &Uri::from_static("http://172.24.5.218:8081"),
+                "TOKEN",
+                "sendMessage"
+            ),
+            "http://172.24.5.218:8081/botTOKEN/sendMessage"
+        );
+    }
 }

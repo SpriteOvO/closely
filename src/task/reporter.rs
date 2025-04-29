@@ -4,7 +4,7 @@ use anyhow::ensure;
 use spdlog::prelude::*;
 use tokio::time::MissedTickBehavior;
 
-use super::{Task, TaskKind};
+use super::Task;
 use crate::{
     helper,
     reporter::{ConfigHeartbeat, ConfigHeartbeatKind, ReporterParams},
@@ -19,7 +19,7 @@ impl TaskReporter {
         Self { params }
     }
 
-    async fn run_impl(&mut self) {
+    async fn run_impl(&self) {
         let heartbeat = self.params.heartbeat.as_ref().unwrap();
 
         let mut interval = tokio::time::interval(heartbeat.interval);
@@ -51,15 +51,11 @@ impl TaskReporter {
 }
 
 impl Task for TaskReporter {
-    fn kind(&self) -> TaskKind {
-        match *self.params.heartbeat {
-            Some(_) => TaskKind::Poll,
-            None => TaskKind::Noop,
-        }
-    }
-
     fn run(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(self.run_impl())
+        match *self.params.heartbeat {
+            Some(_) => Box::pin(self.run_impl()),
+            None => Box::pin(async {}),
+        }
     }
 }
 
