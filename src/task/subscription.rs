@@ -101,7 +101,7 @@ impl Task for TaskSubscription {
         match self.sourcer.take().unwrap() {
             Sourcer::Fetcher(fetcher) => Box::pin(self.continuous_fetch(fetcher)),
             Sourcer::Listener(mut listener) => {
-                let (sender, receiver) = mpsc::channel(1);
+                let (sender, receiver) = mpsc::channel(10);
                 // TODO: A bit hacky, improve it?
                 let platform = listener.to_string();
                 Box::pin(async move {

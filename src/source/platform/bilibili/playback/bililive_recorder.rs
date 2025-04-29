@@ -8,7 +8,10 @@ use chrono::{DateTime, Local};
 use serde::Deserialize;
 use serde_json as json;
 use spdlog::prelude::*;
-use tokio::sync::{mpsc, Mutex};
+use tokio::{
+    fs,
+    sync::{mpsc, Mutex},
+};
 use warp::Filter;
 
 use super::PLATFORM_METADATA;
@@ -190,14 +193,41 @@ async fn handle(event: data::WebhookV2, params: &Context) -> anyhow::Result<()> 
                 );
             }
 
-            let file_path = params.working_directory.join(&file_closed.relative_path);
-
+            #[derive(Clone, Copy)]
             enum FileType {
                 Video(PlaybackFormat),
                 Metadata,
             }
 
-            let file_type = match file_path
+            let send_update = async |path: PathBuf, file_type| {
+                let status = Update::new(
+                    match file_type {
+                        FileType::Video(format) => UpdateKind::Playback(Playback {
+                            live_start_time: session.live_start_time,
+                            file_path: path,
+                            format,
+                        }),
+                        FileType::Metadata => UpdateKind::Document(Document { file_path: path }),
+                    },
+                    StatusSource {
+                        platform: PLATFORM_METADATA,
+                        user: None,
+                    },
+                );
+
+                params
+                    .senders
+                    .lock()
+                    .await
+                    .get(&session.room_id)
+                    .ok_or_else(|| anyhow!("room id {} has no sender", session.room_id))?
+                    .send(status)
+                    .await
+                    .map_err(|err| anyhow!("failed to send status: {err}. session: {session:?}"))
+            };
+
+            let playback_file = params.working_directory.join(&file_closed.relative_path);
+            let playback_type = match playback_file
                 .extension()
                 .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
                 .as_deref()
@@ -205,34 +235,20 @@ async fn handle(event: data::WebhookV2, params: &Context) -> anyhow::Result<()> 
                 Some("flv") => FileType::Video(PlaybackFormat::Flv),
                 Some("xml") => FileType::Metadata,
                 _ => bail!(
-                    "bililive-recorder closed a file with an unknown extension '{file_path:?}'"
+                    "bililive-recorder closed a file with an unknown extension '{playback_file:?}'"
                 ),
             };
 
-            let status = Update::new(
-                match file_type {
-                    FileType::Video(format) => UpdateKind::Playback(Playback {
-                        live_start_time: session.live_start_time,
-                        file_path,
-                        format,
-                    }),
-                    FileType::Metadata => UpdateKind::Document(Document { file_path }),
-                },
-                StatusSource {
-                    platform: PLATFORM_METADATA,
-                    user: None,
-                },
-            );
+            let metadate_file = playback_file.with_extension("xml");
 
-            params
-                .senders
-                .lock()
-                .await
-                .get(&session.room_id)
-                .ok_or_else(|| anyhow!("room id {} has no sender", session.room_id))?
-                .send(status)
-                .await
-                .map_err(|err| anyhow!("failed to send status: {err}. session: {session:?}"))
+            send_update(playback_file, playback_type).await?;
+            if let FileType::Video(_) = playback_type {
+                if let Ok(true) = fs::try_exists(&metadate_file).await {
+                    send_update(metadate_file, FileType::Metadata).await?;
+                }
+            }
+
+            Ok(())
         }
         data::EventKind::FileOpening {}
         | data::EventKind::StreamStarted {}
