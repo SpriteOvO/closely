@@ -629,32 +629,53 @@ impl Notifier {
 
         trace!("uploading playback to Telegram '{}'", playback.file);
 
-        let resp = Request::new(&token)
-            .edit_message_media(
-                &self.params.chat,
-                resp.result.unwrap().message_id,
-                Media::Video(MediaVideo {
-                    input: MediaInput::Memory {
-                        data: playback.file.data.clone(),
-                        filename: Some(&playback.file.name),
-                    },
-                    resolution: Some(playback.resolution),
-                    has_spoiler: false,
-                }),
-            )
-            .text(make_file_text("🎥", &playback.file, source))
-            .prefer_self_host()
-            .send()
-            .await
-            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
-        ensure!(
-            resp.ok,
-            "response contains error, description '{}'",
-            resp.description
-                .unwrap_or_else(|| "*no description*".into())
+        let edit_media = async || {
+            let resp = Request::new(&token)
+                .edit_message_media(
+                    &self.params.chat,
+                    resp.result.as_ref().unwrap().message_id,
+                    Media::Video(MediaVideo {
+                        input: MediaInput::Memory {
+                            data: playback.file.data.clone(),
+                            filename: Some(&playback.file.name),
+                        },
+                        resolution: Some(playback.resolution),
+                        has_spoiler: false,
+                    }),
+                )
+                .text(make_file_text("🎥", &playback.file, source))
+                .prefer_self_host()
+                .send()
+                .await
+                .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+            ensure!(
+                resp.ok,
+                "response contains error, description '{}'",
+                resp.description
+                    .unwrap_or_else(|| "*no description*".into())
+            );
+            Ok(())
+        };
+
+        let ret = edit_media().await;
+        trace!(
+            "finished uploading playback to Telegram '{}'",
+            playback.file
         );
 
-        Ok(())
+        if let Err(err) = ret {
+            _ = Request::new(&token)
+                .edit_message_text(
+                    &self.params.chat,
+                    resp.result.unwrap().message_id,
+                    make_file_text("❌", &playback.file, source),
+                )
+                .send()
+                .await;
+            Err(err)
+        } else {
+            Ok(())
+        }
     }
 
     async fn notify_document(
