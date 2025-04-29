@@ -108,3 +108,49 @@ impl<T: Validator> ops::DerefMut for Accessor<T> {
         &mut self.data
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use anyhow::anyhow;
+
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    struct Odd(u32);
+
+    impl Validator for Odd {
+        fn validate(&self) -> anyhow::Result<()> {
+            if self.0 % 2 == 0 {
+                Err(anyhow!("{} is not odd", self.0))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn validation() {
+        let right = Accessor::new(Odd(41));
+        let wrong = Accessor::new(Odd(42));
+
+        assert!(right.validate().is_ok());
+        _ = *right;
+
+        assert!(wrong.validate().is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "config accessed before validation")]
+    fn panic_if_accessed_before_validation() {
+        let accessor = Accessor::new(Odd(41));
+        _ = *accessor;
+    }
+
+    #[test]
+    #[should_panic(expected = "config accessed before validation")]
+    fn panic_if_accessed_invalid() {
+        let accessor = Accessor::new(Odd(42));
+        assert!(accessor.validate().is_err());
+        _ = *accessor;
+    }
+}
