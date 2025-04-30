@@ -610,7 +610,7 @@ impl Notifier {
         let resp = Request::new(&token)
             .send_message(
                 &self.params.chat,
-                make_file_text("⏳", &playback.file, source),
+                make_file_text(FileUploadStage::PlaybackUploading, &playback.file, source),
             )
             .thread_id_opt(self.params.thread_id)
             .link_preview(LinkPreview::Disabled)
@@ -643,7 +643,11 @@ impl Notifier {
                         has_spoiler: false,
                     }),
                 )
-                .text(make_file_text("🎥", &playback.file, source))
+                .text(make_file_text(
+                    FileUploadStage::PlaybackFinished,
+                    &playback.file,
+                    source,
+                ))
                 .prefer_self_host()
                 .send()
                 .await
@@ -668,7 +672,7 @@ impl Notifier {
                 .edit_message_text(
                     &self.params.chat,
                     resp.result.unwrap().message_id,
-                    make_file_text("❌", &playback.file, source),
+                    make_file_text(FileUploadStage::PlaybackFailed, &playback.file, source),
                 )
                 .send()
                 .await;
@@ -700,7 +704,11 @@ impl Notifier {
                     },
                 },
             )
-            .text(make_file_text("📊", &document.file, source))
+            .text(make_file_text(
+                FileUploadStage::MetadataFinished,
+                &document.file,
+                source,
+            ))
             .thread_id_opt(self.params.thread_id)
             // .disable_notification() // TODO: Make it configurable
             .send()
@@ -746,13 +754,38 @@ fn make_live_text<'a>(
     Text::link(text, &live_status.live_url)
 }
 
-fn make_file_text<'a>(emoji: &'a str, file: &FileRef<'a>, source: &'a StatusSource) -> Text<'a> {
-    Text::plain(format!(
-        "[{}] {emoji} {} ({})",
-        source.platform.display_name,
-        file.name,
-        humansize::format_size(file.size, humansize::BINARY)
-    ))
+enum FileUploadStage {
+    PlaybackUploading,
+    PlaybackFinished,
+    PlaybackFailed,
+    MetadataFinished,
+}
+
+fn make_file_text<'a>(
+    stage: FileUploadStage,
+    file: &FileRef<'a>,
+    source: &'a StatusSource,
+) -> Text<'a> {
+    let emoji = match stage {
+        FileUploadStage::PlaybackUploading => "⏳",
+        FileUploadStage::PlaybackFinished => "🎥",
+        FileUploadStage::PlaybackFailed => "❌",
+        FileUploadStage::MetadataFinished => "📊",
+    };
+    let mut text = Text::plain(format!(
+        "[{}] {emoji} {}",
+        source.platform.display_name, file.name,
+    ));
+    match stage {
+        FileUploadStage::PlaybackUploading | FileUploadStage::PlaybackFailed => {
+            text.push_plain(format!(
+                " ({})",
+                humansize::format_size(file.size, humansize::BINARY)
+            ));
+        }
+        _ => {}
+    }
+    text
 }
 
 struct CurrentLive {
