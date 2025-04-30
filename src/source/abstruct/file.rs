@@ -13,7 +13,7 @@ use tokio::{fs, sync::Mutex};
 
 use crate::helper::VideoResolution;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct FileRef<'a> {
     pub path: Option<&'a Path>,
     pub name: String,
@@ -59,6 +59,19 @@ impl<'a> FileRef<'a> {
 impl fmt::Display for FileRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "'{}' ({:?})", self.name, self.size)
+    }
+}
+
+impl fmt::Debug for FileRef<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "'{}' ({:?}) data-len={} size={}",
+            self.name,
+            self.size,
+            self.data.len(),
+            self.size,
+        )
     }
 }
 

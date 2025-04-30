@@ -1,4 +1,4 @@
-use std::{borrow::Cow, io::Cursor, mem, ops::Range, time::Duration};
+use std::{borrow::Cow, fmt, io::Cursor, mem, ops::Range, time::Duration};
 
 use anyhow::{anyhow, ensure};
 use bytes::Bytes;
@@ -494,7 +494,7 @@ impl<'a> Media<'a> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum MediaInput<'a> {
     Url(&'a str),
     Memory {
@@ -508,6 +508,17 @@ impl MediaInput<'_> {
         match self {
             Self::Url(url) => Cow::Borrowed(url),
             Self::Memory { .. } => Cow::Owned(format!("attach://{index}")),
+        }
+    }
+}
+
+impl fmt::Debug for MediaInput<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Url(url) => write!(f, "Url({url})"),
+            Self::Memory { data, filename } => {
+                write!(f, "Memory({:?}, {:?})", data.len(), filename)
+            }
         }
     }
 }
