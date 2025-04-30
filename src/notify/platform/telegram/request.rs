@@ -249,6 +249,14 @@ impl<'a> Request<'a> {
             prefer_self_host: false,
         }
     }
+
+    pub fn delete_message(self, chat: &'a ConfigChat, message_id: i64) -> DeleteMessage<'a> {
+        DeleteMessage {
+            base: self,
+            chat,
+            message_id,
+        }
+    }
 }
 
 fn make_api_url(token: &str, method: &str, prefer_self_host: bool) -> String {
@@ -985,6 +993,26 @@ impl<'a> EditMessageMedia<'a> {
                 .await?;
         }
         Ok(resp)
+    }
+}
+
+pub struct DeleteMessage<'a> {
+    base: Request<'a>,
+    chat: &'a ConfigChat,
+    message_id: i64,
+}
+
+impl DeleteMessage<'_> {
+    pub async fn send(self) -> anyhow::Result<Response<ResultMessage>> {
+        let body = json!(
+            {
+                "chat_id": self.chat.to_json(),
+                "message_id": self.message_id,
+            }
+        );
+        self.base
+            .send_request("deleteMessage", &body, [], false)
+            .await
     }
 }
 

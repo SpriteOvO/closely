@@ -1,9 +1,17 @@
 mod request;
 
-use std::{borrow::Cow, collections::VecDeque, fmt, future::Future, pin::Pin, time::SystemTime};
+use std::{
+    borrow::Cow,
+    collections::VecDeque,
+    fmt,
+    future::Future,
+    pin::Pin,
+    time::{Duration, SystemTime},
+};
 
 use anyhow::{anyhow, bail, ensure};
 use http::Uri;
+use humantime_serde::re::humantime;
 use request::*;
 use serde::Deserialize;
 use serde_json as json;
@@ -588,11 +596,41 @@ impl Notifier {
         Ok(())
     }
 
-    // TODO: Parallel notify
     async fn notify_playback(
         &self,
         playback: &PlaybackRef<'_>,
         source: &StatusSource,
+    ) -> anyhow::Result<()> {
+        const WAIT_FOR: Duration = Duration::from_secs(60);
+
+        for i in 0..3 {
+            if let Err(err) = self.notify_playback_impl(playback, source, false).await {
+                warn!(
+                    "failed to notify playback '{playback}': {err}, wait for {} then retry",
+                    humantime::format_duration(WAIT_FOR)
+                );
+                tokio::time::sleep(WAIT_FOR).await;
+                warn!(
+                    "notifying playback '{playback}' again, attempt {} of 3",
+                    i + 1
+                );
+                continue;
+            }
+            return Ok(());
+        }
+        self.notify_playback_impl(playback, source, true)
+            .await
+            .inspect_err(|err| {
+                error!("failed to notify playback '{playback}': {err}, this is the last attempt")
+            })
+    }
+
+    // TODO: Parallel notify
+    async fn notify_playback_impl(
+        &self,
+        playback: &PlaybackRef<'_>,
+        source: &StatusSource,
+        last_try: bool,
     ) -> anyhow::Result<()> {
         if !self.params.notifications.playback {
             info!("playback notification is disabled, skip notifying");
@@ -668,14 +706,22 @@ impl Notifier {
         );
 
         if let Err(err) = ret {
-            _ = Request::new(&token)
-                .edit_message_text(
-                    &self.params.chat,
-                    resp.result.unwrap().message_id,
-                    make_file_text(FileUploadStage::PlaybackFailed, &playback.file, source),
-                )
-                .send()
-                .await;
+            let message_id = resp.result.unwrap().message_id;
+            if last_try {
+                _ = Request::new(&token)
+                    .edit_message_text(
+                        &self.params.chat,
+                        message_id,
+                        make_file_text(FileUploadStage::PlaybackFailed, &playback.file, source),
+                    )
+                    .send()
+                    .await;
+            } else {
+                _ = Request::new(&token)
+                    .delete_message(&self.params.chat, message_id)
+                    .send()
+                    .await;
+            }
             Err(err)
         } else {
             Ok(())
@@ -794,4 +840,8 @@ struct CurrentLive {
     link_preview: LinkPreviewOwned,
     // The first is the current title, the last is the oldest title
     title_history: VecDeque<String>,
+}
+
+struct NotifyPlaybackRetry {
+    //
 }
