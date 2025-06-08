@@ -652,7 +652,7 @@ impl Notifier {
             )
             .thread_id_opt(self.params.thread_id)
             .link_preview(LinkPreview::Disabled)
-            // .disable_notification() // TODO: Make it configurable
+            .disable_notification() // TODO: Make it configurable
             .send()
             .await
             .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
@@ -756,7 +756,7 @@ impl Notifier {
                 source,
             ))
             .thread_id_opt(self.params.thread_id)
-            // .disable_notification() // TODO: Make it configurable
+            .disable_notification() // TODO: Make it configurable
             .send()
             .await
             .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
