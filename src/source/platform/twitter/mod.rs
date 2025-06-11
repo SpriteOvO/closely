@@ -228,7 +228,7 @@ mod data {
     pub enum TimelineItemContent {
         #[serde(rename = "TimelineTweet")]
         Tweet {
-            tweet_results: wrapper::Result<ResultTweet>,
+            tweet_results: wrapper::MaybeEmpty<Box<wrapper::Result<ResultTweet>>>,
         },
         #[serde(rename = "TimelineUser")]
         User,
@@ -468,7 +468,7 @@ impl FetcherInner {
             })
             .flatten()
             .filter_map(|item| match item.item_content {
-                data::TimelineItemContent::Tweet { tweet_results } => Some(tweet_results),
+                data::TimelineItemContent::Tweet { tweet_results } => tweet_results.into_option(),
                 data::TimelineItemContent::User => None,
             })
             .map(|result| result.result.into_tweet())
