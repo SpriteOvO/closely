@@ -108,7 +108,7 @@ struct Session {
 
 struct Context {
     working_directory: PathBuf,
-    sessions: Mutex<HashMap<String, Session>>,
+    sessions: Mutex<HashMap<u64 /* room_id */, Session>>,
     senders: Arc<Mutex<HashMap<u64, mpsc::Sender<Update>>>>,
 }
 
@@ -149,7 +149,7 @@ async fn handle(event: data::WebhookV2, params: &Context) -> anyhow::Result<()> 
                 .sessions
                 .lock()
                 .await
-                .insert(session_started.session_id.clone(), session)
+                .insert(session_started.room_id, session)
                 .is_some()
             {
                 warn!("started an existing session '{session_started:?}'");
@@ -161,7 +161,7 @@ async fn handle(event: data::WebhookV2, params: &Context) -> anyhow::Result<()> 
                 .sessions
                 .lock()
                 .await
-                .remove(&session_ended.session_id)
+                .remove(&session_ended.room_id)
                 .is_none()
             {
                 warn!("ended a non-existing session '{session_ended:?}'");
@@ -173,7 +173,7 @@ async fn handle(event: data::WebhookV2, params: &Context) -> anyhow::Result<()> 
                 .sessions
                 .lock()
                 .await
-                .get(&file_closed.session_id)
+                .get(&file_closed.room_id)
                 .cloned()
                 .unwrap_or_else(|| {
                     warn!(
@@ -184,14 +184,6 @@ async fn handle(event: data::WebhookV2, params: &Context) -> anyhow::Result<()> 
                         room_id: file_closed.room_id,
                     }
                 });
-            if session.room_id != file_closed.room_id {
-                critical!(
-                    "bililive-recorder closed a file with a mismatched room id '{file_closed:?}'"
-                );
-                panic!(
-                    "bililive-recorder closed a file with a mismatched room id '{file_closed:?}'"
-                );
-            }
 
             #[derive(Clone, Copy)]
             enum FileType {
