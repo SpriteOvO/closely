@@ -605,11 +605,9 @@ fn parse_tweet(tweet: data::Tweet) -> anyhow::Result<Post> {
         .chain(card_attachment)
         .filter(|attachment| {
             if let Some(RepostFrom::Recursion(repost_from)) = &repost_from {
-                let is_contained_in_repost = repost_from
+                !repost_from
                     .attachments_recursive(true)
-                    .iter()
-                    .any(|sub_attachment| *sub_attachment == attachment);
-                !is_contained_in_repost
+                    .contains(&attachment)
             } else {
                 true
             }
