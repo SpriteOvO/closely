@@ -47,18 +47,6 @@ impl<'a> Request<'a> {
         .await
     }
 
-    async fn send_request_force_download<T: DeserializeOwned>(
-        &self,
-        method: &str,
-        body: &json::Value,
-        medias: impl IntoIterator<Item = Media<'_>>,
-        prefer_self_host: bool,
-    ) -> anyhow::Result<Response<T>> {
-        let downloaded = download_files(medias).await?;
-        self.send_request_inner(method, body, downloaded, true, prefer_self_host)
-            .await
-    }
-
     async fn send_request_inner<T: DeserializeOwned>(
         &self,
         method: &str,
@@ -666,9 +654,22 @@ impl<'a> SendMedia<'a> {
             .await?;
         if retry_multipart && is_media_failure(&resp) {
             warn!("failed to send media with URL, retrying with HTTP multipart. url '{url}', description '{}'", resp.description.as_deref().unwrap_or("*no description*"));
+
+            let downloaded = download_file(self.media).await?;
+            match &downloaded {
+                Media::Photo(photo) => {
+                    body["photo"] = photo.input.to_url(0).into();
+                }
+                Media::Video(video) => {
+                    body["video"] = video.input.to_url(0).into();
+                }
+                Media::Document(document) => {
+                    body["document"] = document.input.to_url(0).into();
+                }
+            }
             resp = self
                 .base
-                .send_request_force_download(method, &body, [self.media], self.prefer_self_host)
+                .send_request(method, &body, [downloaded], self.prefer_self_host)
                 .await?;
         }
         Ok(resp)
@@ -816,7 +817,7 @@ impl<'a> SendMediaGroup<'a> {
             first_media.insert("caption_entities".into(), entities);
         }
 
-        let body = json!(
+        let mut body = json!(
             {
                 "chat_id": self.chat.to_json(),
                 "message_thread_id": self.thread_id,
@@ -836,9 +837,14 @@ impl<'a> SendMediaGroup<'a> {
             .await?;
         if retry_multipart && is_media_failure(&resp) {
             warn!("failed to send media group with URLs, retrying with HTTP multipart. urls '{medias:?}', description '{}'", resp.description.as_deref().unwrap_or("*no description*"));
+
+            let downloaded = download_files(medias).await?;
+            for (i, downloaded_media) in downloaded.iter().enumerate() {
+                body["media"][i]["media"] = downloaded_media.input().to_url(i).into();
+            }
             resp = self
                 .base
-                .send_request_force_download("sendMediaGroup", &body, medias, self.prefer_self_host)
+                .send_request("sendMediaGroup", &body, downloaded, self.prefer_self_host)
                 .await?;
         }
         Ok(resp)
@@ -993,12 +999,15 @@ impl<'a> EditMessageMedia<'a> {
             .await?;
         if retry_multipart && is_media_failure(&resp) {
             warn!("failed to send media with URL, retrying with HTTP multipart. url '{:?}', description '{}'", self.media.input(), resp.description.as_deref().unwrap_or("*no description*"));
+
+            let downloaded = download_file(self.media).await?;
+            body["media"]["media"] = downloaded.input().to_url(0).into();
             resp = self
                 .base
-                .send_request_force_download(
+                .send_request(
                     "editMessageMedia",
                     &body,
-                    [self.media],
+                    [downloaded],
                     self.prefer_self_host,
                 )
                 .await?;
@@ -1167,54 +1176,53 @@ fn form_append_json(form: Form, obj: &json::Map<String, json::Value>) -> Form {
     })
 }
 
+async fn download_file<'a>(mut file: Media<'a>) -> anyhow::Result<Media<'a>> {
+    if matches!(file.input(), MediaInput::Memory { .. }) {
+        return Ok(file);
+    }
+
+    let input = file.input_mut();
+
+    let url = match &input {
+        MediaInput::Url(url) => *url,
+        MediaInput::Memory { .. } => unreachable!(),
+    };
+
+    trace!("downloading media from url '{url}'");
+
+    let resp = helper::reqwest_client()?
+        .get(url)
+        .send()
+        .await
+        .map_err(|err| anyhow!("failed to download file: {err} from url '{url}'"))?;
+
+    let status = resp.status();
+    ensure!(
+        status.is_success(),
+        "response of downloading file is not success: {status} from url '{url}'"
+    );
+
+    let data = resp.bytes().await.map_err(|err| {
+        let rustfmt_bug = "failed to obtain bytes for downloading file";
+        anyhow!("{rustfmt_bug}: {err}, status: {status} from url '{url}'")
+    })?;
+
+    *input = MediaInput::Memory {
+        data,
+        filename: None,
+    };
+    // TODO: Replace failed image with a fallback image
+    Ok(file)
+}
+
 // Converts all Url files into Memory files
 async fn download_files<'a>(
     files: impl IntoIterator<Item = Media<'a>>,
 ) -> anyhow::Result<Vec<Media<'a>>> {
     let mut ret = vec![];
-
-    for mut file in files.into_iter() {
-        if matches!(file.input(), MediaInput::Memory { .. }) {
-            ret.push(file);
-            continue;
-        }
-
-        let input = file.input_mut();
-
-        let url = match &input {
-            MediaInput::Url(url) => *url,
-            MediaInput::Memory { .. } => unreachable!(),
-        };
-
-        trace!("downloading media from url '{url}'");
-
-        let resp = helper::reqwest_client()?
-            .get(url)
-            .send()
-            .await
-            .map_err(|err| anyhow!("failed to download file: {err} from url '{url}'"))?;
-
-        let status = resp.status();
-        ensure!(
-            status.is_success(),
-            "response of downloading file is not success: {status} from url '{url}'"
-        );
-
-        let data = resp.bytes().await.map_err(|err| {
-            let rustfmt_bug = "failed to obtain bytes for downloading file";
-            anyhow!("{rustfmt_bug}: {err}, status: {status} from url '{url}'")
-        })?;
-
-        *input = MediaInput::Memory {
-            data,
-            filename: None,
-        };
-
-        // TODO: Replace failed image with a fallback image
-
-        ret.push(file);
+    for file in files.into_iter() {
+        ret.push(download_file(file).await?);
     }
-
     Ok(ret)
 }
 
