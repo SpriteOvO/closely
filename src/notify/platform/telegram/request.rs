@@ -1,9 +1,9 @@
 use std::{borrow::Cow, fmt, io::Cursor, mem, ops::Range, time::Duration};
 
-use anyhow::{anyhow, ensure};
+use anyhow::{anyhow, bail, ensure};
 use bytes::Bytes;
 use http::Uri;
-use image::{imageops::FilterType as ImageFilterType, GenericImageView};
+use image::{imageops::FilterType as ImageFilterType, DynamicImage, GenericImageView, ImageFormat};
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use reqwest::multipart::{Form, Part};
@@ -1226,6 +1226,10 @@ async fn download_files<'a>(
     Ok(ret)
 }
 
+macro_rules! workaround_rustfmt_bug {
+    (trying) => {"photo #{} bytes size exceeds the limit, try scaling down with ratio {} from {},{} to {},{}, now the binary size is {}, attempt {}"};
+    (giving_up) => {"photo #{} bytes size still exceeds the limit after 10 iterations of scaling down, giving up"};
+}
 fn media_into_part(i: usize, bytes: Bytes, is_photo: bool) -> anyhow::Result<Part> {
     let part = if is_photo {
         let image_reader = image::ImageReader::new(Cursor::new(&bytes))
@@ -1233,35 +1237,86 @@ fn media_into_part(i: usize, bytes: Bytes, is_photo: bool) -> anyhow::Result<Par
             .map_err(|err| anyhow!("failed to guess format for downloaded image: {err}"))?;
 
         let format = image_reader.format();
-        let mut image = image_reader
+        let image = image_reader
             .decode()
             .map_err(|err| anyhow!("failed to decode downloaded image: {err}"))?;
-        let (width, height) = image.dimensions();
 
-        // Based on my testing, the // actual limit is <=10001 :)
-        const LIMIT: u32 = 10000;
+        fn adjust_dimensions(i: usize, mut image: DynamicImage) -> DynamicImage {
+            // Based on my testing, the actual limit is <=10001 :)
+            const LIMIT: u32 = 10000;
 
-        let total = width + height;
-        if total > LIMIT {
-            // Scaledown
-            let ratio = (width as f64 / total as f64, height as f64 / total as f64);
-            let new = (
-                (LIMIT as f64 * ratio.0).floor() as u32,
-                (LIMIT as f64 * ratio.1).floor() as u32,
-            );
-            warn!(
-                "photo #{i} dimensions {width},{height} exceeds the limit, scale down to {},{}",
-                new.0, new.1
-            );
+            let (width, height) = image.dimensions();
+            let total = width + height;
+            if total > LIMIT {
+                // Scaledown
+                let ratio = (width as f64 / total as f64, height as f64 / total as f64);
+                let new = (
+                    (LIMIT as f64 * ratio.0).floor() as u32,
+                    (LIMIT as f64 * ratio.1).floor() as u32,
+                );
+                warn!(
+                    "photo #{i} dimensions {width},{height} exceeds the limit, scale down to {},{}",
+                    new.0, new.1
+                );
 
-            image = image.resize(new.0, new.1, ImageFilterType::Lanczos3);
-
-            let mut bytes: Vec<u8> = Vec::new();
-            image.write_to(&mut Cursor::new(&mut bytes), format.unwrap())?;
-            Part::stream(bytes)
-        } else {
-            Part::stream(bytes)
+                image = image.resize(new.0, new.1, ImageFilterType::Lanczos3);
+            }
+            image
         }
+
+        fn adjust_filesize(
+            i: usize,
+            image: DynamicImage,
+            format: Option<ImageFormat>,
+        ) -> anyhow::Result<Vec<u8>> {
+            // https://github.com/tdlib/td/blob/1e75ca0ce40b9bae36ed3eb7b676fcad1bbbdc0a/td/telegram/files/FileLoaderUtils.cpp#L338-L340
+            const LIMIT: usize = 1024 * 1024 * 10; // 10 MB
+
+            let image_bytes = |image: &DynamicImage| -> anyhow::Result<Vec<u8>> {
+                let mut bytes: Vec<u8> = Vec::new();
+                image.write_to(&mut Cursor::new(&mut bytes), format.unwrap())?;
+                Ok(bytes)
+            };
+
+            let bytes = image_bytes(&image)?;
+            if bytes.len() <= LIMIT {
+                return Ok(bytes);
+            }
+            warn!(
+                "photo #{i} bytes size {} exceeds the limit, try reencoding without scaling down",
+                bytes.len()
+            );
+
+            for attempt in 0..10 {
+                let ratio = 1. - 0.1 * attempt as f64;
+                let (width, height) = image.dimensions();
+                let new = (
+                    (width as f64 * ratio).floor() as u32,
+                    (height as f64 * ratio).floor() as u32,
+                );
+
+                let image = image.resize(new.0, new.1, ImageFilterType::Lanczos3);
+                let bytes = image_bytes(&image)?;
+
+                warn!(
+                    workaround_rustfmt_bug!(trying),
+                    i,
+                    ratio,
+                    width,
+                    height,
+                    new.0,
+                    new.1,
+                    bytes.len(),
+                    attempt + 1
+                );
+                if bytes.len() <= LIMIT {
+                    return Ok(bytes);
+                }
+            }
+            bail!(workaround_rustfmt_bug!(giving_up), i)
+        }
+
+        Part::stream(adjust_filesize(i, adjust_dimensions(i, image), format)?)
     } else {
         Part::stream(bytes)
     }
