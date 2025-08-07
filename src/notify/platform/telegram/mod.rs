@@ -105,7 +105,7 @@ impl fmt::Display for ConfigParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "telegram:{}", self.chat)?;
         if let Some(thread_id) = self.thread_id {
-            write!(f, ":({})", thread_id)?;
+            write!(f, ":({thread_id})")?;
         }
         Ok(())
     }
@@ -168,8 +168,8 @@ impl ConfigChat {
 impl fmt::Display for ConfigChat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ConfigChat::Id(id) => write!(f, "{}", id),
-            ConfigChat::Username(username) => write!(f, "@{}", username),
+            ConfigChat::Id(id) => write!(f, "{id}"),
+            ConfigChat::Username(username) => write!(f, "@{username}"),
         }
     }
 }

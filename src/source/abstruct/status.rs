@@ -130,8 +130,8 @@ pub enum StatusKind {
 impl fmt::Display for StatusKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Live(live_status) => write!(f, "{}", live_status),
-            Self::Posts(posts) => write!(f, "{}", posts),
+            Self::Live(live_status) => write!(f, "{live_status}"),
+            Self::Posts(posts) => write!(f, "{posts}"),
         }
     }
 }

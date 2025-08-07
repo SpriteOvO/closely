@@ -806,7 +806,7 @@ async fn fetch_space(user_id: u64) -> anyhow::Result<(u32, String)> {
     // email. This project is not intended to be a bad thing, just for personal use.
     //
     tab.set_user_agent(&prop::UserAgent::Mocked.as_str(), None, None)?;
-    tab.navigate_to(&format!("https://space.bilibili.com/{}/dynamic", user_id))?;
+    tab.navigate_to(&format!("https://space.bilibili.com/{user_id}/dynamic"))?;
     tab.wait_until_navigated()?;
 
     let mut body_res = body_res.lock().unwrap();

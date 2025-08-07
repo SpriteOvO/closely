@@ -31,7 +31,7 @@ impl fmt::Display for NotificationKind<'_> {
             Self::LiveTitle(live_status, old_title) => {
                 write!(f, "{live_status}, old title '{old_title}'")
             }
-            Self::Posts(posts) => write!(f, "{}", posts),
+            Self::Posts(posts) => write!(f, "{posts}"),
             Self::Log(message) => write!(f, "log '{message}'"),
             Self::Playback(playback) => write!(f, "{playback}"),
             Self::Document(document) => write!(f, "{document}"),
