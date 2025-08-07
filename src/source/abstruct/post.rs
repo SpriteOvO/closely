@@ -22,24 +22,28 @@ impl Post {
         PostPlatformUniqueId(self.urls.major().unique_id().into())
     }
 
+    pub fn attachments(&self, include_inlined: bool) -> impl Iterator<Item = &PostAttachment> {
+        self.attachments
+            .iter()
+            .chain(self.content.parts().filter_map(move |content| {
+                if !include_inlined {
+                    return None;
+                }
+                if let PostContentPart::InlineAttachment(attachment) = content {
+                    Some(attachment)
+                } else {
+                    None
+                }
+            }))
+    }
+
     pub fn attachments_recursive(&self, include_inlined: bool) -> Vec<&PostAttachment> {
         if let Some(RepostFrom::Recursion(repost_from)) = &self.repost_from {
-            self.attachments
-                .iter()
-                .chain(self.content.parts().filter_map(|content| {
-                    if !include_inlined {
-                        return None;
-                    }
-                    if let PostContentPart::InlineAttachment(attachment) = content {
-                        Some(attachment)
-                    } else {
-                        None
-                    }
-                }))
+            self.attachments(include_inlined)
                 .chain(repost_from.attachments_recursive(include_inlined))
                 .collect()
         } else {
-            self.attachments.iter().collect()
+            self.attachments(include_inlined).collect()
         }
     }
 

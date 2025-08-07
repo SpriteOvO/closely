@@ -156,21 +156,31 @@ impl Message {
 pub struct MessageBuilder(Message);
 
 impl MessageBuilder {
-    pub fn text(mut self, text: impl Into<String>) -> Self {
+    pub fn ref_text(&mut self, text: impl Into<String>) -> &mut Self {
         self.0 .0.push(MessageSegment::Text(MessageSegmentText {
             text: text.into(),
         }));
         self
     }
 
-    pub fn image(mut self, file: impl Into<String>) -> Self {
+    pub fn text(mut self, text: impl Into<String>) -> Self {
+        self.ref_text(text);
+        self
+    }
+
+    pub fn ref_image(&mut self, file: impl Into<String>) -> &mut Self {
         self.0 .0.push(MessageSegment::Image(MessageSegmentImage {
             file: file.into(),
         }));
         self
     }
 
-    pub fn images(mut self, files: impl IntoIterator<Item = impl Into<String>>) -> Self {
+    pub fn image(mut self, file: impl Into<String>) -> Self {
+        self.ref_image(file);
+        self
+    }
+
+    pub fn ref_images(&mut self, files: impl IntoIterator<Item = impl Into<String>>) -> &mut Self {
         files.into_iter().for_each(|file| {
             self.0 .0.push(MessageSegment::Image(MessageSegmentImage {
                 file: file.into(),
@@ -179,9 +189,14 @@ impl MessageBuilder {
         self
     }
 
-    pub fn mention(mut self, user_id: u64, newline: bool) -> Self {
+    pub fn images(mut self, files: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.ref_images(files);
+        self
+    }
+
+    pub fn ref_mention(&mut self, user_id: u64, newline: bool) -> &mut Self {
         if newline {
-            self = self.text("\n");
+            self.ref_text("\n");
         }
         self.0
              .0
@@ -189,19 +204,38 @@ impl MessageBuilder {
         self
     }
 
-    pub fn mention_all(mut self, newline: bool) -> Self {
+    pub fn mention(mut self, user_id: u64, newline: bool) -> Self {
+        self.ref_mention(user_id, newline);
+        self
+    }
+
+    pub fn ref_mention_all(&mut self, newline: bool) -> &mut Self {
         if newline {
-            self = self.text("\n");
+            self.ref_text("\n");
         }
         self.0 .0.push(MessageSegment::At(MessageSegmentAt::All));
         self
     }
 
-    pub fn mention_all_if(self, cond: bool, newline: bool) -> Self {
+    pub fn mention_all(mut self, newline: bool) -> Self {
+        self.ref_mention_all(newline);
+        self
+    }
+
+    pub fn ref_mention_all_if(&mut self, cond: bool, newline: bool) -> &mut Self {
         if cond {
-            return self.mention_all(newline);
+            self.ref_mention_all(newline);
         }
         self
+    }
+
+    pub fn mention_all_if(mut self, cond: bool, newline: bool) -> Self {
+        self.ref_mention_all_if(cond, newline);
+        self
+    }
+
+    pub fn ref_build(&self) -> Message {
+        self.0.clone()
     }
 
     pub fn build(self) -> Message {

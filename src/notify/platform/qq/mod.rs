@@ -1,12 +1,6 @@
 pub mod lagrange;
 
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    fmt::{self, Write},
-    future::Future,
-    pin::Pin,
-};
+use std::{borrow::Cow, collections::HashMap, fmt, future::Future, pin::Pin};
 
 use anyhow::{anyhow, ensure};
 use serde::Deserialize;
@@ -14,7 +8,7 @@ use spdlog::prelude::*;
 
 use crate::{
     config::{self, Config},
-    notify::NotifierTrait,
+    notify::{platform::qq::lagrange::MessageBuilder, NotifierTrait},
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         LiveStatus, LiveStatusKind, Notification, NotificationKind, Post, PostAttachment, PostsRef,
@@ -263,60 +257,60 @@ impl Notifier {
     }
 
     async fn notify_post(&self, post: &Post, source: &StatusSource) -> anyhow::Result<()> {
-        let mut content = String::new();
+        let mut builder = lagrange::Message::builder();
+        builder.ref_text(format!("[{}] ", source.platform.display_name));
 
-        write!(content, "[{}] ", source.platform.display_name)?;
+        fn append_media<'a>(
+            builder: &mut MessageBuilder,
+            attachments: impl Iterator<Item = &'a PostAttachment>,
+        ) {
+            builder.ref_images(attachments.filter_map(|attachment| match attachment {
+                PostAttachment::Image(image) => Some(image.media_url.as_str()),
+                PostAttachment::Video(_) => None, // TODO: Handle videos
+            }));
+        }
 
         match &post.repost_from {
             Some(RepostFrom::Recursion(repost_from)) => {
                 if !post.content.is_empty() {
-                    write!(content, "💬 ")?;
+                    builder.ref_text("💬 ");
                     if self.params.notifications.author_name {
-                        write!(content, "{}: ", post.user.nickname)?;
+                        builder.ref_text(format!("{}: ", post.user.nickname));
                     }
-                    writeln!(content, "{}\n", post.content.fallback())?;
+                    append_media(&mut builder, post.attachments(false));
+                    builder.ref_text(post.content.fallback());
+                    builder.ref_text("\n\n");
                 }
 
-                content.write_str("🔁 ")?;
-                write!(
-                    content,
-                    "{}: {}",
-                    repost_from.user.nickname,
-                    repost_from.content.fallback()
-                )?;
+                builder.ref_text("🔁 ");
+                builder.ref_text(format!("{}: ", repost_from.user.nickname));
+                append_media(&mut builder, repost_from.attachments(false));
+                builder.ref_text(repost_from.content.fallback());
             }
             None => {
                 if self.params.notifications.author_name {
-                    write!(content, "{}: ", post.user.nickname)?;
+                    builder.ref_text(format!("{}: ", post.user.nickname));
                 }
-                content.write_str(&post.content.fallback())?
+                append_media(&mut builder, post.attachments(false));
+                builder.ref_text(post.content.fallback());
             }
         }
-        content.write_str("\n")?;
+        builder.ref_text("\n");
         for url in post
             .urls_recursive()
             .into_iter()
             .filter_map(|url| url.as_clickable())
         {
-            write!(content, "\n{}: {}", url.display, url.url)?;
+            builder.ref_text(format!("\n{}: {}", url.display, url.url));
         }
 
-        let images = post
-            .attachments_recursive(true)
-            .into_iter()
-            .filter_map(|attachment| match attachment {
-                PostAttachment::Image(image) => Some(image.media_url.as_str()),
-                PostAttachment::Video(_) => None, // TODO: Handle videos
-            });
-
-        let message = lagrange::Message::builder()
-            .images(images)
-            .text(content)
-            .mention_all_if(self.params.mention_all, true)
-            .build();
-
         self.backend
-            .send_message(&self.params.chat, message)
+            .send_message(
+                &self.params.chat,
+                builder
+                    .mention_all_if(self.params.mention_all, true)
+                    .build(),
+            )
             .await?;
 
         Ok(())
