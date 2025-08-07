@@ -62,7 +62,7 @@ macro_rules! secret_enum {
                                 Self::$field(_) => Ok(()),
                                 Self::[<$field Env>](key) => match std::env::var(key) {
                                     Ok(_) => Ok(()),
-                                    Err(err) => bail!("{err} ({key})"),
+                                    Err(err) => anyhow::bail!("{err} ({key})"),
                                 },
                             }
                         }

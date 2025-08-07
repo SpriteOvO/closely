@@ -7,7 +7,7 @@ use serde::Deserialize;
 use spdlog::prelude::*;
 
 use crate::{
-    config::{self, Config},
+    config::{self, Accessor, Config, Validator},
     notify::{platform::qq::lagrange::MessageBuilder, NotifierTrait},
     platform::{PlatformMetadata, PlatformTrait},
     source::{
@@ -18,11 +18,14 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigGlobal {
-    pub account: HashMap<String, ConfigAccount>,
+    pub account: HashMap<String, Accessor<ConfigAccount>>,
 }
 
 impl config::Validator for ConfigGlobal {
     fn validate(&self) -> anyhow::Result<()> {
+        for backend in self.account.values() {
+            backend.validate()?;
+        }
         Ok(())
     }
 }
@@ -30,6 +33,13 @@ impl config::Validator for ConfigGlobal {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigAccount {
     pub lagrange: lagrange::ConfigLagrange,
+}
+
+impl Validator for ConfigAccount {
+    fn validate(&self) -> anyhow::Result<()> {
+        self.lagrange.validate()?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

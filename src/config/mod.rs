@@ -342,7 +342,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                 platform: Accessor::new(PlatformGlobal {
                     qq: Accessor::new(Some(notify::platform::qq::ConfigGlobal {
                         account: HashMap::from_iter([
-                            ("MyQQ".into(), notify::platform::qq::ConfigAccount {
+                            ("MyQQ".into(), Accessor::new(notify::platform::qq::ConfigAccount {
                                 lagrange: notify::platform::qq::lagrange::ConfigLagrange {
                                     remote_http: notify::platform::qq::lagrange::RemoteHttp {
                                         host: "localhost".into(),
@@ -350,7 +350,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                     },
                                     access_token: None,
                                 }
-                            })
+                            }))
                         ])
                     })),
                     telegram: Accessor::new(Some(notify::platform::telegram::ConfigGlobal {

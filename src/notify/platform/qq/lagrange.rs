@@ -6,7 +6,10 @@ use serde_json::{self as json, json};
 use tokio::time::timeout;
 
 use super::ConfigChat;
-use crate::helper;
+use crate::{
+    config::{AsSecretRef, Validator},
+    helper, secret_enum,
+};
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct RemoteHttp {
@@ -17,7 +20,26 @@ pub struct RemoteHttp {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigLagrange {
     pub remote_http: RemoteHttp,
-    pub access_token: Option<String>,
+    #[serde(flatten)]
+    pub access_token: Option<ConfigAccessToken>,
+}
+
+impl Validator for ConfigLagrange {
+    fn validate(&self) -> anyhow::Result<()> {
+        // TODO: Validate remote_http
+        if let Some(access_token) = &self.access_token {
+            access_token.validate()?;
+        }
+        Ok(())
+    }
+}
+
+secret_enum! {
+    #[derive(Clone, Debug, PartialEq, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ConfigAccessToken {
+        AccessToken(String),
+    }
 }
 
 pub struct LagrangeOnebot<'a> {
@@ -52,7 +74,7 @@ impl<'a> LagrangeOnebot<'a> {
                 ))
                 .json(&arguments.unwrap_or(json::Value::Null));
             if let Some(access_token) = self.config.access_token.as_ref() {
-                resp = resp.bearer_auth(access_token);
+                resp = resp.bearer_auth(access_token.as_secret_ref().get_str()?);
             }
             let resp = resp.send().await?;
 
