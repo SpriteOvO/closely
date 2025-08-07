@@ -1,12 +1,13 @@
 pub mod lagrange;
 
 use std::{
+    collections::HashMap,
     fmt::{self, Write},
     future::Future,
     pin::Pin,
 };
 
-use anyhow::ensure;
+use anyhow::{anyhow, ensure};
 use serde::Deserialize;
 use spdlog::prelude::*;
 
@@ -22,7 +23,7 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigGlobal {
-    pub lagrange: lagrange::ConfigLagrange,
+    pub account: HashMap<String, ConfigAccount>,
 }
 
 impl config::Validator for ConfigGlobal {
@@ -32,18 +33,34 @@ impl config::Validator for ConfigGlobal {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ConfigAccount {
+    pub lagrange: lagrange::ConfigLagrange,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
     #[serde(default)]
     pub notifications: config::Notifications,
     #[serde(flatten)]
     pub chat: ConfigChat,
+    #[serde(default)]
+    pub mention_all: bool,
+    pub from: String,
 }
 
 impl config::Validator for ConfigParams {
     fn validate(&self) -> anyhow::Result<()> {
+        let _account = config::Config::global()
+            .platform()
+            .qq
+            .as_ref()
+            .ok_or_else(|| anyhow!("QQ in global is missing"))?
+            .account
+            .get(&self.from)
+            .ok_or_else(|| anyhow!("QQ account '{}' is not configured", self.from))?;
         ensure!(
-            config::Config::global().platform().qq.is_some(),
-            "qq in global is missing"
+            !self.mention_all || matches!(self.chat, ConfigChat::GroupId(_)),
+            "mention_all can only be enabled for group chat"
         );
         Ok(())
     }
@@ -51,7 +68,7 @@ impl config::Validator for ConfigParams {
 
 impl fmt::Display for ConfigParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QQ:{}", self.chat)?;
+        write!(f, "QQ:{},as={}", self.chat, self.from)?;
         Ok(())
     }
 }
@@ -62,6 +79,8 @@ pub struct ConfigOverride {
     pub notifications: Option<config::NotificationsOverride>,
     #[serde(flatten)]
     pub chat: Option<ConfigChat>,
+    pub mention_all: Option<bool>,
+    pub from: Option<String>,
 }
 
 impl config::Overridable for ConfigParams {
@@ -77,6 +96,8 @@ impl config::Overridable for ConfigParams {
                 None => self.notifications,
             },
             chat: new.chat.unwrap_or(self.chat),
+            mention_all: new.mention_all.unwrap_or(self.mention_all),
+            from: new.from.unwrap_or(self.from),
         }
     }
 }
@@ -120,7 +141,15 @@ impl NotifierTrait for Notifier {
 impl Notifier {
     pub fn new(params: config::Accessor<ConfigParams>) -> Self {
         let lagrange = lagrange::LagrangeOnebot::new(
-            &Config::global().platform().qq.as_ref().unwrap().lagrange,
+            &Config::global()
+                .platform()
+                .qq
+                .as_ref()
+                .unwrap()
+                .account
+                .get(&params.from)
+                .unwrap()
+                .lagrange,
         );
         Self {
             params,
@@ -163,6 +192,7 @@ impl Notifier {
                     "[{}] 🟢 {}\n{}",
                     source.platform.display_name, live_status.title, live_status.live_url
                 ))
+                .mention_all_if(self.params.mention_all, true)
                 .build();
 
             self.backend
@@ -183,10 +213,13 @@ impl Notifier {
             return Ok(());
         }
 
-        let message = lagrange::Message::text(format!(
-            "[{}] ✏️ {}",
-            source.platform.display_name, live_status.title
-        ));
+        let message = lagrange::Message::builder()
+            .text(format!(
+                "[{}] ✏️ {}",
+                source.platform.display_name, live_status.title
+            ))
+            .mention_all_if(self.params.mention_all, true)
+            .build();
 
         self.backend
             .send_message(&self.params.chat, message)
@@ -261,6 +294,7 @@ impl Notifier {
         let message = lagrange::Message::builder()
             .images(images)
             .text(content)
+            .mention_all_if(self.params.mention_all, true)
             .build();
 
         self.backend
@@ -276,7 +310,10 @@ impl Notifier {
             return Ok(());
         }
 
-        let message = lagrange::Message::text(message);
+        let message = lagrange::Message::builder()
+            .text(message)
+            .mention_all_if(self.params.mention_all, true)
+            .build();
 
         self.backend
             .send_message(&self.params.chat, message)

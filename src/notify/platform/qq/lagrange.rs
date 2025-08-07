@@ -1,7 +1,7 @@
-use std::{fmt::Debug, time::Duration};
+use std::{borrow::Cow, fmt::Debug, time::Duration};
 
 use anyhow::{anyhow, ensure};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, ser::SerializeStruct, Deserialize, Serialize, Serializer};
 use serde_json::{self as json, json};
 use tokio::time::timeout;
 
@@ -9,9 +9,14 @@ use super::ConfigChat;
 use crate::helper;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct RemoteHttp {
+    pub host: String,
+    pub port: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigLagrange {
-    pub http_host: String,
-    pub http_port: u16,
+    pub remote_http: RemoteHttp,
     pub access_token: Option<String>,
 }
 
@@ -43,7 +48,7 @@ impl<'a> LagrangeOnebot<'a> {
             let mut resp = helper::reqwest_client()?
                 .post(format!(
                     "http://{}:{}/{method}",
-                    self.config.http_host, self.config.http_port
+                    self.config.remote_http.host, self.config.remote_http.port
                 ))
                 .json(&arguments.unwrap_or(json::Value::Null));
             if let Some(access_token) = self.config.access_token.as_ref() {
@@ -174,6 +179,31 @@ impl MessageBuilder {
         self
     }
 
+    pub fn mention(mut self, user_id: u64, newline: bool) -> Self {
+        if newline {
+            self = self.text("\n");
+        }
+        self.0
+             .0
+            .push(MessageSegment::At(MessageSegmentAt::UserId(user_id)));
+        self
+    }
+
+    pub fn mention_all(mut self, newline: bool) -> Self {
+        if newline {
+            self = self.text("\n");
+        }
+        self.0 .0.push(MessageSegment::At(MessageSegmentAt::All));
+        self
+    }
+
+    pub fn mention_all_if(self, cond: bool, newline: bool) -> Self {
+        if cond {
+            return self.mention_all(newline);
+        }
+        self
+    }
+
     pub fn build(self) -> Message {
         self.0
     }
@@ -184,6 +214,7 @@ impl MessageBuilder {
 enum MessageSegment {
     Text(MessageSegmentText),
     Image(MessageSegmentImage),
+    At(MessageSegmentAt),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -194,4 +225,22 @@ struct MessageSegmentText {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 struct MessageSegmentImage {
     file: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum MessageSegmentAt {
+    UserId(u64),
+    All,
+}
+
+impl Serialize for MessageSegmentAt {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let value = match self {
+            Self::UserId(id) => Cow::Owned(id.to_string()),
+            Self::All => Cow::Borrowed("all"),
+        };
+        let mut at = serializer.serialize_struct("MessageSegmentAt", 1)?;
+        at.serialize_field("qq", &value)?;
+        at.end()
+    }
 }

@@ -288,8 +288,8 @@ mod tests {
 interval = '1min'
 reporter = { log = { notify = ["meow"] }, heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
 
-[platform.QQ]
-lagrange = { http_host = "localhost", http_port = 8000 }
+[platform.QQ.account.MyQQ]
+lagrange = { remote_http = { host = "localhost", port = 8000 } }
 
 [platform.Telegram]
 token = "ttt"
@@ -334,11 +334,17 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                 })),
                 platform: Accessor::new(PlatformGlobal {
                     qq: Accessor::new(Some(notify::platform::qq::ConfigGlobal {
-                        lagrange: notify::platform::qq::lagrange::ConfigLagrange {
-                            http_host: "localhost".into(),
-                            http_port: 8000,
-                            access_token: None,
-                        }
+                        account: HashMap::from_iter([
+                            ("MyQQ".into(), notify::platform::qq::ConfigAccount {
+                                lagrange: notify::platform::qq::lagrange::ConfigLagrange {
+                                    remote_http: notify::platform::qq::lagrange::RemoteHttp {
+                                        host: "localhost".into(),
+                                        port: 8000,
+                                    },
+                                    access_token: None,
+                                }
+                            })
+                        ])
                     })),
                     telegram: Accessor::new(Some(notify::platform::telegram::ConfigGlobal {
                         token: Some(notify::platform::telegram::ConfigToken::with_raw("ttt")),
