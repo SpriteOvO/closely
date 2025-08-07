@@ -32,6 +32,3 @@ warp = "0.3.7"
 
 [build-dependencies]
 shadow-rs = "0.38.0"
-
-[features]
-qq = []

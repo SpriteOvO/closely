@@ -15,7 +15,6 @@ pub trait NotifierTrait: PlatformTrait {
 
 pub fn notifier(params: config::Accessor<platform::Config>) -> Box<dyn NotifierTrait> {
     match params.into_inner() {
-        #[cfg(feature = "qq")]
         platform::Config::Qq(p) => Box::new(platform::qq::Notifier::new(p)),
         platform::Config::Telegram(p) => Box::new(platform::telegram::Notifier::new(p)),
     }

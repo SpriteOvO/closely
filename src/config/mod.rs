@@ -140,7 +140,6 @@ impl Validator for Config {
 
 #[derive(Clone, Debug, PartialEq, Default, Deserialize)]
 pub struct PlatformGlobal {
-    #[cfg(feature = "qq")]
     #[serde(rename = "QQ")]
     pub qq: Accessor<Option<notify::platform::qq::ConfigGlobal>>,
     #[serde(rename = "Telegram")]
@@ -153,7 +152,6 @@ pub struct PlatformGlobal {
 
 impl Validator for PlatformGlobal {
     fn validate(&self) -> anyhow::Result<()> {
-        #[cfg(feature = "qq")]
         self.qq.validate()?;
         self.telegram.validate()?;
         self.twitter.validate()?;

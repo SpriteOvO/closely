@@ -1,4 +1,3 @@
-#[cfg(feature = "qq")]
 pub mod qq;
 pub mod telegram;
 
@@ -12,7 +11,6 @@ use crate::config::{self, Overridable};
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(tag = "platform")]
 pub enum Config {
-    #[cfg(feature = "qq")]
     #[serde(rename = "QQ")]
     Qq(config::Accessor<qq::ConfigParams>),
     Telegram(config::Accessor<telegram::ConfigParams>),
@@ -21,7 +19,6 @@ pub enum Config {
 impl config::Validator for Config {
     fn validate(&self) -> anyhow::Result<()> {
         match self {
-            #[cfg(feature = "qq")]
             Self::Qq(p) => p.validate(),
             Self::Telegram(p) => p.validate(),
         }
@@ -35,7 +32,6 @@ impl Config {
         Self: Sized,
     {
         match self {
-            #[cfg(feature = "qq")]
             Self::Qq(n) => {
                 let new: <qq::ConfigParams as config::Overridable>::Override = new.try_into()?;
                 Ok(Self::Qq(config::Accessor::new_then_validate(
@@ -56,7 +52,6 @@ impl Config {
 impl fmt::Display for Config {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            #[cfg(feature = "qq")]
             Self::Qq(p) => write!(f, "{p}"),
             Self::Telegram(p) => write!(f, "{p}"),
         }
