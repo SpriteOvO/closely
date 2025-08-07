@@ -151,7 +151,7 @@ mod data {
             Self {
                 nickname: user.legacy.name,
                 profile_url: format!("https://x.com/{}", user.legacy.screen_name),
-                avatar_url: user.legacy.profile_image_url_https,
+                avatar_url: Some(user.legacy.profile_image_url_https),
             }
         }
     }
@@ -632,7 +632,7 @@ fn parse_tweet(tweet: data::Tweet) -> anyhow::Result<Post> {
         .contains(&tweet.rest_id);
 
     Ok(Post {
-        user: Some(tweet.core.user_results.result.into()),
+        user: tweet.core.user_results.result.into(),
         content: PostContent::plain(content.unwrap_or_else(|| "".into())),
         urls,
         time,

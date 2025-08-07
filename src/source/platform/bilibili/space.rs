@@ -117,12 +117,12 @@ mod data {
                 ModuleAuthor::Normal(normal) => Self {
                     nickname: normal.name,
                     profile_url: format!("https://space.bilibili.com/{}", normal.mid),
-                    avatar_url: normal.face,
+                    avatar_url: Some(normal.face),
                 },
                 ModuleAuthor::Pgc(pgc) => Self {
                     nickname: pgc.name,
                     profile_url: format!("https://bangumi.bilibili.com/anime/{}", pgc.mid),
-                    avatar_url: pgc.face,
+                    avatar_url: Some(pgc.face),
                 },
             }
         }
@@ -652,7 +652,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
             .is_some_and(|tag| tag.text == "置顶");
 
         Ok(Post {
-            user: Some(item.modules.author.clone().into()),
+            user: item.modules.author.clone().into(),
             content,
             urls: PostUrls::new(url),
             time,

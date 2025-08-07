@@ -1,6 +1,7 @@
 pub mod lagrange;
 
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fmt::{self, Write},
     future::Future,
@@ -189,8 +190,15 @@ impl Notifier {
             let message = lagrange::Message::builder()
                 .image(&live_status.cover_image_url)
                 .text(format!(
-                    "[{}] 🟢 {}\n{}",
-                    source.platform.display_name, live_status.title, live_status.live_url
+                    "[{}] 🟢 {}{}\n{}",
+                    source.platform.display_name,
+                    if self.params.notifications.author_name {
+                        Cow::Owned(format!("[{}] ", live_status.streamer_name))
+                    } else {
+                        Cow::Borrowed("")
+                    },
+                    live_status.title,
+                    live_status.live_url
                 ))
                 .mention_all_if(self.params.mention_all, true)
                 .build();
@@ -215,8 +223,14 @@ impl Notifier {
 
         let message = lagrange::Message::builder()
             .text(format!(
-                "[{}] ✏️ {}",
-                source.platform.display_name, live_status.title
+                "[{}] ✏️ {}{}",
+                source.platform.display_name,
+                if self.params.notifications.author_name {
+                    Cow::Owned(format!("[{}] ", live_status.streamer_name))
+                } else {
+                    Cow::Borrowed("")
+                },
+                live_status.title
             ))
             .mention_all_if(self.params.mention_all, true)
             .build();
@@ -256,23 +270,27 @@ impl Notifier {
         match &post.repost_from {
             Some(RepostFrom::Recursion(repost_from)) => {
                 if !post.content.is_empty() {
-                    writeln!(content, "💬 {}\n", post.content.fallback())?;
+                    write!(content, "💬 ")?;
+                    if self.params.notifications.author_name {
+                        write!(content, "{}: ", post.user.nickname)?;
+                    }
+                    writeln!(content, "{}\n", post.content.fallback())?;
                 }
 
                 content.write_str("🔁 ")?;
-
-                if let Some(user) = &repost_from.user {
-                    write!(
-                        content,
-                        "{}: {}",
-                        user.nickname,
-                        repost_from.content.fallback()
-                    )?;
-                } else {
-                    write!(content, "{}", repost_from.content.fallback())?;
-                }
+                write!(
+                    content,
+                    "{}: {}",
+                    repost_from.user.nickname,
+                    repost_from.content.fallback()
+                )?;
             }
-            None => content.write_str(&post.content.fallback())?,
+            None => {
+                if self.params.notifications.author_name {
+                    write!(content, "{}: ", post.user.nickname)?;
+                }
+                content.write_str(&post.content.fallback())?
+            }
         }
         content.write_str("\n")?;
         for url in post

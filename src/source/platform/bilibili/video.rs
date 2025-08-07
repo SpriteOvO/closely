@@ -11,7 +11,7 @@ use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostContent, PostUrl, Posts,
-        Status, StatusKind, StatusSource,
+        Status, StatusKind, StatusSource, User,
     },
 };
 
@@ -123,10 +123,10 @@ async fn fetch_series_archives(user_id: u64, series_id: u64) -> anyhow::Result<P
         .map_err(|err| anyhow!("failed to deserialize response: {err}, text: {text}"))?;
     ensure!(resp.code == 0, "response code is not 0. text: {text}");
 
-    parse_response(resp.data.unwrap())
+    parse_response(user_id, resp.data.unwrap())
 }
 
-fn parse_response(resp: data::SeriesArchives) -> anyhow::Result<Posts> {
+fn parse_response(mid: u64, resp: data::SeriesArchives) -> anyhow::Result<Posts> {
     let videos = resp
         .archives
         .into_iter()
@@ -135,7 +135,12 @@ fn parse_response(resp: data::SeriesArchives) -> anyhow::Result<Posts> {
                 .ok_or_else(|| anyhow!("invalid ctime {}, aid={}", archive.ctime, archive.aid))?
                 .into();
             Ok(Post {
-                user: None,
+                // TODO: FIXME
+                user: User {
+                    nickname: format!("mid={mid}"),
+                    profile_url: format!("https://space.bilibili.com/{mid}"),
+                    avatar_url: None,
+                },
                 content: PostContent::plain(archive.title),
                 urls: PostUrl::new_clickable(
                     format!("https://www.bilibili.com/video/{}", archive.bvid),

@@ -277,7 +277,13 @@ impl Notifier {
         let title_history = VecDeque::from([live_status.title.clone()]);
         let start_time = start_time.unwrap_or_else(SystemTime::now);
 
-        let text = make_live_text(&title_history, live_status, source, start_time);
+        let text = make_live_text(
+            self.params.notifications.author_name,
+            &title_history,
+            live_status,
+            source,
+            start_time,
+        );
         let link_preview = LinkPreviewOwned::Above(live_status.cover_image_url.clone());
         let resp = Request::new(&token)
             .send_message(&self.params.chat, text)
@@ -313,6 +319,7 @@ impl Notifier {
             let token = self.token()?;
 
             let text = make_live_text(
+                self.params.notifications.author_name,
                 &current_live.title_history,
                 live_status,
                 source,
@@ -359,8 +366,14 @@ impl Notifier {
 
         let text = Text::link(
             format!(
-                "[{}] ✏️ {}",
-                source.platform.display_name, live_status.title
+                "[{}] ✏️ {}{}",
+                source.platform.display_name,
+                if self.params.notifications.author_name {
+                    Cow::Owned(format!("[{}] ", live_status.streamer_name))
+                } else {
+                    Cow::Borrowed("")
+                },
+                live_status.title
             ),
             &live_status.live_url,
         );
@@ -396,6 +409,7 @@ impl Notifier {
                 .push_front(live_status.title.clone());
 
             let text = make_live_text(
+                self.params.notifications.author_name,
                 &current_live.title_history,
                 live_status,
                 source,
@@ -451,6 +465,10 @@ impl Notifier {
             Some(RepostFrom::Recursion(repost_from)) => {
                 if !post.content.is_empty() {
                     text.push_plain("💬 ");
+                    if self.params.notifications.author_name {
+                        text.push_link(&post.user.nickname, &post.user.profile_url);
+                        text.push_plain(": ");
+                    }
                     text.push_content(&post.content);
                     text.push_plain("\n");
                 }
@@ -458,22 +476,26 @@ impl Notifier {
                 text.push_quote(|text| {
                     text.push_plain("🔁 ");
 
-                    if let Some(user) = &repost_from.user {
-                        // In order for Telegram to display more relevant information about the
-                        // post, we don't use `profile_url` here
-                        //
-                        // &repost_from.user.profile_url,
-                        if let PostUrl::Clickable(url) = &repost_from.urls_recursive().major() {
-                            text.push_link(&user.nickname, &url.url);
-                        } else {
-                            text.push_plain(&user.nickname);
-                        }
-                        text.push_plain(": ");
+                    // In order for Telegram to display more relevant information about the
+                    // post, we don't use `profile_url` here
+                    //
+                    // &repost_from.user.profile_url,
+                    if let PostUrl::Clickable(url) = &repost_from.urls_recursive().major() {
+                        text.push_link(&repost_from.user.nickname, &url.url);
+                    } else {
+                        text.push_plain(&repost_from.user.nickname);
                     }
+                    text.push_plain(": ");
                     text.push_content(&repost_from.content);
                 });
             }
-            None => text.push_content(&post.content),
+            None => {
+                if self.params.notifications.author_name {
+                    text.push_link(&post.user.nickname, &post.user.profile_url);
+                    text.push_plain(": ");
+                }
+                text.push_content(&post.content)
+            }
         }
 
         const DISABLE_NOTIFICATION: bool = true; // TODO: Make it configurable
@@ -648,7 +670,12 @@ impl Notifier {
         let resp = Request::new(&token)
             .send_message(
                 &self.params.chat,
-                make_file_text(FileUploadStage::PlaybackUploading, &playback.file, source),
+                make_file_text(
+                    self.params.notifications.author_name,
+                    FileUploadStage::PlaybackUploading,
+                    &playback.file,
+                    source,
+                ),
             )
             .thread_id_opt(self.params.thread_id)
             .link_preview(LinkPreview::Disabled)
@@ -682,6 +709,7 @@ impl Notifier {
                     }),
                 )
                 .text(make_file_text(
+                    self.params.notifications.author_name,
                     FileUploadStage::PlaybackFinished,
                     &playback.file,
                     source,
@@ -712,7 +740,12 @@ impl Notifier {
                     .edit_message_text(
                         &self.params.chat,
                         message_id,
-                        make_file_text(FileUploadStage::PlaybackFailed, &playback.file, source),
+                        make_file_text(
+                            self.params.notifications.author_name,
+                            FileUploadStage::PlaybackFailed,
+                            &playback.file,
+                            source,
+                        ),
                     )
                     .send()
                     .await;
@@ -751,6 +784,7 @@ impl Notifier {
                 },
             )
             .text(make_file_text(
+                self.params.notifications.author_name,
                 FileUploadStage::MetadataFinished,
                 &document.file,
                 source,
@@ -772,18 +806,24 @@ impl Notifier {
 }
 
 fn make_live_text<'a>(
+    author_name: bool,
     title_history: impl IntoIterator<Item = &'a String>,
     live_status: &'a LiveStatus,
     source: &StatusSource,
     start_time: SystemTime,
 ) -> Text<'a> {
     let text = format!(
-        "[{}]{} {}{}",
+        "[{}] {} {}{}{}",
         source.platform.display_name,
         match live_status.kind {
-            LiveStatusKind::Online { start_time: _ } => " 🟢",
-            LiveStatusKind::Offline => " 🟠",
-            LiveStatusKind::Banned => " 🔴",
+            LiveStatusKind::Online { start_time: _ } => "🟢",
+            LiveStatusKind::Offline => "🟠",
+            LiveStatusKind::Banned => "🔴",
+        },
+        if author_name {
+            Cow::Owned(format!("[{}] ", live_status.streamer_name))
+        } else {
+            Cow::Borrowed("")
         },
         itertools::join(title_history, " ⬅️ "),
         if live_status.kind == LiveStatusKind::Offline || live_status.kind == LiveStatusKind::Banned
@@ -808,6 +848,7 @@ enum FileUploadStage {
 }
 
 fn make_file_text<'a>(
+    _author_name: bool,
     stage: FileUploadStage,
     file: &FileRef<'a>,
     source: &'a StatusSource,
@@ -818,6 +859,7 @@ fn make_file_text<'a>(
         FileUploadStage::PlaybackFailed => "❌",
         FileUploadStage::MetadataFinished => "📊",
     };
+    // TODO: Append author_name
     let mut text = Text::plain(format!(
         "[{}] {emoji} {}",
         source.platform.display_name, file.name,

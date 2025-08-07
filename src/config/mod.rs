@@ -178,6 +178,7 @@ pub struct SubscriptionRef<'a> {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Notifications {
+    // Toggles
     #[serde(default = "helper::refl_bool::<true>")]
     pub live_online: bool,
     #[serde(default = "helper::refl_bool::<false>")]
@@ -190,6 +191,10 @@ pub struct Notifications {
     pub playback: bool,
     #[serde(default = "helper::refl_bool::<true>")]
     pub document: bool,
+
+    // Options
+    #[serde(default = "helper::refl_bool::<false>")]
+    pub author_name: bool,
 }
 
 serde_impl_default_for!(Notifications);
@@ -208,6 +213,7 @@ impl Overridable for Notifications {
             log: new.log.unwrap_or(self.log),
             playback: new.playback.unwrap_or(self.playback),
             document: new.document.unwrap_or(self.document),
+            author_name: new.author_name.unwrap_or(self.author_name),
         }
     }
 }
@@ -220,6 +226,7 @@ pub struct NotificationsOverride {
     pub log: Option<bool>,
     pub playback: Option<bool>,
     pub document: Option<bool>,
+    pub author_name: Option<bool>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -385,7 +392,8 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                 post: false,
                                 log: true,
                                 playback: true,
-                                document: true
+                                document: true,
+                                author_name: false,
                             },
                             chat: notify::platform::telegram::ConfigChat::Id(5678),
                             thread_id: Some(900),

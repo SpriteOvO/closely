@@ -8,7 +8,7 @@ pub struct PostPlatformUniqueId(String);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Post {
-    pub user: Option<User>,
+    pub user: User,
     pub content: PostContent,
     pub(in crate::source) urls: PostUrls,
     pub time: DateTime<Local>,
@@ -227,7 +227,7 @@ pub enum PostContentPart {
 pub struct User {
     pub nickname: String,
     pub profile_url: String,
-    pub avatar_url: String,
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

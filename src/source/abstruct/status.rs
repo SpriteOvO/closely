@@ -143,6 +143,14 @@ mod tests {
     use super::*;
     use crate::source::*;
 
+    fn mock_user() -> User {
+        User {
+            nickname: "mock_user".into(),
+            profile_url: "https://example.com/mock_user".into(),
+            avatar_url: Some("https://example.com/mock_user/avatar.png".into()),
+        }
+    }
+
     #[test]
     fn status_incremental_update_live() {
         let mut status = Status::empty();
@@ -198,7 +206,7 @@ mod tests {
 
         let new = Status::new(
             StatusKind::Posts(Posts(vec![Post {
-                user: None,
+                user: mock_user(),
                 content: PostContent::plain("content1"),
                 urls: PostUrls::new(PostUrl::Identity("id1".into())),
                 time: DateTime::UNIX_EPOCH.into(),
@@ -222,7 +230,7 @@ mod tests {
         status.update_incrementally(Status::new(
             StatusKind::Posts(Posts(vec![
                 Post {
-                    user: None,
+                    user: mock_user(),
                     content: PostContent::plain("content1"),
                     urls: PostUrls::new(PostUrl::Identity("id1".into())),
                     time: DateTime::UNIX_EPOCH.into(),
@@ -231,7 +239,7 @@ mod tests {
                     attachments: vec![],
                 },
                 Post {
-                    user: None,
+                    user: mock_user(),
                     content: PostContent::plain("content2"),
                     urls: PostUrls::new(PostUrl::Identity("id2".into())),
                     time: DateTime::UNIX_EPOCH.into(),
@@ -250,7 +258,7 @@ mod tests {
         let last = Status::new(
             StatusKind::Posts(Posts(vec![
                 Post {
-                    user: None,
+                    user: mock_user(),
                     content: PostContent::plain("content1"),
                     urls: PostUrls::new(PostUrl::Identity("id1".into())),
                     time: DateTime::UNIX_EPOCH.into(),
@@ -259,7 +267,7 @@ mod tests {
                     attachments: vec![],
                 },
                 Post {
-                    user: None,
+                    user: mock_user(),
                     content: PostContent::plain("content2"),
                     urls: PostUrls::new(PostUrl::Identity("id2".into())),
                     time: DateTime::UNIX_EPOCH.into(),
@@ -293,7 +301,7 @@ mod tests {
 
         status.update_incrementally(Status::new(
             StatusKind::Posts(Posts(vec![Post {
-                user: None,
+                user: mock_user(),
                 content: PostContent::plain("content3"),
                 urls: PostUrls::new(PostUrl::Identity("id3".into())),
                 time: DateTime::UNIX_EPOCH.into(),
@@ -314,7 +322,7 @@ mod tests {
         let last = Status::new(
             StatusKind::Posts(Posts(vec![
                 Post {
-                    user: None,
+                    user: mock_user(),
                     content: PostContent::plain("content1"),
                     urls: PostUrls::new(PostUrl::Identity("id1".into())),
                     time: DateTime::UNIX_EPOCH.into(),
@@ -323,7 +331,7 @@ mod tests {
                     attachments: vec![],
                 },
                 Post {
-                    user: None,
+                    user: mock_user(),
                     content: PostContent::plain("content2"),
                     urls: PostUrls::new(PostUrl::Identity("id2".into())),
                     time: DateTime::UNIX_EPOCH.into(),
@@ -332,7 +340,7 @@ mod tests {
                     attachments: vec![],
                 },
                 Post {
-                    user: None,
+                    user: mock_user(),
                     content: PostContent::plain("content3"),
                     urls: PostUrls::new(PostUrl::Identity("id3".into())),
                     time: DateTime::UNIX_EPOCH.into(),
@@ -386,7 +394,7 @@ mod tests {
 
         status.update_incrementally(Status::new(
             StatusKind::Posts(Posts(vec![Post {
-                user: None,
+                user: mock_user(),
                 content: PostContent::plain("content1"),
                 urls: PostUrls::new(PostUrl::Identity("id1".into())),
                 time: DateTime::UNIX_EPOCH.into(),
