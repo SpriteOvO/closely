@@ -1,4 +1,4 @@
-use std::{fmt, slice, vec};
+use std::{borrow::Cow, fmt, slice, vec};
 
 use anyhow::ensure;
 use chrono::{DateTime, Local};
@@ -169,11 +169,15 @@ impl PostContent {
         self.0
             .iter()
             .map(|part| match part {
-                PostContentPart::Plain(text) => text.as_str(),
-                PostContentPart::Link { url, .. } => url.as_str(),
+                PostContentPart::Plain(text) => Cow::Borrowed(text.as_str()),
+                PostContentPart::Link { display, url } => Cow::Owned(format!("[{display}]({url})")),
                 PostContentPart::InlineAttachment(attachment) => match attachment {
-                    PostAttachment::Image(attachment) => attachment.media_url.as_str(),
-                    PostAttachment::Video(attachment) => attachment.media_url.as_str(),
+                    PostAttachment::Image(attachment) => {
+                        Cow::Borrowed(attachment.media_url.as_str())
+                    }
+                    PostAttachment::Video(attachment) => {
+                        Cow::Borrowed(attachment.media_url.as_str())
+                    }
                 },
             })
             .collect::<String>()
