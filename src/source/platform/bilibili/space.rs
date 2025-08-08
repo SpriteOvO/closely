@@ -366,6 +366,10 @@ mod data {
                     display: node.text.clone(),
                     url: jump_url.clone(),
                 },
+                RichTextNodeKind::OgvEp { jump_url, rid } => PostContentPart::Link {
+                    display: rid.clone(),
+                    url: jump_url.clone(),
+                },
                 // We treat these nodes as plain text
                 RichTextNodeKind::Emoji { .. }
                 | RichTextNodeKind::Lottery { .. }
@@ -413,6 +417,17 @@ mod data {
         Goods { jump_url: String },
         #[serde(rename = "RICH_TEXT_NODE_TYPE_VOTE")]
         Vote,
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_OGV_EP")]
+        OgvEp {
+            jump_url: String,
+            // FIXME: This is strange. Our return results do not contain `text` field, but it is
+            // contained in the real browser. I have checked that the request parameters and
+            // User-Agent are consistent with the real browser. As a workaround, we use the `rid`
+            // field for display.
+            //
+            // text: String
+            rid: String,
+        },
         #[serde(untagged)]
         Unknown(json::Value),
     }
