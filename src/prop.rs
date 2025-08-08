@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use const_format::formatcp;
-use rand::distributions::{Alphanumeric, DistString};
+use rand::distr::{Alphanumeric, SampleString};
 
 pub struct Package {
     pub name: &'static str,
@@ -31,7 +31,7 @@ impl UserAgent {
             Self::LogoDynamic => Cow::Owned(format!(
                 "{} {})",
                 Self::Logo.as_str().strip_suffix(')').unwrap(),
-                Alphanumeric.sample_string(&mut rand::thread_rng(), 8)
+                Alphanumeric.sample_string(&mut rand::rng(), 8)
             )),
             Self::Mocked => Cow::Borrowed(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0",
