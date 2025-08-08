@@ -633,7 +633,9 @@ fn parse_tweet(tweet: data::Tweet) -> anyhow::Result<Post> {
 
     Ok(Post {
         user: tweet.core.user_results.result.into(),
-        content: PostContent::plain(content.unwrap_or_else(|| "".into())),
+        content: PostContent::plain(
+            content.unwrap_or_else(|| if repost_from.is_some() { "Retweet" } else { "" }.into()),
+        ),
         urls,
         time,
         is_pinned,
