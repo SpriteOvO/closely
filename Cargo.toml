@@ -32,3 +32,6 @@ warp = { version = "0.4.1", features = ["server"] }
 
 [build-dependencies]
 shadow-rs = "1.2.1"
+
+[dev-dependencies]
+parking_lot = "0.12.4"
