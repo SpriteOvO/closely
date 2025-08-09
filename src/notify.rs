@@ -5,7 +5,7 @@ use serde::Deserialize;
 use spdlog::prelude::*;
 
 use crate::{
-    config::{self, Overridable},
+    config::{Accessor, Overridable, Validator},
     platform::*,
     source::Notification,
 };
@@ -14,11 +14,11 @@ use crate::{
 #[serde(tag = "platform")]
 pub enum NotifierConfig {
     #[serde(rename = "QQ")]
-    Qq(config::Accessor<qq::notify::ConfigParams>),
-    Telegram(config::Accessor<telegram::notify::ConfigParams>),
+    Qq(Accessor<qq::notify::ConfigParams>),
+    Telegram(Accessor<telegram::notify::ConfigParams>),
 }
 
-impl config::Validator for NotifierConfig {
+impl Validator for NotifierConfig {
     fn validate(&self) -> anyhow::Result<()> {
         match self {
             Self::Qq(p) => p.validate(),
@@ -35,16 +35,15 @@ impl NotifierConfig {
     {
         match self {
             Self::Qq(n) => {
-                let new: <qq::notify::ConfigParams as config::Overridable>::Override =
-                    new.try_into()?;
-                Ok(Self::Qq(config::Accessor::new_then_validate(
+                let new: <qq::notify::ConfigParams as Overridable>::Override = new.try_into()?;
+                Ok(Self::Qq(Accessor::new_then_validate(
                     n.into_inner().override_into(new),
                 )?))
             }
             Self::Telegram(n) => {
-                let new: <telegram::notify::ConfigParams as config::Overridable>::Override =
+                let new: <telegram::notify::ConfigParams as Overridable>::Override =
                     new.try_into()?;
-                Ok(Self::Telegram(config::Accessor::new_then_validate(
+                Ok(Self::Telegram(Accessor::new_then_validate(
                     n.into_inner().override_into(new),
                 )?))
             }
@@ -68,7 +67,7 @@ pub trait NotifierTrait: PlatformTrait {
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>>;
 }
 
-pub fn notifier(params: config::Accessor<NotifierConfig>) -> Box<dyn NotifierTrait> {
+pub fn notifier(params: Accessor<NotifierConfig>) -> Box<dyn NotifierTrait> {
     match params.into_inner() {
         NotifierConfig::Qq(p) => Box::new(qq::notify::Notifier::new(p)),
         NotifierConfig::Telegram(p) => Box::new(telegram::notify::Notifier::new(p)),

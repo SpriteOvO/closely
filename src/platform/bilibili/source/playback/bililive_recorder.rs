@@ -16,7 +16,7 @@ use warp::Filter;
 
 use super::PLATFORM_METADATA;
 use crate::{
-    config,
+    config::{Accessor, Validator},
     source::{Document, Playback, PlaybackFormat, StatusSource, Update, UpdateKind},
 };
 
@@ -26,7 +26,7 @@ pub struct ConfigBililiveRecorder {
     pub working_directory: PathBuf,
 }
 
-impl config::Validator for ConfigBililiveRecorder {
+impl Validator for ConfigBililiveRecorder {
     fn validate(&self) -> anyhow::Result<()> {
         self.listen_webhook.to_addr()?;
         Ok(())
@@ -51,13 +51,13 @@ impl ConfigListen {
 }
 
 pub struct BililiveRecorder {
-    config: config::Accessor<ConfigBililiveRecorder>,
+    config: Accessor<ConfigBililiveRecorder>,
     senders: Arc<Mutex<HashMap<u64, mpsc::Sender<Update>>>>,
     is_listening: Mutex<bool>,
 }
 
 impl BililiveRecorder {
-    pub fn new(config: config::Accessor<ConfigBililiveRecorder>) -> Self {
+    pub fn new(config: Accessor<ConfigBililiveRecorder>) -> Self {
         Self {
             config,
             senders: Arc::new(Mutex::new(HashMap::new())),

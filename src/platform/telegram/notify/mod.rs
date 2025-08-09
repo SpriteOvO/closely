@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 
 use super::{ConfigChat, ConfigToken};
 use crate::{
-    config::{self, AsSecretRef, Config},
+    config::{self, Accessor, AsSecretRef, Config, Overridable, Validator},
     helper,
     notify::NotifierTrait,
     platform::{PlatformMetadata, PlatformTrait},
@@ -40,11 +40,11 @@ pub struct ConfigParams {
     pub token: Option<ConfigToken>,
 }
 
-impl config::Validator for ConfigParams {
+impl Validator for ConfigParams {
     fn validate(&self) -> anyhow::Result<()> {
         match &self.token {
             Some(token) => token.validate(),
-            None => match config::Config::global()
+            None => match Config::global()
                 .platform()
                 .telegram
                 .as_ref()
@@ -67,7 +67,7 @@ impl fmt::Display for ConfigParams {
     }
 }
 
-impl config::Overridable for ConfigParams {
+impl Overridable for ConfigParams {
     type Override = ConfigOverride;
 
     fn override_into(self, new: Self::Override) -> Self
@@ -98,7 +98,7 @@ pub struct ConfigOverride {
 }
 
 pub struct Notifier {
-    params: config::Accessor<ConfigParams>,
+    params: Accessor<ConfigParams>,
     current_live: Mutex<Option<CurrentLive>>,
 }
 
@@ -120,7 +120,7 @@ impl NotifierTrait for Notifier {
 }
 
 impl Notifier {
-    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
+    pub fn new(params: Accessor<ConfigParams>) -> Self {
         Self {
             params,
             current_live: Mutex::new(None),

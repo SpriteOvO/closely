@@ -5,7 +5,7 @@ use tokio::{sync::mpsc, time::MissedTickBehavior};
 
 use super::Task;
 use crate::{
-    config,
+    config::Accessor,
     notify::{notifier, notify, NotifierConfig, NotifierTrait},
     source::{sourcer, FetcherTrait, Notification, SourceConfig, Sourcer, Status, Update},
 };
@@ -21,8 +21,8 @@ impl TaskSubscription {
     pub fn new(
         name: String,
         interval: Duration,
-        notify: Vec<config::Accessor<NotifierConfig>>,
-        source_platform: &config::Accessor<SourceConfig>,
+        notify: Vec<Accessor<NotifierConfig>>,
+        source_platform: &Accessor<SourceConfig>,
     ) -> Self {
         Self {
             name,

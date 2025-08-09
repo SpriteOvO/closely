@@ -3,14 +3,17 @@ pub mod source;
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use serde::Deserialize;
 
-use crate::{config, helper, prop};
+use crate::{
+    config::{Accessor, Validator},
+    helper, prop,
+};
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigGlobal {
-    pub playback: config::Accessor<Option<source::playback::ConfigGlobal>>,
+    pub playback: Accessor<Option<source::playback::ConfigGlobal>>,
 }
 
-impl config::Validator for ConfigGlobal {
+impl Validator for ConfigGlobal {
     fn validate(&self) -> anyhow::Result<()> {
         self.playback.validate()?;
         Ok(())

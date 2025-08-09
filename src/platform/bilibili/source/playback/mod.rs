@@ -10,17 +10,17 @@ use spdlog::prelude::*;
 use tokio::sync::mpsc;
 
 use crate::{
-    config,
+    config::{Accessor, Config, Validator},
     platform::{PlatformMetadata, PlatformTrait},
     source::{ListenerTrait, Update},
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigGlobal {
-    pub bililive_recorder: config::Accessor<ConfigBililiveRecorder>,
+    pub bililive_recorder: Accessor<ConfigBililiveRecorder>,
 }
 
-impl config::Validator for ConfigGlobal {
+impl Validator for ConfigGlobal {
     fn validate(&self) -> anyhow::Result<()> {
         self.bililive_recorder.validate()?;
         Ok(())
@@ -32,9 +32,9 @@ pub struct ConfigParams {
     pub room_id: u64,
 }
 
-impl config::Validator for ConfigParams {
+impl Validator for ConfigParams {
     fn validate(&self) -> anyhow::Result<()> {
-        config::Config::global()
+        Config::global()
             .platform()
             .bilibili
             .as_ref()
@@ -56,7 +56,7 @@ const PLATFORM_METADATA: PlatformMetadata = PlatformMetadata {
 
 static BACKEND: Lazy<BililiveRecorder> = Lazy::new(|| {
     BililiveRecorder::new(
-        config::Config::global()
+        Config::global()
             .platform()
             .bilibili
             .as_ref()
@@ -70,7 +70,7 @@ static BACKEND: Lazy<BililiveRecorder> = Lazy::new(|| {
 });
 
 pub struct Listener {
-    params: config::Accessor<ConfigParams>,
+    params: Accessor<ConfigParams>,
 }
 
 impl PlatformTrait for Listener {
@@ -95,7 +95,7 @@ impl fmt::Display for Listener {
 }
 
 impl Listener {
-    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
+    pub fn new(params: Accessor<ConfigParams>) -> Self {
         Self { params }
     }
 

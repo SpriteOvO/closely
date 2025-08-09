@@ -7,7 +7,7 @@ use serde_json as json;
 
 use super::super::{bilibili_request_builder, upgrade_to_https, Response};
 use crate::{
-    config,
+    config::{Accessor, Validator},
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostContent, PostUrl, Posts,
@@ -21,7 +21,7 @@ pub struct ConfigParams {
     pub series_id: u64,
 }
 
-impl config::Validator for ConfigParams {
+impl Validator for ConfigParams {
     fn validate(&self) -> anyhow::Result<()> {
         Ok(())
     }
@@ -58,7 +58,7 @@ mod data {
 }
 
 pub struct Fetcher {
-    params: config::Accessor<ConfigParams>,
+    params: Accessor<ConfigParams>,
 }
 
 impl PlatformTrait for Fetcher {
@@ -82,7 +82,7 @@ impl fmt::Display for Fetcher {
 }
 
 impl Fetcher {
-    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
+    pub fn new(params: Accessor<ConfigParams>) -> Self {
         Self { params }
     }
 

@@ -7,25 +7,28 @@ pub use abstruct::*;
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
-use crate::{config, platform::*};
+use crate::{
+    config::{Accessor, Validator},
+    platform::*,
+};
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(tag = "name")]
 #[allow(clippy::enum_variant_names)]
 pub enum SourceConfig {
     #[serde(rename = "bilibili.live")]
-    BilibiliLive(config::Accessor<bilibili::source::live::ConfigParams>),
+    BilibiliLive(Accessor<bilibili::source::live::ConfigParams>),
     #[serde(rename = "bilibili.space")]
-    BilibiliSpace(config::Accessor<bilibili::source::space::ConfigParams>),
+    BilibiliSpace(Accessor<bilibili::source::space::ConfigParams>),
     #[serde(rename = "bilibili.video")]
-    BilibiliVideo(config::Accessor<bilibili::source::video::ConfigParams>),
+    BilibiliVideo(Accessor<bilibili::source::video::ConfigParams>),
     #[serde(rename = "bilibili.playback")]
-    BilibiliPlayback(config::Accessor<bilibili::source::playback::ConfigParams>),
+    BilibiliPlayback(Accessor<bilibili::source::playback::ConfigParams>),
     #[serde(rename = "Twitter")]
-    Twitter(config::Accessor<twitter::source::ConfigParams>),
+    Twitter(Accessor<twitter::source::ConfigParams>),
 }
 
-impl config::Validator for SourceConfig {
+impl Validator for SourceConfig {
     fn validate(&self) -> anyhow::Result<()> {
         match self {
             Self::BilibiliLive(p) => p.validate(),
@@ -78,7 +81,7 @@ impl Sourcer {
     }
 }
 
-pub fn sourcer(platform: &config::Accessor<SourceConfig>) -> Sourcer {
+pub fn sourcer(platform: &Accessor<SourceConfig>) -> Sourcer {
     match &**platform {
         SourceConfig::BilibiliLive(p) => {
             Sourcer::new_fetcher(bilibili::source::live::Fetcher::new(p.clone()))
