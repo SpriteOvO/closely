@@ -6,7 +6,7 @@ use spdlog::prelude::*;
 
 use super::{lagrange, ConfigChat};
 use crate::{
-    config::{self, Config},
+    config::{self, Accessor, Config, Overridable, Validator},
     notify::NotifierTrait,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
@@ -26,9 +26,9 @@ pub struct ConfigParams {
     pub from: String,
 }
 
-impl config::Validator for ConfigParams {
+impl Validator for ConfigParams {
     fn validate(&self) -> anyhow::Result<()> {
-        let _account = config::Config::global()
+        let _account = Config::global()
             .platform()
             .qq
             .as_ref()
@@ -61,7 +61,7 @@ pub struct ConfigOverride {
     pub from: Option<String>,
 }
 
-impl config::Overridable for ConfigParams {
+impl Overridable for ConfigParams {
     type Override = ConfigOverride;
 
     fn override_into(self, new: Self::Override) -> Self
@@ -81,7 +81,7 @@ impl config::Overridable for ConfigParams {
 }
 
 pub struct Notifier {
-    params: config::Accessor<ConfigParams>,
+    params: Accessor<ConfigParams>,
     backend: lagrange::LagrangeOnebot<'static>,
 }
 
@@ -101,7 +101,7 @@ impl NotifierTrait for Notifier {
 }
 
 impl Notifier {
-    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
+    pub fn new(params: Accessor<ConfigParams>) -> Self {
         let lagrange = lagrange::LagrangeOnebot::new(
             &Config::global()
                 .platform()

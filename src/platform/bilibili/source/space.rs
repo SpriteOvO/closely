@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 
 use super::super::{upgrade_to_https, Response};
 use crate::{
-    config,
+    config::{Accessor, Validator},
     platform::{PlatformMetadata, PlatformTrait},
     prop,
     source::{
@@ -30,7 +30,7 @@ pub struct ConfigParams {
     pub user_id: u64,
 }
 
-impl config::Validator for ConfigParams {
+impl Validator for ConfigParams {
     fn validate(&self) -> anyhow::Result<()> {
         Ok(())
     }
@@ -451,7 +451,7 @@ mod data {
 }
 
 pub struct Fetcher {
-    params: config::Accessor<ConfigParams>,
+    params: Accessor<ConfigParams>,
     // We cache all blocked posts and filter them again later, because the API sometimes
     // incorrectly returns fans-only posts for guests, this leads us to incorrectly assume that
     // these are new normal posts.
@@ -479,7 +479,7 @@ impl fmt::Display for Fetcher {
 }
 
 impl Fetcher {
-    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
+    pub fn new(params: Accessor<ConfigParams>) -> Self {
         Self {
             params,
             blocked: Mutex::new(BlockedPostIds(HashSet::new())),

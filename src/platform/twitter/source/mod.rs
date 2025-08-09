@@ -15,7 +15,7 @@ use tokio::sync::Mutex;
 
 use super::request::{TwitterCookies, TwitterRequester};
 use crate::{
-    config::{self, AsSecretRef, Config},
+    config::{Accessor, AsSecretRef, Config, Validator},
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostAttachmentVideo, PostContent,
@@ -29,9 +29,9 @@ pub struct ConfigParams {
     pub username: String,
 }
 
-impl config::Validator for ConfigParams {
+impl Validator for ConfigParams {
     fn validate(&self) -> anyhow::Result<()> {
-        match &*config::Config::global().platform().twitter {
+        match &*Config::global().platform().twitter {
             Some(global_twitter) => {
                 TwitterCookies::new(global_twitter.auth.as_secret_ref().get_str()?)?;
                 Ok(())
@@ -326,7 +326,7 @@ mod data {
 //
 
 pub struct Fetcher {
-    params: config::Accessor<ConfigParams>,
+    params: Accessor<ConfigParams>,
     inner: FetcherInner,
 }
 
@@ -351,7 +351,7 @@ impl fmt::Display for Fetcher {
 }
 
 impl Fetcher {
-    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
+    pub fn new(params: Accessor<ConfigParams>) -> Self {
         let cookies = Config::global()
             .platform()
             .twitter

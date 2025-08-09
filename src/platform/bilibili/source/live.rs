@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 
 use super::super::{bilibili_request_builder, upgrade_to_https, Response};
 use crate::{
-    config,
+    config::{Accessor, Validator},
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, LiveStatus, LiveStatusKind, Status, StatusKind, StatusSource,
@@ -27,7 +27,7 @@ pub struct ConfigParams {
     pub user_id: u64,
 }
 
-impl config::Validator for ConfigParams {
+impl Validator for ConfigParams {
     fn validate(&self) -> anyhow::Result<()> {
         Ok(())
     }
@@ -60,7 +60,7 @@ struct ResponseDataRoom {
 }
 
 pub struct Fetcher {
-    params: config::Accessor<ConfigParams>,
+    params: Accessor<ConfigParams>,
     room_data_cache: Mutex<Option<ResponseDataRoom>>,
 }
 
@@ -85,7 +85,7 @@ impl fmt::Display for Fetcher {
 }
 
 impl Fetcher {
-    pub fn new(params: config::Accessor<ConfigParams>) -> Self {
+    pub fn new(params: Accessor<ConfigParams>) -> Self {
         Self {
             params,
             room_data_cache: Mutex::new(None),

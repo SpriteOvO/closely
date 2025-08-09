@@ -13,18 +13,19 @@ use spdlog::{
 };
 
 use crate::{
-    config, notify,
+    config::{self, Accessor, Config, Validator},
+    notify,
     platform::PlatformMetadata,
     source::{Notification, NotificationKind, StatusSource},
 };
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct ConfigReporterRaw {
-    pub(crate) log: config::Accessor<Option<ConfigReporterLog>>,
-    pub(crate) heartbeat: config::Accessor<Option<ConfigHeartbeat>>,
+    pub(crate) log: Accessor<Option<ConfigReporterLog>>,
+    pub(crate) heartbeat: Accessor<Option<ConfigHeartbeat>>,
 }
 
-impl config::Validator for ConfigReporterRaw {
+impl Validator for ConfigReporterRaw {
     fn validate(&self) -> anyhow::Result<()> {
         self.log.validate()?;
         self.heartbeat.validate()?;
@@ -53,11 +54,11 @@ pub struct ConfigReporterLog {
     pub(crate) notify_ref: Vec<config::NotifyRef>,
 }
 
-impl config::Validator for ConfigReporterLog {
+impl Validator for ConfigReporterLog {
     fn validate(&self) -> anyhow::Result<()> {
         self.notify_ref
             .iter()
-            .map(|notify_ref| config::Config::global().notify_map().get_by_ref(notify_ref))
+            .map(|notify_ref| Config::global().notify_map().get_by_ref(notify_ref))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(())
     }
@@ -90,7 +91,7 @@ pub struct ConfigHeartbeat {
     pub interval: Duration,
 }
 
-impl config::Validator for ConfigHeartbeat {
+impl Validator for ConfigHeartbeat {
     fn validate(&self) -> anyhow::Result<()> {
         match &self.kind {
             ConfigHeartbeatKind::HttpGet(http_get) => _ = Url::parse(&http_get.url)?,
@@ -117,7 +118,7 @@ impl ConfigHeartbeatHttpGet {
 }
 
 pub struct ReporterParams {
-    pub heartbeat: config::Accessor<Option<ConfigHeartbeat>>,
+    pub heartbeat: Accessor<Option<ConfigHeartbeat>>,
 }
 
 // TODO: Make it configurable
@@ -132,7 +133,7 @@ struct TelegramNotifySink {
 }
 
 impl TelegramNotifySink {
-    fn new(notify: Vec<config::Accessor<notify::NotifierConfig>>) -> Self {
+    fn new(notify: Vec<Accessor<notify::NotifierConfig>>) -> Self {
         Self {
             rt: tokio::runtime::Handle::current(),
             source: StatusSource {
