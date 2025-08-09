@@ -10,11 +10,11 @@ pub struct PostPlatformUniqueId(String);
 pub struct Post {
     pub user: User,
     pub content: PostContent,
-    pub(in crate::source) urls: PostUrls,
+    pub(crate) urls: PostUrls,
     pub time: DateTime<Local>,
     pub is_pinned: bool,
     pub repost_from: Option<RepostFrom>,
-    pub(in crate::source) attachments: Vec<PostAttachment>,
+    pub(crate) attachments: Vec<PostAttachment>,
 }
 
 impl Post {
@@ -274,7 +274,7 @@ impl PartialEq for PostAttachmentVideo {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Posts(pub(in crate::source) Vec<Post>);
+pub struct Posts(pub(crate) Vec<Post>);
 
 impl fmt::Display for Posts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

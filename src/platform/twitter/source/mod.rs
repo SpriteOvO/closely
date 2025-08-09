@@ -1,5 +1,3 @@
-mod request;
-
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     fmt,
@@ -11,41 +9,20 @@ use std::{
 use anyhow::{anyhow, bail};
 use chrono::DateTime;
 use once_cell::sync::Lazy;
-use request::*;
 use serde::Deserialize;
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
 
+use super::request::{TwitterCookies, TwitterRequester};
 use crate::{
     config::{self, AsSecretRef, Config},
     platform::{PlatformMetadata, PlatformTrait},
-    secret_enum,
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostAttachmentVideo, PostContent,
         PostUrl, PostUrlClickable, PostUrls, Posts, RepostFrom, Status, StatusKind, StatusSource,
         User,
     },
 };
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct ConfigGlobal {
-    pub auth: ConfigCookies,
-}
-
-impl config::Validator for ConfigGlobal {
-    fn validate(&self) -> anyhow::Result<()> {
-        self.auth.validate()?;
-        Ok(())
-    }
-}
-
-secret_enum! {
-    #[derive(Clone, Debug, PartialEq, Deserialize)]
-    #[serde(rename_all = "snake_case")]
-    pub enum ConfigCookies {
-        Cookies(String),
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {

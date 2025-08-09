@@ -14,10 +14,11 @@ use serde_json::{self as json};
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
 
-use super::*;
+use super::super::{upgrade_to_https, Response};
 use crate::{
     config,
     platform::{PlatformMetadata, PlatformTrait},
+    prop,
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostContent, PostUrl, PostUrls,
         Posts, RepostFrom, Status, StatusKind, StatusSource, User,

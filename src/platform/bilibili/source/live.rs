@@ -12,7 +12,7 @@ use serde_json::{self as json, json};
 use spdlog::critical;
 use tokio::sync::Mutex;
 
-use super::*;
+use super::super::{bilibili_request_builder, upgrade_to_https, Response};
 use crate::{
     config,
     platform::{PlatformMetadata, PlatformTrait},

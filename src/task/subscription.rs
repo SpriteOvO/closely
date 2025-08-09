@@ -5,14 +5,15 @@ use tokio::{sync::mpsc, time::MissedTickBehavior};
 
 use super::Task;
 use crate::{
-    config, notify,
-    source::{self, sourcer, FetcherTrait, Sourcer, Status, Update},
+    config,
+    notify::{notifier, notify, NotifierConfig, NotifierTrait},
+    source::{sourcer, FetcherTrait, Notification, SourceConfig, Sourcer, Status, Update},
 };
 
 pub struct TaskSubscription {
     name: String,
     interval: Duration,
-    notifiers: Vec<Box<dyn notify::NotifierTrait>>,
+    notifiers: Vec<Box<dyn NotifierTrait>>,
     sourcer: Option<Sourcer>, // took when the task is running
 }
 
@@ -20,13 +21,13 @@ impl TaskSubscription {
     pub fn new(
         name: String,
         interval: Duration,
-        notify: Vec<config::Accessor<notify::platform::Config>>,
-        source_platform: &config::Accessor<source::platform::Config>,
+        notify: Vec<config::Accessor<NotifierConfig>>,
+        source_platform: &config::Accessor<SourceConfig>,
     ) -> Self {
         Self {
             name,
             interval,
-            notifiers: notify.into_iter().map(notify::notifier).collect(),
+            notifiers: notify.into_iter().map(notifier).collect(),
             sourcer: Some(sourcer(source_platform)),
         }
     }
@@ -82,7 +83,7 @@ impl TaskSubscription {
         }
     }
 
-    async fn notify(&self, notifications: Vec<source::Notification<'_>>, platform: &impl Display) {
+    async fn notify(&self, notifications: Vec<Notification<'_>>, platform: &impl Display) {
         for notification in notifications {
             info!(
                 "'{}' needs to send a notification for '{platform}': '{notification}'",
@@ -90,7 +91,7 @@ impl TaskSubscription {
             );
 
             for notifier in &self.notifiers {
-                notify::notify(&**notifier, &notification).await;
+                notify(&**notifier, &notification).await;
             }
         }
     }

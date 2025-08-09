@@ -1,7 +1,4 @@
-pub mod live;
-pub mod playback;
-pub mod space;
-pub mod video;
+pub mod source;
 
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use serde::Deserialize;
@@ -10,7 +7,7 @@ use crate::{config, helper, prop};
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigGlobal {
-    pub playback: config::Accessor<Option<playback::ConfigGlobal>>,
+    pub playback: config::Accessor<Option<source::playback::ConfigGlobal>>,
 }
 
 impl config::Validator for ConfigGlobal {

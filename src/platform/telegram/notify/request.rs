@@ -14,7 +14,7 @@ use serde::{
 use serde_json::{self as json, json};
 use spdlog::prelude::*;
 
-use super::{ConfigApiServer, ConfigChat};
+use super::super::{ConfigApiServer, ConfigChat};
 use crate::{
     config::Config,
     helper::{self, VideoResolution},

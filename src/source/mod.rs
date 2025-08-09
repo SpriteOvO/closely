@@ -1,13 +1,53 @@
 mod abstruct;
 pub mod diff;
-pub mod platform;
 
 use std::{fmt, future::Future, pin::Pin};
 
 pub use abstruct::*;
+use serde::Deserialize;
 use tokio::sync::mpsc;
 
-use crate::{config, platform::PlatformTrait};
+use crate::{config, platform::*};
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(tag = "name")]
+#[allow(clippy::enum_variant_names)]
+pub enum SourceConfig {
+    #[serde(rename = "bilibili.live")]
+    BilibiliLive(config::Accessor<bilibili::source::live::ConfigParams>),
+    #[serde(rename = "bilibili.space")]
+    BilibiliSpace(config::Accessor<bilibili::source::space::ConfigParams>),
+    #[serde(rename = "bilibili.video")]
+    BilibiliVideo(config::Accessor<bilibili::source::video::ConfigParams>),
+    #[serde(rename = "bilibili.playback")]
+    BilibiliPlayback(config::Accessor<bilibili::source::playback::ConfigParams>),
+    #[serde(rename = "Twitter")]
+    Twitter(config::Accessor<twitter::source::ConfigParams>),
+}
+
+impl config::Validator for SourceConfig {
+    fn validate(&self) -> anyhow::Result<()> {
+        match self {
+            Self::BilibiliLive(p) => p.validate(),
+            Self::BilibiliSpace(p) => p.validate(),
+            Self::BilibiliVideo(p) => p.validate(),
+            Self::BilibiliPlayback(p) => p.validate(),
+            Self::Twitter(p) => p.validate(),
+        }
+    }
+}
+
+impl fmt::Display for SourceConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BilibiliLive(p) => write!(f, "{p}"),
+            Self::BilibiliSpace(p) => write!(f, "{p}"),
+            Self::BilibiliVideo(p) => write!(f, "{p}"),
+            Self::BilibiliPlayback(p) => write!(f, "{p}"),
+            Self::Twitter(p) => write!(f, "{p}"),
+        }
+    }
+}
 
 pub trait FetcherTrait: PlatformTrait + fmt::Display {
     fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>>;
@@ -38,22 +78,20 @@ impl Sourcer {
     }
 }
 
-pub fn sourcer(platform: &config::Accessor<platform::Config>) -> Sourcer {
+pub fn sourcer(platform: &config::Accessor<SourceConfig>) -> Sourcer {
     match &**platform {
-        platform::Config::BilibiliLive(p) => {
-            Sourcer::new_fetcher(platform::bilibili::live::Fetcher::new(p.clone()))
+        SourceConfig::BilibiliLive(p) => {
+            Sourcer::new_fetcher(bilibili::source::live::Fetcher::new(p.clone()))
         }
-        platform::Config::BilibiliSpace(p) => {
-            Sourcer::new_fetcher(platform::bilibili::space::Fetcher::new(p.clone()))
+        SourceConfig::BilibiliSpace(p) => {
+            Sourcer::new_fetcher(bilibili::source::space::Fetcher::new(p.clone()))
         }
-        platform::Config::BilibiliVideo(p) => {
-            Sourcer::new_fetcher(platform::bilibili::video::Fetcher::new(p.clone()))
+        SourceConfig::BilibiliVideo(p) => {
+            Sourcer::new_fetcher(bilibili::source::video::Fetcher::new(p.clone()))
         }
-        platform::Config::BilibiliPlayback(p) => {
-            Sourcer::new_listener(platform::bilibili::playback::Listener::new(p.clone()))
+        SourceConfig::BilibiliPlayback(p) => {
+            Sourcer::new_listener(bilibili::source::playback::Listener::new(p.clone()))
         }
-        platform::Config::Twitter(p) => {
-            Sourcer::new_fetcher(platform::twitter::Fetcher::new(p.clone()))
-        }
+        SourceConfig::Twitter(p) => Sourcer::new_fetcher(twitter::source::Fetcher::new(p.clone())),
     }
 }

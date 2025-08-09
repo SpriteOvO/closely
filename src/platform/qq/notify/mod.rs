@@ -1,46 +1,19 @@
-pub mod lagrange;
-
-use std::{borrow::Cow, collections::HashMap, fmt, future::Future, pin::Pin};
+use std::{borrow::Cow, fmt, future::Future, pin::Pin};
 
 use anyhow::{anyhow, ensure};
 use serde::Deserialize;
 use spdlog::prelude::*;
 
+use super::{lagrange, ConfigChat};
 use crate::{
-    config::{self, Accessor, Config, Validator},
-    notify::{platform::qq::lagrange::MessageBuilder, NotifierTrait},
+    config::{self, Config},
+    notify::NotifierTrait,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         LiveStatus, LiveStatusKind, Notification, NotificationKind, Post, PostAttachment, PostsRef,
         RepostFrom, StatusSource,
     },
 };
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct ConfigGlobal {
-    pub account: HashMap<String, Accessor<ConfigAccount>>,
-}
-
-impl config::Validator for ConfigGlobal {
-    fn validate(&self) -> anyhow::Result<()> {
-        for backend in self.account.values() {
-            backend.validate()?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct ConfigAccount {
-    pub lagrange: lagrange::ConfigLagrange,
-}
-
-impl Validator for ConfigAccount {
-    fn validate(&self) -> anyhow::Result<()> {
-        self.lagrange.validate()?;
-        Ok(())
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
@@ -103,22 +76,6 @@ impl config::Overridable for ConfigParams {
             chat: new.chat.unwrap_or(self.chat),
             mention_all: new.mention_all.unwrap_or(self.mention_all),
             from: new.from.unwrap_or(self.from),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ConfigChat {
-    GroupId(u64),
-    UserId(u64),
-}
-
-impl fmt::Display for ConfigChat {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::GroupId(id) => write!(f, "group={id}"),
-            Self::UserId(id) => write!(f, "user={id}"),
         }
     }
 }
@@ -271,7 +228,7 @@ impl Notifier {
         builder.ref_text(format!("[{}] ", source.platform.display_name));
 
         fn append_media<'a>(
-            builder: &mut MessageBuilder,
+            builder: &mut lagrange::MessageBuilder,
             attachments: impl Iterator<Item = &'a PostAttachment>,
         ) {
             builder.ref_images(attachments.filter_map(|attachment| match attachment {
