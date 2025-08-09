@@ -6,7 +6,7 @@ use spdlog::prelude::*;
 
 use super::{lagrange, ConfigChat};
 use crate::{
-    config::{self, Accessor, Config, Overridable, Validator},
+    config::{self, Accessor, AccountRef, Config, ContextualValidator, Overridable, Validator},
     notify::NotifierTrait,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
@@ -23,19 +23,20 @@ pub struct ConfigParams {
     pub chat: ConfigChat,
     #[serde(default)]
     pub mention_all: bool,
-    pub from: String,
+    #[serde(rename = "as")]
+    pub actor: AccountRef,
 }
 
 impl Validator for ConfigParams {
     fn validate(&self) -> anyhow::Result<()> {
-        let _account = Config::global()
-            .platform()
-            .qq
-            .as_ref()
-            .ok_or_else(|| anyhow!("QQ in global is missing"))?
-            .account
-            .get(&self.from)
-            .ok_or_else(|| anyhow!("QQ account '{}' is not configured", self.from))?;
+        self.actor.validate(
+            &Config::global()
+                .platform()
+                .qq
+                .as_ref()
+                .ok_or_else(|| anyhow!("QQ in global is missing"))?
+                .account,
+        )?;
         ensure!(
             !self.mention_all || matches!(self.chat, ConfigChat::GroupId(_)),
             "mention_all can only be enabled for group chat"
@@ -46,7 +47,7 @@ impl Validator for ConfigParams {
 
 impl fmt::Display for ConfigParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QQ:{},as={}", self.chat, self.from)?;
+        write!(f, "QQ:{},as={}", self.chat, self.actor)?;
         Ok(())
     }
 }
@@ -58,7 +59,8 @@ pub struct ConfigOverride {
     #[serde(flatten)]
     pub chat: Option<ConfigChat>,
     pub mention_all: Option<bool>,
-    pub from: Option<String>,
+    #[serde(rename = "as")]
+    pub actor: Option<AccountRef>,
 }
 
 impl Overridable for ConfigParams {
@@ -75,7 +77,7 @@ impl Overridable for ConfigParams {
             },
             chat: new.chat.unwrap_or(self.chat),
             mention_all: new.mention_all.unwrap_or(self.mention_all),
-            from: new.from.unwrap_or(self.from),
+            actor: new.actor.unwrap_or(self.actor),
         }
     }
 }
@@ -109,8 +111,7 @@ impl Notifier {
                 .as_ref()
                 .unwrap()
                 .account
-                .get(&params.from)
-                .unwrap()
+                .get(&params.actor)
                 .lagrange,
         );
         Self {

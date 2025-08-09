@@ -33,22 +33,26 @@ Create a configuration file with the following example format:
 ```toml
 interval = '1min' # update interval for each subscription
 
+# setup platform global configuration
+[platform.Twitter.account.MyTwitterAccount]
+cookies = "..."
+
 [notify]
 # define a target of notifications with name `Personal`
 # notifications will be pushed to Telegram chat `@my_follows` under thread ID `114`
 Personal = { platform = "Telegram", username = "my_follows", thread_id = 114, token_env = "PERSONAL_TELEGRAM_BOT_TOKEN" }
-# define a target of notifications with name `Suzume`
-Suzume = { platform = "Telegram", id = 1145141919, token = "1234567890:AbCdEfGhiJkLmNoPq1R2s3T4u5V6w7X8y9z" }
+# define a target of notifications with name `SuzumeChannel`
+SuzumeChannel = { platform = "Telegram", id = 1145141919, token = "1234567890:AbCdEfGhiJkLmNoPq1R2s3T4u5V6w7X8y9z" }
 
 [[subscription.Suzume]] # define a subscription with name `Suzume`
 # specify the platform and parameters
 platform = { name = "bilibili.live", user_id = 6610851 }
 # reference to notify defined above, notifications will be pushed when the status changed
-notify = ["Suzume"]
+notify = ["SuzumeChannel"]
 
 [[subscription.Suzume]]
-platform = { name = "Twitter", username = "suzumiyasuzume" }
-notify = ["Suzume", "Personal"]
+platform = { name = "Twitter", username = "suzumiyasuzume", as = "MyTwitterAccount" }
+notify = ["SuzumeChannel", "Personal"]
 
 [[subscription.CookieBacon]] # define a subscription with name `CookieBacon`
 platform = { name = "bilibili.live", user_id = 14172231 }
@@ -58,7 +62,9 @@ notify = [ { to = "Personal", thread_id = 514 } ]
 ```
 
 > [!NOTE]
-> This project is in an initial development phase, this configuration may frequently undergo breaking changes in releases.
+> This project is in an initial development phase, the configuration format may frequently undergo breaking changes in releases.
+>
+> The above example is incomplete, and there is currently no documentation. Please check the code for unit tests related to configuration for more detailed usage, and [open an issue](https://github.com/SpriteOvO/closely/issues/new) if you need help.
 
 ### 2. Build and Run
 
