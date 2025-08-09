@@ -124,35 +124,51 @@ mod data {
     #[derive(Clone, Debug, PartialEq, Deserialize)]
     pub struct UserByScreenName {
         pub rest_id: String,
+        pub avatar: Avatar,
+        pub core: UserByScreenNameCore,
         pub legacy: UserByScreenNameLegacy,
+        pub location: Location,
     }
 
     impl From<UserByScreenName> for User {
         fn from(user: UserByScreenName) -> Self {
             Self {
-                nickname: user.legacy.name,
-                profile_url: format!("https://x.com/{}", user.legacy.screen_name),
-                avatar_url: Some(user.legacy.profile_image_url_https),
+                nickname: user.core.name,
+                profile_url: format!("https://x.com/{}", user.core.screen_name),
+                avatar_url: Some(user.avatar.image_url),
             }
         }
     }
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
+    pub struct UserByScreenNameCore {
+        pub created_at: String,
+        pub name: String,
+        pub screen_name: String,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Deserialize)]
+    pub struct Avatar {
+        pub image_url: String,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Deserialize)]
     pub struct UserByScreenNameLegacy {
         pub description: String,
-        pub location: String,
-        pub name: String,
         pub pinned_tweet_ids_str: Vec<String>,
         pub profile_banner_url: Option<String>,
-        pub profile_image_url_https: String, // Very small..
-        pub screen_name: String,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Deserialize)]
+    pub struct Location {
+        pub location: String,
     }
 
     //
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
     pub struct UserTweets {
-        pub timeline_v2: UserTweetsTimelineV2,
+        pub timeline: UserTweetsTimelineV2,
     }
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -431,7 +447,7 @@ impl FetcherInner {
 
         let posts = resp
             .into_inner()
-            .timeline_v2
+            .timeline
             .timeline
             .instructions
             .into_iter()
@@ -474,7 +490,7 @@ fn parse_tweet(tweet: data::Tweet) -> anyhow::Result<Post> {
     let urls = PostUrls::new(PostUrl::Clickable(PostUrlClickable {
         url: format!(
             "https://x.com/{}/status/{}",
-            tweet.core.user_results.result.legacy.screen_name, tweet.rest_id
+            tweet.core.user_results.result.core.screen_name, tweet.rest_id
         ),
         display: "View Tweet".into(),
     }));
