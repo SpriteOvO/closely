@@ -132,7 +132,7 @@ struct TelegramNotifySink {
 }
 
 impl TelegramNotifySink {
-    fn new(notify: Vec<config::Accessor<notify::platform::Config>>) -> Self {
+    fn new(notify: Vec<config::Accessor<notify::NotifierConfig>>) -> Self {
         Self {
             rt: tokio::runtime::Handle::current(),
             source: StatusSource {

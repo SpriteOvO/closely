@@ -11,9 +11,12 @@ use serde::Deserialize;
 pub use validator::*;
 
 use crate::{
-    helper, notify,
+    helper,
+    notify::NotifierConfig,
+    platform::*,
     reporter::{ConfigReporterRaw, ReporterParams},
-    serde_impl_default_for, source,
+    serde_impl_default_for,
+    source::SourceConfig,
 };
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -149,13 +152,13 @@ impl Validator for Config {
 #[derive(Clone, Debug, PartialEq, Default, Deserialize)]
 pub struct PlatformGlobal {
     #[serde(rename = "QQ")]
-    pub qq: Accessor<Option<notify::platform::qq::ConfigGlobal>>,
+    pub qq: Accessor<Option<qq::ConfigGlobal>>,
     #[serde(rename = "Telegram")]
-    pub telegram: Accessor<Option<notify::platform::telegram::ConfigGlobal>>,
+    pub telegram: Accessor<Option<telegram::ConfigGlobal>>,
     #[serde(rename = "Twitter")]
-    pub twitter: Accessor<Option<source::platform::twitter::ConfigGlobal>>,
+    pub twitter: Accessor<Option<twitter::ConfigGlobal>>,
     #[serde(rename = "bilibili")]
-    pub bilibili: Accessor<Option<source::platform::bilibili::ConfigGlobal>>,
+    pub bilibili: Accessor<Option<bilibili::ConfigGlobal>>,
 }
 
 impl Validator for PlatformGlobal {
@@ -170,7 +173,7 @@ impl Validator for PlatformGlobal {
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct SubscriptionRaw {
-    pub platform: Accessor<source::platform::Config>,
+    pub platform: Accessor<SourceConfig>,
     #[serde(default, with = "humantime_serde")]
     pub interval: Option<Duration>,
     #[serde(rename = "notify")]
@@ -179,9 +182,9 @@ pub struct SubscriptionRaw {
 
 #[derive(Debug, PartialEq)]
 pub struct SubscriptionRef<'a> {
-    pub platform: &'a Accessor<source::platform::Config>,
+    pub platform: &'a Accessor<SourceConfig>,
     pub interval: Option<Duration>,
-    pub notify: Vec<Accessor<notify::platform::Config>>,
+    pub notify: Vec<Accessor<NotifierConfig>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -259,7 +262,7 @@ impl NotifyRef {
 }
 
 #[derive(Debug, Default, PartialEq, Deserialize)]
-pub struct NotifyMap(#[serde(default)] HashMap<String, Accessor<notify::platform::Config>>);
+pub struct NotifyMap(#[serde(default)] HashMap<String, Accessor<NotifierConfig>>);
 
 impl Validator for NotifyMap {
     fn validate(&self) -> anyhow::Result<()> {
@@ -268,10 +271,7 @@ impl Validator for NotifyMap {
 }
 
 impl NotifyMap {
-    pub fn get_by_ref(
-        &self,
-        notify_ref: &NotifyRef,
-    ) -> anyhow::Result<Accessor<notify::platform::Config>> {
+    pub fn get_by_ref(&self, notify_ref: &NotifyRef) -> anyhow::Result<Accessor<NotifierConfig>> {
         let original = self
             .0
             .get(notify_ref.name())
@@ -346,11 +346,11 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                         })),
                     })),
                     platform: Accessor::new(PlatformGlobal {
-                        qq: Accessor::new(Some(notify::platform::qq::ConfigGlobal {
+                        qq: Accessor::new(Some(qq::ConfigGlobal {
                             account: HashMap::from_iter([
-                                ("MyQQ".into(), Accessor::new(notify::platform::qq::ConfigAccount {
-                                    lagrange: notify::platform::qq::lagrange::ConfigLagrange {
-                                        remote_http: notify::platform::qq::lagrange::RemoteHttp {
+                                ("MyQQ".into(), Accessor::new(qq::ConfigAccount {
+                                    lagrange: qq::lagrange::ConfigLagrange {
+                                        remote_http: qq::lagrange::RemoteHttp {
                                             host: "localhost".into(),
                                             port: 8000,
                                         },
@@ -359,18 +359,18 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                 }))
                             ])
                         })),
-                        telegram: Accessor::new(Some(notify::platform::telegram::ConfigGlobal {
-                            token: Some(notify::platform::telegram::ConfigToken::with_raw("ttt")),
+                        telegram: Accessor::new(Some(telegram::ConfigGlobal {
+                            token: Some(telegram::ConfigToken::with_raw("ttt")),
                             api_server: None,
                             experimental: Default::default()
                         })),
-                        twitter: Accessor::new(Some(source::platform::twitter::ConfigGlobal {
-                            auth: source::platform::twitter::ConfigCookies::with_raw("a=b;c=d;ct0=blah")
+                        twitter: Accessor::new(Some(twitter::ConfigGlobal {
+                            auth: twitter::ConfigCookies::with_raw("a=b;c=d;ct0=blah")
                         })),
-                        bilibili: Accessor::new(Some(source::platform::bilibili::ConfigGlobal {
-                            playback: Accessor::new(Some(source::platform::bilibili::playback::ConfigGlobal {
-                                bililive_recorder: Accessor::new(source::platform::bilibili::playback::bililive_recorder::ConfigBililiveRecorder {
-                                    listen_webhook: source::platform::bilibili::playback::bililive_recorder::ConfigListen {
+                        bilibili: Accessor::new(Some(bilibili::ConfigGlobal {
+                            playback: Accessor::new(Some(bilibili::source::playback::ConfigGlobal {
+                                bililive_recorder: Accessor::new(bilibili::source::playback::bililive_recorder::ConfigBililiveRecorder {
+                                    listen_webhook: bilibili::source::playback::bililive_recorder::ConfigListen {
                                         host: "127.0.0.1".into(),
                                         port: 8888
                                     },
@@ -382,16 +382,16 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                     notify_map: Accessor::new(NotifyMap(HashMap::from_iter([
                         (
                             "meow".into(),
-                            Accessor::new(notify::platform::Config::Telegram(Accessor::new(notify::platform::telegram::ConfigParams {
+                            Accessor::new(NotifierConfig::Telegram(Accessor::new(telegram::notify::ConfigParams {
                                 notifications: Notifications::default(),
-                                chat: notify::platform::telegram::ConfigChat::Id(1234),
+                                chat: telegram::ConfigChat::Id(1234),
                                 thread_id: Some(123),
-                                token: Some(notify::platform::telegram::ConfigToken::with_raw("xxx")),
+                                token: Some(telegram::ConfigToken::with_raw("xxx")),
                             })))
                         ),
                         (
                             "woof".into(),
-                            Accessor::new(notify::platform::Config::Telegram(Accessor::new(notify::platform::telegram::ConfigParams {
+                            Accessor::new(NotifierConfig::Telegram(Accessor::new(telegram::notify::ConfigParams {
                                 notifications: Notifications {
                                     live_online: true,
                                     live_title: false,
@@ -401,7 +401,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                     document: true,
                                     author_name: false,
                                 },
-                                chat: notify::platform::telegram::ConfigChat::Id(5678),
+                                chat: telegram::ConfigChat::Id(5678),
                                 thread_id: Some(900),
                                 token: None,
                             })))
@@ -411,15 +411,15 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                         "meow".into(),
                         vec![
                             SubscriptionRaw {
-                                platform: Accessor::new(source::platform::Config::BilibiliLive(
-                                    Accessor::new(source::platform::bilibili::live::ConfigParams { user_id: 123456 })
+                                platform: Accessor::new(SourceConfig::BilibiliLive(
+                                    Accessor::new(bilibili::source::live::ConfigParams { user_id: 123456 })
                                 )),
                                 interval: Some(Duration::from_secs(30)),
                                 notify_ref: vec![NotifyRef::Direct("meow".into())],
                             },
                             SubscriptionRaw {
-                                platform: Accessor::new(source::platform::Config::Twitter(
-                                    Accessor::new(source::platform::twitter::ConfigParams {
+                                platform: Accessor::new(SourceConfig::Twitter(
+                                    Accessor::new(twitter::source::ConfigParams {
                                         username: "meowww".into()
                                     })
                                 )),
@@ -430,8 +430,8 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                 ],
                             },
                             SubscriptionRaw {
-                                platform: Accessor::new(source::platform::Config::Twitter(
-                                    Accessor::new(source::platform::twitter::ConfigParams {
+                                platform: Accessor::new(SourceConfig::Twitter(
+                                    Accessor::new(twitter::source::ConfigParams {
                                         username: "meowww2".into()
                                     })
                                 )),
@@ -578,50 +578,36 @@ notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", notificatio
                     vec![(
                         "meow".into(),
                         SubscriptionRef {
-                            platform: &Accessor::new(source::platform::Config::BilibiliLive(
-                                Accessor::new(source::platform::bilibili::live::ConfigParams {
-                                    user_id: 123456
-                                })
-                            )),
+                            platform: &Accessor::new(SourceConfig::BilibiliLive(Accessor::new(
+                                bilibili::source::live::ConfigParams { user_id: 123456 }
+                            ))),
                             interval: None,
                             notify: vec![
-                                Accessor::new(notify::platform::Config::Telegram(Accessor::new(
-                                    notify::platform::telegram::ConfigParams {
+                                Accessor::new(NotifierConfig::Telegram(Accessor::new(
+                                    telegram::notify::ConfigParams {
                                         notifications: Notifications::default(),
-                                        chat: notify::platform::telegram::ConfigChat::Id(1234),
+                                        chat: telegram::ConfigChat::Id(1234),
                                         thread_id: Some(123),
-                                        token: Some(
-                                            notify::platform::telegram::ConfigToken::with_raw(
-                                                "xxx"
-                                            )
-                                        ),
+                                        token: Some(telegram::ConfigToken::with_raw("xxx")),
                                     }
                                 ))),
-                                Accessor::new(notify::platform::Config::Telegram(Accessor::new(
-                                    notify::platform::telegram::ConfigParams {
+                                Accessor::new(NotifierConfig::Telegram(Accessor::new(
+                                    telegram::notify::ConfigParams {
                                         notifications: Notifications::default(),
-                                        chat: notify::platform::telegram::ConfigChat::Id(5678),
+                                        chat: telegram::ConfigChat::Id(5678),
                                         thread_id: Some(114),
-                                        token: Some(
-                                            notify::platform::telegram::ConfigToken::with_raw(
-                                                "yyy"
-                                            )
-                                        ),
+                                        token: Some(telegram::ConfigToken::with_raw("yyy")),
                                     }
                                 ))),
-                                Accessor::new(notify::platform::Config::Telegram(Accessor::new(
-                                    notify::platform::telegram::ConfigParams {
+                                Accessor::new(NotifierConfig::Telegram(Accessor::new(
+                                    telegram::notify::ConfigParams {
                                         notifications: Notifications {
                                             post: false,
                                             ..Default::default()
                                         },
-                                        chat: notify::platform::telegram::ConfigChat::Id(5678),
+                                        chat: telegram::ConfigChat::Id(5678),
                                         thread_id: Some(456),
-                                        token: Some(
-                                            notify::platform::telegram::ConfigToken::with_raw(
-                                                "yyy"
-                                            )
-                                        ),
+                                        token: Some(telegram::ConfigToken::with_raw("yyy")),
                                     }
                                 )))
                             ],

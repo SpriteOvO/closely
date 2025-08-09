@@ -5,7 +5,7 @@ use chrono::DateTime;
 use serde::Deserialize;
 use serde_json as json;
 
-use super::*;
+use super::super::{bilibili_request_builder, upgrade_to_https, Response};
 use crate::{
     config,
     platform::{PlatformMetadata, PlatformTrait},
