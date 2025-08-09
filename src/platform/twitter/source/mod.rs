@@ -6,7 +6,7 @@ use std::{
     sync::Mutex as StdMutex,
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use chrono::DateTime;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
@@ -15,7 +15,7 @@ use tokio::sync::Mutex;
 
 use super::request::{TwitterCookies, TwitterRequester};
 use crate::{
-    config::{Accessor, AsSecretRef, Config, Validator},
+    config::{Accessor, AccountRef, AsSecretRef, Config, ContextualValidator, Validator},
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostAttachmentVideo, PostContent,
@@ -27,17 +27,21 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
     pub username: String,
+    #[serde(rename = "as")]
+    pub actor: AccountRef,
 }
 
 impl Validator for ConfigParams {
     fn validate(&self) -> anyhow::Result<()> {
-        match &*Config::global().platform().twitter {
-            Some(global_twitter) => {
-                TwitterCookies::new(global_twitter.auth.as_secret_ref().get_str()?)?;
-                Ok(())
-            }
-            None => bail!("cookies in global are missing"),
-        }
+        self.actor.validate(
+            &Config::global()
+                .platform()
+                .twitter
+                .as_ref()
+                .ok_or_else(|| anyhow!("Twitter in global is missing"))?
+                .account,
+        )?;
+        Ok(())
     }
 }
 
@@ -357,7 +361,8 @@ impl Fetcher {
             .twitter
             .as_ref()
             .unwrap()
-            .auth
+            .account
+            .get(&params.actor)
             .as_secret_ref()
             .get_str()
             .unwrap();

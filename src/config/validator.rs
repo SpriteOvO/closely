@@ -11,6 +11,10 @@ pub trait Validator {
     fn validate(&self) -> anyhow::Result<()>;
 }
 
+pub trait ContextualValidator<C> {
+    fn validate(&self, ctx: C) -> anyhow::Result<()>;
+}
+
 impl<T: Validator> Validator for Option<T> {
     fn validate(&self) -> anyhow::Result<()> {
         if let Some(data) = self {
@@ -68,6 +72,16 @@ impl<T> Accessor<T> {
         }
     }
 
+    pub fn get(&self) -> &T {
+        self.ensure_validated();
+        &self.data
+    }
+
+    pub fn get_mut(&mut self) -> &mut T {
+        self.ensure_validated();
+        &mut self.data
+    }
+
     pub fn into_inner(self) -> T {
         self.ensure_validated();
         self.data
@@ -97,15 +111,25 @@ impl<T: Validator> ops::Deref for Accessor<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.ensure_validated();
-        &self.data
+        self.get()
     }
 }
 
 impl<T: Validator> ops::DerefMut for Accessor<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ensure_validated();
-        &mut self.data
+        self.get_mut()
+    }
+}
+
+impl<C, T: ContextualValidator<C>> ContextualValidator<C> for Accessor<T> {
+    fn validate(&self, ctx: C) -> anyhow::Result<()> {
+        if !self.is_validated() {
+            self.data.validate(ctx)?;
+            self.is_validated.store(true, Ordering::Relaxed);
+        } else {
+            trace!("config validated multiple times");
+        }
+        Ok(())
     }
 }
 
@@ -153,4 +177,6 @@ mod tests {
         assert!(accessor.validate().is_err());
         _ = *accessor;
     }
+
+    // TODO: test ContextualValidator
 }

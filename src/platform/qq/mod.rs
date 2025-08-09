@@ -1,11 +1,11 @@
 pub(crate) mod lagrange;
 pub mod notify;
 
-use std::{collections::HashMap, fmt};
+use std::fmt;
 
 use serde::Deserialize;
 
-use crate::config::{Accessor, Validator};
+use crate::config::{Accounts, Validator};
 
 // Base
 //
@@ -31,14 +31,12 @@ impl fmt::Display for ConfigChat {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigGlobal {
-    pub account: HashMap<String, Accessor<ConfigAccount>>,
+    pub account: Accounts<ConfigAccount>,
 }
 
 impl Validator for ConfigGlobal {
     fn validate(&self) -> anyhow::Result<()> {
-        for backend in self.account.values() {
-            backend.validate()?;
-        }
+        self.account.validate()?;
         Ok(())
     }
 }

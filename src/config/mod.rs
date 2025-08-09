@@ -1,9 +1,11 @@
+mod accounts;
 mod overridable;
 mod secret;
 mod validator;
 
 use std::{collections::HashMap, time::Duration};
 
+pub use accounts::*;
 use anyhow::anyhow;
 pub use overridable::*;
 pub use secret::*;
@@ -308,8 +310,8 @@ lagrange = { remote_http = { host = "localhost", port = 8000 } }
 [platform.Telegram]
 token = "ttt"
 
-[platform.Twitter]
-auth = { cookies = "a=b;c=d;ct0=blah" }
+[platform.Twitter.account.MyTwitter]
+cookies = "a=b;c=d;ct0=blah"
 
 [platform.bilibili]
 playback = { bililive_recorder = { listen_webhook = { host = "127.0.0.1", port = 8888 }, working_directory = "/brec/" } }
@@ -324,11 +326,11 @@ interval = '30s'
 notify = ["meow"]
 
 [[subscription.meow]]
-platform = { name = "Twitter", username = "meowww" }
+platform = { name = "Twitter", username = "meowww", as = "MyTwitter" }
 notify = ["meow", "woof"]
 
 [[subscription.meow]]
-platform = { name = "Twitter", username = "meowww2" }
+platform = { name = "Twitter", username = "meowww2", as = "MyTwitter" }
 notify = ["meow", "woof", { ref = "woof", id = 123 }]
             "#,
             |c| {
@@ -347,7 +349,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                     })),
                     platform: Accessor::new(PlatformGlobal {
                         qq: Accessor::new(Some(qq::ConfigGlobal {
-                            account: HashMap::from_iter([
+                            account: Accounts::from_iter([
                                 ("MyQQ".into(), Accessor::new(qq::ConfigAccount {
                                     lagrange: qq::lagrange::ConfigLagrange {
                                         remote_http: qq::lagrange::RemoteHttp {
@@ -365,7 +367,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                             experimental: Default::default()
                         })),
                         twitter: Accessor::new(Some(twitter::ConfigGlobal {
-                            auth: twitter::ConfigCookies::with_raw("a=b;c=d;ct0=blah")
+                            account: Accounts::from_iter([("MyTwitter".into(), Accessor::new(twitter::ConfigCookies::with_raw("a=b;c=d;ct0=blah")))])
                         })),
                         bilibili: Accessor::new(Some(bilibili::ConfigGlobal {
                             playback: Accessor::new(Some(bilibili::source::playback::ConfigGlobal {
@@ -420,7 +422,8 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                             SubscriptionRaw {
                                 platform: Accessor::new(SourceConfig::Twitter(
                                     Accessor::new(twitter::source::ConfigParams {
-                                        username: "meowww".into()
+                                        username: "meowww".into(),
+                                        actor: AccountRef::new("MyTwitter")
                                     })
                                 )),
                                 interval: None,
@@ -432,7 +435,8 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                             SubscriptionRaw {
                                 platform: Accessor::new(SourceConfig::Twitter(
                                     Accessor::new(twitter::source::ConfigParams {
-                                        username: "meowww2".into()
+                                        username: "meowww2".into(),
+                                        actor: AccountRef::new("MyTwitter")
                                     })
                                 )),
                                 interval: None,
