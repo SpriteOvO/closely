@@ -1,4 +1,4 @@
-use std::{convert::identity, path::Path, time::Duration};
+use std::{path::Path, time::Duration};
 
 use anyhow::{anyhow, ensure};
 use humantime_serde::re::humantime;
@@ -8,20 +8,21 @@ use tokio::process::Command;
 use crate::prop;
 
 pub fn reqwest_client() -> anyhow::Result<reqwest::Client> {
-    reqwest_client_with(identity)
+    reqwest_client_with(|b, _| b)
 }
 
 pub fn reqwest_client_with(
-    configure: impl FnOnce(reqwest::ClientBuilder) -> reqwest::ClientBuilder,
+    configure: impl FnOnce(reqwest::ClientBuilder, &mut HeaderMap) -> reqwest::ClientBuilder,
 ) -> anyhow::Result<reqwest::Client> {
+    let mut headers = HeaderMap::from_iter([(
+        header::USER_AGENT,
+        HeaderValue::from_str(&prop::UserAgent::Logo.as_str()).unwrap(),
+    )]);
     configure(
-        reqwest::ClientBuilder::new()
-            .timeout(Duration::from_secs(60) * 3)
-            .default_headers(HeaderMap::from_iter([(
-                header::USER_AGENT,
-                HeaderValue::from_str(&prop::UserAgent::Logo.as_str()).unwrap(),
-            )])),
+        reqwest::ClientBuilder::new().timeout(Duration::from_secs(60) * 3),
+        &mut headers,
     )
+    .default_headers(headers)
     .build()
     .map_err(|err| anyhow!("failed to build reqwest client: {err}"))
 }

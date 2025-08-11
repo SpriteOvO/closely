@@ -1,6 +1,6 @@
 pub mod source;
 
-use reqwest::header::{self, HeaderMap, HeaderValue};
+use reqwest::header::{self, HeaderValue};
 use serde::Deserialize;
 
 use crate::{
@@ -37,11 +37,12 @@ fn upgrade_to_https(url: &str) -> String {
 }
 
 fn bilibili_request_builder() -> anyhow::Result<reqwest::Client> {
-    helper::reqwest_client_with(|builder| {
-        builder.default_headers(HeaderMap::from_iter([(
+    helper::reqwest_client_with(|builder, headers| {
+        headers.insert(
             header::USER_AGENT,
             HeaderValue::from_str(&prop::UserAgent::LogoDynamic.as_str()).unwrap(),
-        )]))
+        );
+        builder
     })
 }
 

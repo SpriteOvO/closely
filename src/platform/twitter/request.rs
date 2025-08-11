@@ -1,10 +1,13 @@
 use std::str::FromStr;
 
 use anyhow::{anyhow, ensure};
-use reqwest::{header::COOKIE, Url};
+use reqwest::{
+    header::{HeaderValue, COOKIE, USER_AGENT},
+    Url,
+};
 use serde_json::{self as json, json};
 
-use crate::helper;
+use crate::{helper, prop};
 
 pub struct TwitterCookies {
     pub raw: String,
@@ -145,7 +148,7 @@ impl TwitterRequester {
     }
 
     async fn request(&self, url: impl AsRef<str>) -> anyhow::Result<reqwest::Response> {
-        let resp = helper::reqwest_client()?
+        let resp = twitter_request_builder()?
             .get(url.as_ref())
             .bearer_auth(BEARER_TOKEN)
             .header(COOKIE, &self.cookies.raw)
@@ -162,6 +165,16 @@ impl TwitterRequester {
 
         Ok(resp)
     }
+}
+
+fn twitter_request_builder() -> anyhow::Result<reqwest::Client> {
+    helper::reqwest_client_with(|builder, headers| {
+        headers.insert(
+            USER_AGENT,
+            HeaderValue::from_str(&prop::UserAgent::Mocked.as_str()).unwrap(),
+        );
+        builder
+    })
 }
 
 const BEARER_TOKEN: &str = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
