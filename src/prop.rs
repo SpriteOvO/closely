@@ -34,7 +34,7 @@ impl UserAgent {
                 Alphanumeric.sample_string(&mut rand::rng(), 8)
             )),
             Self::Mocked => Cow::Borrowed(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0",
             ),
         }
     }
