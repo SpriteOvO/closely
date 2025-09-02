@@ -12,7 +12,7 @@ impl NoRec {
         }
     }
 
-    pub fn enter(&self) -> Option<NoRecGuard> {
+    pub fn enter(&self) -> Option<NoRecGuard<'_>> {
         if self.is_recursing.fetch_or(true, Ordering::SeqCst) {
             None
         } else {

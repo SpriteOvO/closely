@@ -20,7 +20,7 @@ pub enum UserAgent {
 }
 
 impl UserAgent {
-    pub fn as_str(&self) -> Cow<str> {
+    pub fn as_str(&self) -> Cow<'_, str> {
         match self {
             Self::Logo => Cow::Borrowed(formatcp!(
                 "{}/{} (FAIR USE, PLEASE DO NOT BLOCK. Source opened on github.com/SpriteOvO/{})",

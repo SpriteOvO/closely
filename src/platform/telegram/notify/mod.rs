@@ -128,7 +128,7 @@ impl Notifier {
         }
     }
 
-    fn token(&self) -> anyhow::Result<Cow<str>> {
+    fn token(&self) -> anyhow::Result<Cow<'_, str>> {
         self.params
             .token
             .as_ref()

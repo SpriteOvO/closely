@@ -35,7 +35,7 @@ where
     <T as ToOwned>::Owned: FromStr,
     <<T as ToOwned>::Owned as FromStr>::Err: StdError + Send + Sync + 'static,
 {
-    pub fn get_parse_cow(&self) -> anyhow::Result<Cow<T>> {
+    pub fn get_parse_cow(&self) -> anyhow::Result<Cow<'_, T>> {
         match self {
             Self::Lit(lit) => Ok(Cow::Borrowed(lit)),
             Self::Env(key) => Ok(Cow::Owned(env::var(key)?.parse()?)),
@@ -98,7 +98,7 @@ macro_rules! secret_enum {
         }
 
         impl $crate::config::AsSecretRef<'_> for $name {
-            fn as_secret_ref(&self) -> $crate::config::SecretRef {
+            fn as_secret_ref(&self) -> $crate::config::SecretRef<'_> {
                 paste::paste! {
                     match &*self.0 {
                         secret_enum_private::$name::$field(value) => $crate::config::SecretRef::Lit(value),

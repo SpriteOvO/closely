@@ -34,7 +34,7 @@ impl<T> Accounts<T> {
         self.0.contains_key(account_ref)
     }
 
-    pub fn values(&self) -> Values<String, Accessor<T>> {
+    pub fn values(&self) -> Values<'_, String, Accessor<T>> {
         self.0.values()
     }
 }

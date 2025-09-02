@@ -47,7 +47,7 @@ impl Post {
         }
     }
 
-    pub fn urls_recursive(&self) -> PostUrlsRef {
+    pub fn urls_recursive(&self) -> PostUrlsRef<'_> {
         if let Some(RepostFrom::Recursion(repost_from)) = &self.repost_from {
             let mut v = self
                 .urls
@@ -80,7 +80,7 @@ impl PostUrls {
         self.0.first().unwrap()
     }
 
-    pub fn iter(&self) -> slice::Iter<PostUrl> {
+    pub fn iter(&self) -> slice::Iter<'_, PostUrl> {
         self.0.iter()
     }
 }

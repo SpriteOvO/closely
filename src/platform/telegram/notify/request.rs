@@ -330,7 +330,7 @@ pub enum LinkPreviewOwned {
 }
 
 impl LinkPreviewOwned {
-    pub fn as_ref(&self) -> LinkPreview {
+    pub fn as_ref(&self) -> LinkPreview<'_> {
         match self {
             Self::Disabled => LinkPreview::Disabled,
             Self::Below(url) => LinkPreview::Below(url),
@@ -492,7 +492,7 @@ pub enum MediaInput<'a> {
 }
 
 impl MediaInput<'_> {
-    fn to_url(&self, index: usize) -> Cow<str> {
+    fn to_url(&self, index: usize) -> Cow<'_, str> {
         match self {
             Self::Url(url) => Cow::Borrowed(url),
             Self::Memory { .. } => Cow::Owned(format!("attach://{index}")),
