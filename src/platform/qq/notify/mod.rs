@@ -17,8 +17,8 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
-    #[serde(default)]
-    pub notifications: config::Notifications,
+    #[serde(default, flatten)]
+    pub base: config::NotifierBase,
     #[serde(flatten)]
     pub chat: ConfigChat,
     #[serde(default)]
@@ -55,7 +55,8 @@ impl fmt::Display for ConfigParams {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigOverride {
-    pub notifications: Option<config::NotificationsOverride>,
+    #[serde(flatten)]
+    pub base: Option<config::NotifierBaseOverride>,
     #[serde(flatten)]
     pub chat: Option<ConfigChat>,
     pub mention_all: Option<bool>,
@@ -71,9 +72,9 @@ impl Overridable for ConfigParams {
         Self: Sized,
     {
         Self {
-            notifications: match new.notifications {
-                Some(notifications) => self.notifications.override_into(notifications),
-                None => self.notifications,
+            base: match new.base {
+                Some(base) => self.base.override_into(base),
+                None => self.base,
             },
             chat: new.chat.unwrap_or(self.chat),
             mention_all: new.mention_all.unwrap_or(self.mention_all),
@@ -143,7 +144,7 @@ impl Notifier {
         live_status: &LiveStatus,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
-        if !self.params.notifications.live_online {
+        if !self.params.base.switch.live_online {
             info!("live_online notification is disabled, skip notifying");
             return Ok(());
         }
@@ -154,7 +155,7 @@ impl Notifier {
                 .text(format!(
                     "[{}] 🟢 {}{}\n{}",
                     source.platform.display_name,
-                    if self.params.notifications.author_name {
+                    if self.params.base.option.author_name {
                         Cow::Owned(format!("[{}] ", live_status.streamer_name))
                     } else {
                         Cow::Borrowed("")
@@ -178,7 +179,7 @@ impl Notifier {
         live_status: &LiveStatus,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
-        if !self.params.notifications.live_title {
+        if !self.params.base.switch.live_title {
             info!("live_title notification is disabled, skip notifying");
             return Ok(());
         }
@@ -187,7 +188,7 @@ impl Notifier {
             .text(format!(
                 "[{}] ✏️ {}{}",
                 source.platform.display_name,
-                if self.params.notifications.author_name {
+                if self.params.base.option.author_name {
                     Cow::Owned(format!("[{}] ", live_status.streamer_name))
                 } else {
                     Cow::Borrowed("")
@@ -209,7 +210,7 @@ impl Notifier {
         posts: &PostsRef<'_>,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
-        if !self.params.notifications.post {
+        if !self.params.base.switch.post {
             info!("post notification is disabled, skip notifying");
             return Ok(());
         }
@@ -242,7 +243,7 @@ impl Notifier {
             Some(RepostFrom::Recursion(repost_from)) => {
                 if !post.content.is_empty() {
                     builder.ref_text("💬 ");
-                    if self.params.notifications.author_name {
+                    if self.params.base.option.author_name {
                         builder.ref_text(format!("{}: ", post.user.nickname));
                     }
                     append_media(&mut builder, post.attachments(false));
@@ -256,7 +257,7 @@ impl Notifier {
                 builder.ref_text(repost_from.content.fallback());
             }
             None => {
-                if self.params.notifications.author_name {
+                if self.params.base.option.author_name {
                     builder.ref_text(format!("{}: ", post.user.nickname));
                 }
                 append_media(&mut builder, post.attachments(false));
@@ -285,7 +286,7 @@ impl Notifier {
     }
 
     async fn notify_log(&self, message: &str) -> anyhow::Result<()> {
-        if !self.params.notifications.log {
+        if !self.params.base.switch.log {
             info!("log notification is disabled, skip notifying");
             return Ok(());
         }

@@ -189,9 +189,46 @@ pub struct SubscriptionRef<'a> {
     pub notify: Vec<Accessor<NotifierConfig>>,
 }
 
+// Should be always used with `#[serde(flatten)]`
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct Notifications {
-    // Toggles
+pub struct NotifierBase {
+    #[serde(default)]
+    pub switch: NotificationSwitch,
+    #[serde(default)]
+    pub option: NotificationOption,
+}
+
+serde_impl_default_for!(NotifierBase);
+
+impl Overridable for NotifierBase {
+    type Override = NotifierBaseOverride;
+
+    fn override_into(self, new: Self::Override) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            switch: match new.switch {
+                Some(switch) => self.switch.override_into(switch),
+                None => self.switch,
+            },
+            option: match new.option {
+                Some(option) => self.option.override_into(option),
+                None => self.option,
+            },
+        }
+    }
+}
+
+// Should be always used with `#[serde(flatten)]`
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct NotifierBaseOverride {
+    switch: Option<NotificationSwitchOverride>,
+    option: Option<NotificationOptionOverride>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct NotificationSwitch {
     #[serde(default = "helper::refl_bool::<true>")]
     pub live_online: bool,
     #[serde(default = "helper::refl_bool::<false>")]
@@ -204,16 +241,12 @@ pub struct Notifications {
     pub playback: bool,
     #[serde(default = "helper::refl_bool::<true>")]
     pub document: bool,
-
-    // Options
-    #[serde(default = "helper::refl_bool::<false>")]
-    pub author_name: bool,
 }
 
-serde_impl_default_for!(Notifications);
+serde_impl_default_for!(NotificationSwitch);
 
-impl Overridable for Notifications {
-    type Override = NotificationsOverride;
+impl Overridable for NotificationSwitch {
+    type Override = NotificationSwitchOverride;
 
     fn override_into(self, new: Self::Override) -> Self
     where
@@ -226,19 +259,43 @@ impl Overridable for Notifications {
             log: new.log.unwrap_or(self.log),
             playback: new.playback.unwrap_or(self.playback),
             document: new.document.unwrap_or(self.document),
-            author_name: new.author_name.unwrap_or(self.author_name),
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct NotificationsOverride {
+pub struct NotificationSwitchOverride {
     pub live_online: Option<bool>,
     pub live_title: Option<bool>,
     pub post: Option<bool>,
     pub log: Option<bool>,
     pub playback: Option<bool>,
     pub document: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct NotificationOption {
+    #[serde(default = "helper::refl_bool::<false>")]
+    pub author_name: bool,
+}
+
+serde_impl_default_for!(NotificationOption);
+
+impl Overridable for NotificationOption {
+    type Override = NotificationOptionOverride;
+
+    fn override_into(self, new: Self::Override) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            author_name: new.author_name.unwrap_or(self.author_name),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct NotificationOptionOverride {
     pub author_name: Option<bool>,
 }
 
@@ -318,7 +375,7 @@ playback = { bililive_recorder = { listen_webhook = { host = "127.0.0.1", port =
 
 [notify]
 meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
-woof = { platform = "Telegram", id = 5678, thread_id = 900, notifications = { post = false } }
+woof = { platform = "Telegram", id = 5678, thread_id = 900, switch = { post = false } }
 
 [[subscription.meow]]
 platform = { name = "bilibili.live", user_id = 123456 }
@@ -385,7 +442,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                         (
                             "meow".into(),
                             Accessor::new(NotifierConfig::Telegram(Accessor::new(telegram::notify::ConfigParams {
-                                notifications: Notifications::default(),
+                                base: NotifierBase::default(),
                                 chat: telegram::ConfigChat::Id(1234),
                                 thread_id: Some(123),
                                 token: Some(telegram::ConfigToken::with_raw("xxx")),
@@ -394,14 +451,18 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                         (
                             "woof".into(),
                             Accessor::new(NotifierConfig::Telegram(Accessor::new(telegram::notify::ConfigParams {
-                                notifications: Notifications {
-                                    live_online: true,
-                                    live_title: false,
-                                    post: false,
-                                    log: true,
-                                    playback: true,
-                                    document: true,
-                                    author_name: false,
+                                base: NotifierBase {
+                                    switch: NotificationSwitch {
+                                        live_online: true,
+                                        live_title: false,
+                                        post: false,
+                                        log: true,
+                                        playback: true,
+                                        document: true,
+                                    },
+                                    option: NotificationOption {
+                                        author_name: false,
+                                    }
                                 },
                                 chat: telegram::ConfigChat::Id(5678),
                                 thread_id: Some(900),
@@ -572,7 +633,7 @@ woof = { platform = "Telegram", id = 5678, thread_id = 456, token = "yyy" }
 
 [[subscription.meow]]
 platform = { name = "bilibili.live", user_id = 123456 }
-notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", notifications = { post = false } }]
+notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", switch = { post = false } }]
             "#,
             |c| {
                 let subscriptions = c.unwrap().subscriptions().collect::<Vec<_>>();
@@ -589,7 +650,7 @@ notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", notificatio
                             notify: vec![
                                 Accessor::new(NotifierConfig::Telegram(Accessor::new(
                                     telegram::notify::ConfigParams {
-                                        notifications: Notifications::default(),
+                                        base: NotifierBase::default(),
                                         chat: telegram::ConfigChat::Id(1234),
                                         thread_id: Some(123),
                                         token: Some(telegram::ConfigToken::with_raw("xxx")),
@@ -597,7 +658,7 @@ notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", notificatio
                                 ))),
                                 Accessor::new(NotifierConfig::Telegram(Accessor::new(
                                     telegram::notify::ConfigParams {
-                                        notifications: Notifications::default(),
+                                        base: NotifierBase::default(),
                                         chat: telegram::ConfigChat::Id(5678),
                                         thread_id: Some(114),
                                         token: Some(telegram::ConfigToken::with_raw("yyy")),
@@ -605,9 +666,12 @@ notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", notificatio
                                 ))),
                                 Accessor::new(NotifierConfig::Telegram(Accessor::new(
                                     telegram::notify::ConfigParams {
-                                        notifications: Notifications {
-                                            post: false,
-                                            ..Default::default()
+                                        base: NotifierBase {
+                                            switch: NotificationSwitch {
+                                                post: false,
+                                                ..Default::default()
+                                            },
+                                            option: NotificationOption::default()
                                         },
                                         chat: telegram::ConfigChat::Id(5678),
                                         thread_id: Some(456),

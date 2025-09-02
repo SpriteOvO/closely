@@ -31,8 +31,8 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
-    #[serde(default)]
-    pub notifications: config::Notifications,
+    #[serde(default, flatten)]
+    pub base: config::NotifierBase,
     #[serde(flatten)]
     pub chat: ConfigChat,
     pub thread_id: Option<i64>,
@@ -75,9 +75,9 @@ impl Overridable for ConfigParams {
         Self: Sized,
     {
         Self {
-            notifications: match new.notifications {
-                Some(notifications) => self.notifications.override_into(notifications),
-                None => self.notifications,
+            base: match new.base {
+                Some(base) => self.base.override_into(base),
+                None => self.base,
             },
             chat: new.chat.unwrap_or(self.chat),
             thread_id: new.thread_id.or(self.thread_id),
@@ -89,7 +89,8 @@ impl Overridable for ConfigParams {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigOverride {
-    pub notifications: Option<config::NotificationsOverride>,
+    #[serde(flatten)]
+    pub base: Option<config::NotifierBaseOverride>,
     #[serde(flatten)]
     pub chat: Option<ConfigChat>,
     pub thread_id: Option<i64>,
@@ -173,7 +174,7 @@ impl Notifier {
         live_status: &LiveStatus,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
-        if !self.params.notifications.live_online {
+        if !self.params.base.switch.live_online {
             info!("live_online notification is disabled, skip notifying");
             return Ok(());
         }
@@ -201,7 +202,7 @@ impl Notifier {
         let start_time = start_time.unwrap_or_else(SystemTime::now);
 
         let text = make_live_text(
-            self.params.notifications.author_name,
+            self.params.base.option.author_name,
             &title_history,
             live_status,
             source,
@@ -242,7 +243,7 @@ impl Notifier {
             let token = self.token()?;
 
             let text = make_live_text(
-                self.params.notifications.author_name,
+                self.params.base.option.author_name,
                 &current_live.title_history,
                 live_status,
                 source,
@@ -273,7 +274,7 @@ impl Notifier {
         self.notify_live_title_update(live_status, source).await?;
 
         // Send a new message
-        if !self.params.notifications.live_title {
+        if !self.params.base.switch.live_title {
             info!("live_title notification is disabled, skip notifying");
             return Ok(());
         }
@@ -291,7 +292,7 @@ impl Notifier {
             format!(
                 "[{}] ✏️ {}{}",
                 source.platform.display_name,
-                if self.params.notifications.author_name {
+                if self.params.base.option.author_name {
                     Cow::Owned(format!("[{}] ", live_status.streamer_name))
                 } else {
                     Cow::Borrowed("")
@@ -332,7 +333,7 @@ impl Notifier {
                 .push_front(live_status.title.clone());
 
             let text = make_live_text(
-                self.params.notifications.author_name,
+                self.params.base.option.author_name,
                 &current_live.title_history,
                 live_status,
                 source,
@@ -359,7 +360,7 @@ impl Notifier {
         posts: &PostsRef<'_>,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
-        if !self.params.notifications.post {
+        if !self.params.base.switch.post {
             info!("post notification is disabled, skip notifying");
             return Ok(());
         }
@@ -388,7 +389,7 @@ impl Notifier {
             Some(RepostFrom::Recursion(repost_from)) => {
                 if !post.content.is_empty() {
                     text.push_plain("💬 ");
-                    if self.params.notifications.author_name {
+                    if self.params.base.option.author_name {
                         text.push_link(&post.user.nickname, &post.user.profile_url);
                         text.push_plain(": ");
                     }
@@ -413,7 +414,7 @@ impl Notifier {
                 });
             }
             None => {
-                if self.params.notifications.author_name {
+                if self.params.base.option.author_name {
                     text.push_link(&post.user.nickname, &post.user.profile_url);
                     text.push_plain(": ");
                 }
@@ -515,7 +516,7 @@ impl Notifier {
     }
 
     async fn notify_log(&self, message: &str) -> anyhow::Result<()> {
-        if !self.params.notifications.log {
+        if !self.params.base.switch.log {
             info!("log notification is disabled, skip notifying");
             return Ok(());
         }
@@ -577,7 +578,7 @@ impl Notifier {
         source: &StatusSource,
         last_try: bool,
     ) -> anyhow::Result<()> {
-        if !self.params.notifications.playback {
+        if !self.params.base.switch.playback {
             info!("playback notification is disabled, skip notifying");
             return Ok(());
         }
@@ -594,7 +595,7 @@ impl Notifier {
             .send_message(
                 &self.params.chat,
                 make_file_text(
-                    self.params.notifications.author_name,
+                    self.params.base.option.author_name,
                     FileUploadStage::PlaybackUploading,
                     &playback.file,
                     source,
@@ -632,7 +633,7 @@ impl Notifier {
                     }),
                 )
                 .text(make_file_text(
-                    self.params.notifications.author_name,
+                    self.params.base.option.author_name,
                     FileUploadStage::PlaybackFinished,
                     &playback.file,
                     source,
@@ -664,7 +665,7 @@ impl Notifier {
                         &self.params.chat,
                         message_id,
                         make_file_text(
-                            self.params.notifications.author_name,
+                            self.params.base.option.author_name,
                             FileUploadStage::PlaybackFailed,
                             &playback.file,
                             source,
@@ -689,7 +690,7 @@ impl Notifier {
         document: &DocumentRef<'_>,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
-        if !self.params.notifications.document {
+        if !self.params.base.switch.document {
             info!("document notification is disabled, skip notifying");
             return Ok(());
         }
@@ -707,7 +708,7 @@ impl Notifier {
                 },
             )
             .text(make_file_text(
-                self.params.notifications.author_name,
+                self.params.base.option.author_name,
                 FileUploadStage::MetadataFinished,
                 &document.file,
                 source,
