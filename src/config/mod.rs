@@ -277,6 +277,12 @@ pub struct NotificationSwitchOverride {
 pub struct NotificationOption {
     #[serde(default = "helper::refl_bool::<false>")]
     pub author_name: bool,
+
+    // TODO: For temporary use on QQ platform, due to demand from a particular user. We eventually
+    // want to support custom text via pattern templates (similar to spdlog-rs, but more generic).
+    // And because they are temporary, we do not currently support their overriding.
+    pub __live_text: Option<String>,
+    pub __post_text: Option<String>,
 }
 
 serde_impl_default_for!(NotificationOption);
@@ -290,6 +296,8 @@ impl Overridable for NotificationOption {
     {
         Self {
             author_name: new.author_name.unwrap_or(self.author_name),
+            __live_text: self.__live_text,
+            __post_text: self.__post_text,
         }
     }
 }
@@ -462,6 +470,8 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                     },
                                     option: NotificationOption {
                                         author_name: false,
+                                        __live_text: None,
+                                        __post_text: None,
                                     }
                                 },
                                 chat: telegram::ConfigChat::Id(5678),

@@ -150,9 +150,11 @@ impl Notifier {
         }
 
         if let LiveStatusKind::Online { start_time: _ } = live_status.kind {
-            let message = lagrange::Message::builder()
-                .image(&live_status.cover_image_url)
-                .text(format!(
+            let builder = lagrange::Message::builder().image(&live_status.cover_image_url);
+            let message = if let Some(custom_live_text) = &self.params.base.option.__live_text {
+                builder.text(format!("{custom_live_text}\n{}", live_status.live_url))
+            } else {
+                builder.text(format!(
                     "[{}] 🟢 {}{}\n{}",
                     source.platform.display_name,
                     if self.params.base.option.author_name {
@@ -163,9 +165,9 @@ impl Notifier {
                     live_status.title,
                     live_status.live_url
                 ))
-                .mention_all_if(self.params.mention_all, true)
-                .build();
-
+            }
+            .mention_all_if(self.params.mention_all, true)
+            .build();
             self.backend
                 .send_message(&self.params.chat, message)
                 .await?;
@@ -227,7 +229,20 @@ impl Notifier {
 
     async fn notify_post(&self, post: &Post, source: &StatusSource) -> anyhow::Result<()> {
         let mut builder = lagrange::Message::builder();
-        builder.ref_text(format!("[{}] ", source.platform.display_name));
+
+        if let Some(custom_post_text) = &self.params.base.option.__post_text {
+            builder.ref_text(custom_post_text);
+            for url in post
+                .urls_recursive()
+                .into_iter()
+                .filter_map(|url| url.as_clickable())
+            {
+                builder.ref_text(format!("{}: {}\n", url.display, url.url));
+            }
+            builder.ref_text("\n");
+        } else {
+            builder.ref_text(format!("[{}] ", source.platform.display_name));
+        }
 
         fn append_media<'a>(
             builder: &mut lagrange::MessageBuilder,
@@ -264,13 +279,15 @@ impl Notifier {
                 builder.ref_text(post.content.fallback());
             }
         }
-        builder.ref_text("\n");
-        for url in post
-            .urls_recursive()
-            .into_iter()
-            .filter_map(|url| url.as_clickable())
-        {
-            builder.ref_text(format!("\n{}: {}", url.display, url.url));
+        if self.params.base.option.__post_text.is_none() {
+            builder.ref_text("\n");
+            for url in post
+                .urls_recursive()
+                .into_iter()
+                .filter_map(|url| url.as_clickable())
+            {
+                builder.ref_text(format!("\n{}: {}", url.display, url.url));
+            }
         }
 
         self.backend
