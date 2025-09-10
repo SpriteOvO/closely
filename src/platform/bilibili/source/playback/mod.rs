@@ -1,10 +1,9 @@
 pub mod bililive_recorder;
 
-use std::{fmt, future::Future, pin::Pin};
+use std::{fmt, future::Future, pin::Pin, sync::LazyLock};
 
 use anyhow::anyhow;
 use bililive_recorder::*;
-use once_cell::sync::Lazy;
 use serde::Deserialize;
 use spdlog::prelude::*;
 use tokio::sync::mpsc;
@@ -54,7 +53,7 @@ const PLATFORM_METADATA: PlatformMetadata = PlatformMetadata {
     display_name: "bilibili 录播",
 };
 
-static BACKEND: Lazy<BililiveRecorder> = Lazy::new(|| {
+static BACKEND: LazyLock<BililiveRecorder> = LazyLock::new(|| {
     BililiveRecorder::new(
         Config::global()
             .platform()

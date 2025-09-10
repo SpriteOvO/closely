@@ -34,7 +34,7 @@ pub struct Config {
 }
 
 #[cfg(not(test))]
-static CONFIG: once_cell::sync::OnceCell<Config> = once_cell::sync::OnceCell::new();
+static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
 #[cfg(test)]
 static CONFIG: parking_lot::RwLock<Option<std::sync::Arc<Config>>> = parking_lot::RwLock::new(None);
 

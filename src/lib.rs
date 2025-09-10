@@ -8,13 +8,14 @@ mod reporter;
 mod source;
 mod task;
 
+use std::sync::OnceLock;
+
 use anyhow::anyhow;
-use once_cell::sync::OnceCell;
 use task::{Task, TaskReporter, TaskSubscription};
 
 use crate::config::Config;
 
-static CLI_ARGS: OnceCell<cli::Args> = OnceCell::new();
+static CLI_ARGS: OnceLock<cli::Args> = OnceLock::new();
 
 pub fn cli_args() -> &'static cli::Args {
     CLI_ARGS.get().expect("global cli args not initialized")

@@ -3,12 +3,11 @@ use std::{
     fmt,
     future::Future,
     pin::Pin,
-    sync::Mutex as StdMutex,
+    sync::{LazyLock, Mutex as StdMutex},
 };
 
 use anyhow::anyhow;
 use chrono::DateTime;
-use once_cell::sync::Lazy;
 use serde::Deserialize;
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
@@ -546,8 +545,8 @@ fn parse_tweet(tweet: data::Tweet) -> anyhow::Result<Post> {
                     .any(|kv| matches!(kv.value, data::TweetCardValue::Image { .. }))
                 {
                     // TODO: Make it more general for using in other places
-                    static REPORTED: Lazy<StdMutex<HashSet<String>>> =
-                        Lazy::new(|| StdMutex::new(HashSet::new()));
+                    static REPORTED: LazyLock<StdMutex<HashSet<String>>> =
+                        LazyLock::new(|| StdMutex::new(HashSet::new()));
 
                     if REPORTED
                         .lock()

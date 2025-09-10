@@ -1,11 +1,10 @@
-use std::{borrow::Cow, fmt, io::Cursor, mem, ops::Range, time::Duration};
+use std::{borrow::Cow, fmt, io::Cursor, mem, ops::Range, sync::LazyLock, time::Duration};
 
 use anyhow::{anyhow, bail, ensure};
 use bytes::Bytes;
 use http::Uri;
 use image::{imageops::FilterType as ImageFilterType, DynamicImage, GenericImageView, ImageFormat};
 use itertools::Itertools;
-use once_cell::sync::Lazy;
 use reqwest::multipart::{Form, Part};
 use serde::{
     de::{DeserializeOwned, IgnoredAny},
@@ -248,7 +247,7 @@ impl<'a> Request<'a> {
 }
 
 fn make_api_url(token: &str, method: &str, prefer_self_host: bool) -> String {
-    static OFFICIAL: Lazy<Uri> = Lazy::new(|| "https://api.telegram.org".parse().unwrap());
+    static OFFICIAL: LazyLock<Uri> = LazyLock::new(|| "https://api.telegram.org".parse().unwrap());
 
     let url_opts = Config::global()
         .platform()
