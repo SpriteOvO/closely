@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json as json;
 use spdlog::prelude::*;
 
-use crate::{config::Validator, secret_enum, serde_impl_default_for};
+use crate::{config::Validator, helper, secret_enum};
 
 // Base
 //
@@ -88,4 +88,8 @@ pub struct ConfigExperimental {
     pub send_live_image_as_preview: Option<bool>,
 }
 
-serde_impl_default_for!(ConfigExperimental);
+impl Default for ConfigExperimental {
+    fn default() -> Self {
+        helper::serde_default()
+    }
+}

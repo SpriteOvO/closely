@@ -7,6 +7,7 @@ use spdlog::prelude::*;
 use super::{lagrange, ConfigChat};
 use crate::{
     config::{self, Accessor, AccountRef, Config, ContextualValidator, Overridable, Validator},
+    helper,
     notify::NotifierTrait,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
@@ -16,9 +17,32 @@ use crate::{
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct OptionExt {
+    // TODO: For temporary use on QQ platform, due to demand from a particular user. We eventually
+    // want to support custom text via pattern templates (similar to spdlog-rs, but more generic).
+    // And because they are temporary, we do not currently support their overriding.
+    pub __live_text: Option<String>,
+    pub __post_text: Option<String>,
+}
+
+impl Default for OptionExt {
+    fn default() -> Self {
+        helper::serde_default()
+    }
+}
+
+impl Overridable for OptionExt {
+    type Override = ();
+
+    fn override_into(self, _: Self::Override) -> Self {
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
     #[serde(default, flatten)]
-    pub base: config::NotifierBase,
+    pub base: config::NotifierBase<OptionExt>,
     #[serde(flatten)]
     pub chat: ConfigChat,
     #[serde(default)]
@@ -56,7 +80,7 @@ impl fmt::Display for ConfigParams {
 #[serde(deny_unknown_fields)]
 pub struct ConfigOverride {
     #[serde(flatten)]
-    pub base: Option<config::NotifierBaseOverride>,
+    pub base: Option<config::NotifierBaseOverride<()>>,
     #[serde(flatten)]
     pub chat: Option<ConfigChat>,
     pub mention_all: Option<bool>,
@@ -151,23 +175,24 @@ impl Notifier {
 
         if let LiveStatusKind::Online { start_time: _ } = live_status.kind {
             let builder = lagrange::Message::builder().image(&live_status.cover_image_url);
-            let message = if let Some(custom_live_text) = &self.params.base.option.__live_text {
-                builder.text(format!("{custom_live_text}\n{}", live_status.live_url))
-            } else {
-                builder.text(format!(
-                    "[{}] 🟢 {}{}\n{}",
-                    source.platform.display_name,
-                    if self.params.base.option.author_name {
-                        Cow::Owned(format!("[{}] ", live_status.streamer_name))
-                    } else {
-                        Cow::Borrowed("")
-                    },
-                    live_status.title,
-                    live_status.live_url
-                ))
-            }
-            .mention_all_if(self.params.mention_all, true)
-            .build();
+            let message =
+                if let Some(custom_live_text) = &self.params.base.option.ext.__live_text {
+                    builder.text(format!("{custom_live_text}\n{}", live_status.live_url))
+                } else {
+                    builder.text(format!(
+                        "[{}] 🟢 {}{}\n{}",
+                        source.platform.display_name,
+                        if self.params.base.option.author_name {
+                            Cow::Owned(format!("[{}] ", live_status.streamer_name))
+                        } else {
+                            Cow::Borrowed("")
+                        },
+                        live_status.title,
+                        live_status.live_url
+                    ))
+                }
+                .mention_all_if(self.params.mention_all, true)
+                .build();
             self.backend
                 .send_message(&self.params.chat, message)
                 .await?;
@@ -230,7 +255,7 @@ impl Notifier {
     async fn notify_post(&self, post: &Post, source: &StatusSource) -> anyhow::Result<()> {
         let mut builder = lagrange::Message::builder();
 
-        if let Some(custom_post_text) = &self.params.base.option.__post_text {
+        if let Some(custom_post_text) = &self.params.base.option.ext.__post_text {
             builder.ref_text(custom_post_text);
             for url in post
                 .urls_recursive()
@@ -279,7 +304,7 @@ impl Notifier {
                 builder.ref_text(post.content.fallback());
             }
         }
-        if self.params.base.option.__post_text.is_none() {
+        if self.params.base.option.ext.__post_text.is_none() {
             builder.ref_text("\n");
             for url in post
                 .urls_recursive()

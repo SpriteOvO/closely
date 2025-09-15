@@ -3,6 +3,7 @@ use std::{convert::identity, path::Path, time::Duration};
 use anyhow::{anyhow, ensure};
 use humantime_serde::re::humantime;
 use reqwest::header::{self, HeaderMap, HeaderValue};
+use serde::Deserialize;
 use tokio::process::Command;
 
 use crate::prop;
@@ -38,20 +39,13 @@ macro_rules! refl_fn {
 
 refl_fn!(bool);
 
-#[macro_export]
-macro_rules! serde_impl_default_for {
-    ( $struct:ident ) => {
-        impl Default for $struct {
-            fn default() -> Self {
-                // https://stackoverflow.com/a/77858562
-                Self::deserialize(serde::de::value::MapDeserializer::<
-                    _,
-                    serde::de::value::Error,
-                >::new(std::iter::empty::<((), ())>()))
-                .unwrap()
-            }
-        }
-    };
+pub fn serde_default<'a, T: Default + Deserialize<'a>>() -> T {
+    // https://stackoverflow.com/a/77858562
+    T::deserialize(serde::de::value::MapDeserializer::<
+        _,
+        serde::de::value::Error,
+    >::new(std::iter::empty::<((), ())>()))
+    .unwrap()
 }
 
 pub fn format_duration_in_sec(dur: Duration) -> String {

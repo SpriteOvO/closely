@@ -17,7 +17,6 @@ use crate::{
     notify::NotifierConfig,
     platform::*,
     reporter::{ConfigReporterRaw, ReporterParams},
-    serde_impl_default_for,
     source::SourceConfig,
 };
 
@@ -191,17 +190,21 @@ pub struct SubscriptionRef<'a> {
 
 // Should be always used with `#[serde(flatten)]`
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct NotifierBase {
+pub struct NotifierBase<O = ()> {
     #[serde(default)]
     pub switch: NotificationSwitch,
     #[serde(default)]
-    pub option: NotificationOption,
+    pub option: NotificationOption<O>,
 }
 
-serde_impl_default_for!(NotifierBase);
+impl<'a, O: Default + Deserialize<'a>> Default for NotifierBase<O> {
+    fn default() -> Self {
+        helper::serde_default()
+    }
+}
 
-impl Overridable for NotifierBase {
-    type Override = NotifierBaseOverride;
+impl<'a, O: Deserialize<'a> + Overridable> Overridable for NotifierBase<O> {
+    type Override = NotifierBaseOverride<O::Override>;
 
     fn override_into(self, new: Self::Override) -> Self
     where
@@ -222,9 +225,9 @@ impl Overridable for NotifierBase {
 
 // Should be always used with `#[serde(flatten)]`
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct NotifierBaseOverride {
+pub struct NotifierBaseOverride<O = ()> {
     switch: Option<NotificationSwitchOverride>,
-    option: Option<NotificationOptionOverride>,
+    option: Option<NotificationOptionOverride<O>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -243,7 +246,11 @@ pub struct NotificationSwitch {
     pub document: bool,
 }
 
-serde_impl_default_for!(NotificationSwitch);
+impl Default for NotificationSwitch {
+    fn default() -> Self {
+        helper::serde_default()
+    }
+}
 
 impl Overridable for NotificationSwitch {
     type Override = NotificationSwitchOverride;
@@ -274,21 +281,21 @@ pub struct NotificationSwitchOverride {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct NotificationOption {
+pub struct NotificationOption<O> {
     #[serde(default = "helper::refl_bool::<false>")]
     pub author_name: bool,
-
-    // TODO: For temporary use on QQ platform, due to demand from a particular user. We eventually
-    // want to support custom text via pattern templates (similar to spdlog-rs, but more generic).
-    // And because they are temporary, we do not currently support their overriding.
-    pub __live_text: Option<String>,
-    pub __post_text: Option<String>,
+    #[serde(default, flatten)]
+    pub ext: O,
 }
 
-serde_impl_default_for!(NotificationOption);
+impl<'a, O: Default + Deserialize<'a>> Default for NotificationOption<O> {
+    fn default() -> Self {
+        helper::serde_default()
+    }
+}
 
-impl Overridable for NotificationOption {
-    type Override = NotificationOptionOverride;
+impl<'a, O: Deserialize<'a> + Overridable> Overridable for NotificationOption<O> {
+    type Override = NotificationOptionOverride<O::Override>;
 
     fn override_into(self, new: Self::Override) -> Self
     where
@@ -296,15 +303,19 @@ impl Overridable for NotificationOption {
     {
         Self {
             author_name: new.author_name.unwrap_or(self.author_name),
-            __live_text: self.__live_text,
-            __post_text: self.__post_text,
+            ext: match new.ext {
+                Some(ext) => self.ext.override_into(ext),
+                None => self.ext,
+            },
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct NotificationOptionOverride {
+pub struct NotificationOptionOverride<O> {
     pub author_name: Option<bool>,
+    #[serde(flatten)]
+    pub ext: Option<O>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -470,8 +481,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                     },
                                     option: NotificationOption {
                                         author_name: false,
-                                        __live_text: None,
-                                        __post_text: None,
+                                        ext: ()
                                     }
                                 },
                                 chat: telegram::ConfigChat::Id(5678),
