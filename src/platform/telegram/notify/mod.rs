@@ -30,9 +30,38 @@ use crate::{
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct OptionExt {
+    // For channels with comments enabled, messages sent with buttons will hide the comment
+    // entrance, this option disables sending messages with buttons.
+    #[serde(default = "helper::refl_bool::<false>")]
+    pub no_button: bool,
+}
+
+impl Default for OptionExt {
+    fn default() -> Self {
+        helper::serde_default()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct OptionExtOverride {
+    pub no_button: Option<bool>,
+}
+
+impl Overridable for OptionExt {
+    type Override = OptionExtOverride;
+
+    fn override_into(self, new: Self::Override) -> Self {
+        Self {
+            no_button: new.no_button.unwrap_or(self.no_button),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
     #[serde(default, flatten)]
-    pub base: config::NotifierBase,
+    pub base: config::NotifierBase<OptionExt>,
     #[serde(flatten)]
     pub chat: ConfigChat,
     pub thread_id: Option<i64>,
@@ -90,7 +119,7 @@ impl Overridable for ConfigParams {
 #[serde(deny_unknown_fields)]
 pub struct ConfigOverride {
     #[serde(flatten)]
-    pub base: Option<config::NotifierBaseOverride>,
+    pub base: Option<config::NotifierBaseOverride<OptionExtOverride>>,
     #[serde(flatten)]
     pub chat: Option<ConfigChat>,
     pub thread_id: Option<i64>,
@@ -427,22 +456,40 @@ impl Notifier {
         let attachments = post.attachments_recursive(true);
         let num_attachments = attachments.len();
 
+        // Jump buttons
+        let buttons = if !self.params.base.option.ext.no_button
+            && (num_attachments == 0 || num_attachments == 1)
+        {
+            Some(Markup::InlineKeyboard(vec![post
+                .urls_recursive()
+                .into_iter()
+                .filter_map(|url| url.as_clickable())
+                .map(|url| Button::new_url(&url.display, &url.url))
+                .collect::<Vec<_>>()]))
+        } else {
+            text.push_plain("\n\n");
+            let mut iter = post
+                .urls_recursive()
+                .into_iter()
+                .filter_map(|url| url.as_clickable())
+                .peekable();
+            while let Some(url) = iter.next() {
+                text.push_link(format!(">> {} <<", url.display), &url.url);
+                if iter.peek().is_some() {
+                    text.push_plain(" | ");
+                }
+            }
+            None
+        };
+
         let resp = match num_attachments {
             0 | 1 => {
-                // Jump buttons
-                let buttons = vec![post
-                    .urls_recursive()
-                    .into_iter()
-                    .filter_map(|url| url.as_clickable())
-                    .map(|url| Button::new_url(&url.display, &url.url))
-                    .collect::<Vec<_>>()];
-
                 if num_attachments == 0 {
                     Request::new(token)
                         .send_message(&self.params.chat, text)
                         .thread_id_opt(self.params.thread_id)
                         .disable_notification_bool(DISABLE_NOTIFICATION)
-                        .markup(Markup::InlineKeyboard(buttons))
+                        .markup_opt(buttons)
                         .send()
                         .await
                         .map(|resp| resp.discard_result())
@@ -461,30 +508,13 @@ impl Notifier {
                     .text(text)
                     .thread_id_opt(self.params.thread_id)
                     .disable_notification_bool(DISABLE_NOTIFICATION)
-                    .markup(Markup::InlineKeyboard(buttons))
+                    .markup_opt(buttons)
                     .send()
                     .await
                     .map(|resp| resp.discard_result())
                 }
             }
             _ => {
-                text.push_plain("\n\n");
-
-                // Jump buttons
-                {
-                    let mut iter = post
-                        .urls_recursive()
-                        .into_iter()
-                        .filter_map(|url| url.as_clickable())
-                        .peekable();
-                    while let Some(url) = iter.next() {
-                        text.push_link(format!(">> {} <<", url.display), &url.url);
-                        if iter.peek().is_some() {
-                            text.push_plain(" | ");
-                        }
-                    }
-                }
-
                 let medias = attachments.iter().map(|attachment| match attachment {
                     // TODO: Mixing GIF in media group to send is not yet supported in Telegram, add
                     // an overlay like video? (see comment in twitter.com implementation)

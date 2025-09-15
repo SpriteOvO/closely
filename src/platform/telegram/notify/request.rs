@@ -422,6 +422,10 @@ impl<'a> SendMessage<'a> {
         }
     }
 
+    pub fn markup_opt(self, markup: Option<Markup<'a>>) -> Self {
+        Self { markup, ..self }
+    }
+
     pub async fn send(self) -> anyhow::Result<Response<ResultMessage>> {
         let mut body = json!(
             {
@@ -596,6 +600,10 @@ impl<'a> SendMedia<'a> {
             markup: Some(markup),
             ..self
         }
+    }
+
+    pub fn markup_opt(self, markup: Option<Markup<'a>>) -> Self {
+        Self { markup, ..self }
     }
 
     pub fn prefer_self_host(self) -> Self {

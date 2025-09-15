@@ -481,7 +481,9 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                     },
                                     option: NotificationOption {
                                         author_name: false,
-                                        ext: ()
+                                        ext: telegram::notify::OptionExt {
+                                            no_button: false,
+                                        }
                                     }
                                 },
                                 chat: telegram::ConfigChat::Id(5678),
