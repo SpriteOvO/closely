@@ -72,7 +72,7 @@ impl ConfigReporterLog {
             .map(|notify_ref| notify_map.get_by_ref(notify_ref).unwrap())
             .collect::<Vec<_>>();
 
-        let sink = Arc::new(TelegramNotifySink::new(notify));
+        let sink = Arc::new(NotifySink::new(notify));
         let logger = spdlog::default_logger().fork_with(|logger| {
             logger.sinks_mut().push(sink);
             Ok(())
@@ -124,7 +124,7 @@ pub struct ReporterParams {
 // TODO: Make it configurable
 const LOG_LEVEL_FILTER: LevelFilter = LevelFilter::MoreSevereEqual(Level::Warn);
 
-struct TelegramNotifySink {
+struct NotifySink {
     rt: tokio::runtime::Handle,
     source: StatusSource,
     formatter: Box<dyn Formatter>,
@@ -132,7 +132,7 @@ struct TelegramNotifySink {
     no_rec: NoRec,
 }
 
-impl TelegramNotifySink {
+impl NotifySink {
     fn new(notify: Vec<Accessor<notify::NotifierConfig>>) -> Self {
         Self {
             rt: tokio::runtime::Handle::current(),
@@ -151,7 +151,7 @@ impl TelegramNotifySink {
     }
 }
 
-impl Sink for TelegramNotifySink {
+impl Sink for NotifySink {
     fn log(&self, record: &Record) -> spdlog::Result<()> {
         if !self.should_log(record.level()) {
             return Ok(());
