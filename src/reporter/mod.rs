@@ -126,22 +126,22 @@ const LOG_LEVEL_FILTER: LevelFilter = LevelFilter::MoreSevereEqual(Level::Warn);
 
 struct NotifySink {
     rt: tokio::runtime::Handle,
-    source: StatusSource,
     formatter: Box<dyn Formatter>,
     notifiers: Vec<Box<dyn notify::NotifierTrait>>,
     no_rec: NoRec,
 }
 
 impl NotifySink {
+    const STATUS_SOURCE: StatusSource = StatusSource {
+        platform: PlatformMetadata {
+            display_name: "Closely",
+        },
+        user: None,
+    };
+
     fn new(notify: Vec<Accessor<notify::NotifierConfig>>) -> Self {
         Self {
             rt: tokio::runtime::Handle::current(),
-            source: StatusSource {
-                platform: PlatformMetadata {
-                    display_name: "Closely",
-                },
-                user: None,
-            },
             formatter: Box::new(PatternFormatter::new(pattern!(
                 "#log #{level} {payload}{eol}@{source}"
             ))),
@@ -168,7 +168,7 @@ impl Sink for NotifySink {
 
         let notification = Notification {
             kind: NotificationKind::Log(buf),
-            source: &self.source,
+            source: &Self::STATUS_SOURCE,
         };
 
         tokio::task::block_in_place(|| {
