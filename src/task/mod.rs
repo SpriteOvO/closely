@@ -1,8 +1,10 @@
+mod equidistant;
 mod reporter;
 mod subscription;
 
 use std::{future::Future, pin::Pin};
 
+pub use equidistant::equidistant_intervals;
 pub use reporter::TaskReporter;
 use spdlog::prelude::*;
 pub use subscription::TaskSubscription;

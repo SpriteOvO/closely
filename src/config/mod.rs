@@ -24,6 +24,10 @@ use crate::{
 pub struct Config {
     #[serde(with = "humantime_serde")]
     pub interval: Duration,
+    // Distribute intervals equidistantly, which helps avoid periodic CPU peaks and request peaks
+    // when there are many tasks.
+    #[serde(default)]
+    pub equidistant_intervals: bool,
     reporter: Accessor<Option<ConfigReporterRaw>>,
     #[serde(default)]
     platform: Accessor<PlatformGlobal>,
@@ -102,7 +106,7 @@ impl Config {
                     name.clone(),
                     SubscriptionRef {
                         platform: &subscription.platform,
-                        interval: subscription.interval,
+                        interval: subscription.interval.unwrap_or(self.interval),
                         notify: subscription
                             .notify_ref
                             .iter()
@@ -184,7 +188,7 @@ pub struct SubscriptionRaw {
 #[derive(Debug, PartialEq)]
 pub struct SubscriptionRef<'a> {
     pub platform: &'a Accessor<SourceConfig>,
-    pub interval: Option<Duration>,
+    pub interval: Duration,
     pub notify: Vec<Accessor<NotifierConfig>>,
 }
 
@@ -378,6 +382,7 @@ mod tests {
         Config::parse_for_test(
             r#"
 interval = '1min'
+equidistant_intervals = true
 reporter = { log = { notify = ["meow"] }, heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
 
 [platform.QQ.account.MyQQ]
@@ -412,6 +417,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
             |c| {
                 assert_eq!(c.unwrap(), &Config {
                     interval: Duration::from_secs(60), // 1min
+                    equidistant_intervals: true,
                     reporter: Accessor::new(Some(ConfigReporterRaw {
                         log: Accessor::new(Some(ConfigReporterLog {
                             notify_ref: vec![NotifyRef::Direct("meow".into())],
@@ -668,7 +674,7 @@ notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", switch = { 
                             platform: &Accessor::new(SourceConfig::BilibiliLive(Accessor::new(
                                 bilibili::source::live::ConfigParams { user_id: 123456 }
                             ))),
-                            interval: None,
+                            interval: Duration::from_secs(60),
                             notify: vec![
                                 Accessor::new(NotifierConfig::Telegram(Accessor::new(
                                     telegram::notify::ConfigParams {

@@ -1,5 +1,6 @@
 use std::{fmt::Display, future::Future, pin::Pin, time::Duration};
 
+use humantime_serde::re::humantime;
 use spdlog::prelude::*;
 use tokio::{sync::mpsc, time::MissedTickBehavior};
 
@@ -13,6 +14,7 @@ use crate::{
 pub struct TaskSubscription {
     name: String,
     interval: Duration,
+    initial_offset: Option<Duration>,
     notifiers: Vec<Box<dyn NotifierTrait>>,
     sourcer: Option<Sourcer>, // took when the task is running
 }
@@ -21,12 +23,19 @@ impl TaskSubscription {
     pub fn new(
         name: String,
         interval: Duration,
+        initial_offset: Option<Duration>,
         notify: Vec<Accessor<NotifierConfig>>,
         source_platform: &Accessor<SourceConfig>,
     ) -> Self {
+        trace!(
+            "task subscription '{name}' created, source '{source_platform}', interval {} (initial offset {})",
+            humantime::format_duration(interval),
+            humantime::format_duration(initial_offset.unwrap_or_default())
+        );
         Self {
             name,
             interval,
+            initial_offset,
             notifiers: notify.into_iter().map(notifier).collect(),
             sourcer: Some(sourcer(source_platform)),
         }
@@ -34,36 +43,53 @@ impl TaskSubscription {
 
     // Handler for poll-based subscription
     async fn continuous_fetch(&mut self, fetcher: Box<dyn FetcherTrait>) {
+        let mut last_status = Status::empty();
+
+        // Fetch for the first time immediately
+        self.continuous_fetch_once(&*fetcher, &mut last_status)
+            .await;
+
+        if let Some(initial_offset) = self.initial_offset {
+            tokio::time::sleep(initial_offset).await;
+        }
+
         let mut interval = tokio::time::interval(self.interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-
-        let mut last_status = Status::empty();
+        interval.tick().await; // Skip the first immediate tick since we already fetched once.
 
         loop {
             interval.tick().await;
-
-            let Ok(mut status) = fetcher.fetch_status().await.inspect_err(|err| {
-                error!(
-                    "failed to fetch status for '{}' on '{}': {err}",
-                    self.name, fetcher
-                )
-            }) else {
-                continue;
-            };
-
-            status.sort();
-
-            trace!(
-                "status of '{}' on '{fetcher}' now is '{status:?}'",
-                self.name
-            );
-
-            let notifications = status.generate_notifications(&last_status);
-            self.notify(notifications, &fetcher).await;
-
-            last_status.update_incrementally(status);
-            trace!("subscription '{}' updated once", self.name);
+            self.continuous_fetch_once(&*fetcher, &mut last_status)
+                .await;
         }
+    }
+
+    async fn continuous_fetch_once(
+        &mut self,
+        fetcher: &dyn FetcherTrait,
+        last_status: &mut Status,
+    ) {
+        let Ok(mut status) = fetcher.fetch_status().await.inspect_err(|err| {
+            error!(
+                "failed to fetch status for '{}' on '{}': {err}",
+                self.name, fetcher
+            )
+        }) else {
+            return;
+        };
+
+        status.sort();
+
+        trace!(
+            "status of '{}' on '{fetcher}' now is '{status:?}'",
+            self.name
+        );
+
+        let notifications = status.generate_notifications(last_status);
+        self.notify(notifications, &fetcher).await;
+
+        last_status.update_incrementally(status);
+        trace!("subscription '{}' updated once", self.name);
     }
 
     // Handler for listen-based subscription

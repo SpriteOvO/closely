@@ -33,14 +33,26 @@ pub async fn run(args: cli::Args) -> anyhow::Result<()> {
     )
     .await?;
 
-    let subscription_tasks = config.subscriptions().map(|(name, subscription)| {
-        Box::new(TaskSubscription::new(
-            name,
-            subscription.interval.unwrap_or(config.interval),
-            subscription.notify,
-            subscription.platform,
-        )) as Box<dyn Task>
+    let initial_offsets = config.equidistant_intervals.then(|| {
+        task::equidistant_intervals(
+            config
+                .subscriptions()
+                .map(|(_, subscription)| subscription.interval),
+        )
     });
+
+    let subscription_tasks = config
+        .subscriptions()
+        .enumerate()
+        .map(|(i, (name, subscription))| {
+            Box::new(TaskSubscription::new(
+                name,
+                subscription.interval,
+                initial_offsets.as_ref().map(|v| *v.get(i).unwrap()),
+                subscription.notify,
+                subscription.platform,
+            )) as Box<dyn Task>
+        });
     let reporter_task = config
         .reporter()
         .map(|params| Box::new(TaskReporter::new(params)) as Box<dyn Task>);
