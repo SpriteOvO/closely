@@ -490,6 +490,7 @@ impl Notifier {
                         .thread_id_opt(self.params.thread_id)
                         .disable_notification_bool(DISABLE_NOTIFICATION)
                         .markup_opt(buttons)
+                        .link_preview(LinkPreview::Disabled)
                         .send()
                         .await
                         .map(|resp| resp.discard_result())
