@@ -1,5 +1,7 @@
 use std::{borrow::Cow, env, error::Error as StdError, str::FromStr};
 
+use serde::Deserialize;
+
 pub trait AsSecretRef<'a, T = &'a str> {
     fn as_secret_ref(&'a self) -> SecretRef<'a, T>;
 }
@@ -128,4 +130,12 @@ macro_rules! secret_enum {
             }
         }
     };
+}
+
+secret_enum! {
+    #[derive(Clone, Debug, PartialEq, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ConfigCookies {
+        Cookies(String),
+    }
 }

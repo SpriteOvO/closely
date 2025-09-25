@@ -449,9 +449,10 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                             experimental: Default::default()
                         })),
                         twitter: Accessor::new(Some(twitter::ConfigGlobal {
-                            account: Accounts::from_iter([("MyTwitter".into(), Accessor::new(twitter::ConfigCookies::with_raw("a=b;c=d;ct0=blah")))])
+                            account: Accounts::from_iter([("MyTwitter".into(), Accessor::new(ConfigCookies::with_raw("a=b;c=d;ct0=blah")))])
                         })),
                         bilibili: Accessor::new(Some(bilibili::ConfigGlobal {
+                            cookies: Accessor::new(None),
                             playback: Accessor::new(Some(bilibili::source::playback::ConfigGlobal {
                                 bililive_recorder: Accessor::new(bilibili::source::playback::bililive_recorder::ConfigBililiveRecorder {
                                     listen_webhook: bilibili::source::playback::bililive_recorder::ConfigListen {

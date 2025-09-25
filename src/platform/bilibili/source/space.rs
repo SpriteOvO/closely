@@ -1,14 +1,17 @@
 use std::{
+    borrow::Cow,
     collections::HashSet,
     fmt::{self, Display},
     future::Future,
     ops::DerefMut,
     pin::Pin,
+    str::FromStr,
     sync::{Arc, Mutex as StdMutex},
 };
 
 use anyhow::{anyhow, bail, ensure};
 use chrono::DateTime;
+use reqwest::{header::COOKIE, Url};
 use serde::Deserialize;
 use serde_json::{self as json};
 use spdlog::prelude::*;
@@ -16,8 +19,8 @@ use tokio::sync::Mutex;
 
 use super::super::{upgrade_to_https, Response};
 use crate::{
-    config::{Accessor, Validator},
-    platform::{PlatformMetadata, PlatformTrait},
+    config::{Accessor, AsSecretRef, Config, Validator},
+    platform::{bilibili::bilibili_request_builder, PlatformMetadata, PlatformTrait},
     prop,
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostContent, PostUrl, PostUrls,
@@ -486,9 +489,21 @@ impl Fetcher {
         }
     }
 
+    fn cookies(&self) -> Option<Cow<'_, str>> {
+        Config::global().platform().bilibili.as_ref().and_then(|b| {
+            b.cookies
+                .as_ref()
+                .map(|c| c.as_secret_ref().get_str().unwrap())
+        })
+    }
+
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
-        let posts =
-            fetch_space_history(self.params.user_id, self.blocked.lock().await.deref_mut()).await?;
+        let posts = fetch_space_history(
+            self.params.user_id,
+            self.blocked.lock().await.deref_mut(),
+            self.cookies(),
+        )
+        .await?;
 
         Ok(Status::new(
             StatusKind::Posts(posts),
@@ -505,20 +520,42 @@ impl Fetcher {
 // Fans-only posts
 struct BlockedPostIds(HashSet<String>);
 
-async fn fetch_space_history(user_id: u64, blocked: &mut BlockedPostIds) -> anyhow::Result<Posts> {
-    fetch_space_history_impl(user_id, blocked).await
+async fn fetch_space_history(
+    user_id: u64,
+    blocked: &mut BlockedPostIds,
+    cookies: Option<Cow<'_, str>>,
+) -> anyhow::Result<Posts> {
+    let res = fetch_space_history_impl(user_id, blocked, cookies).await;
+    if let Err(FetchSpaceHistoryError::Auth(true)) = res {
+        warn!("bilibili space auth error with cookies used, retrying headless without cookies");
+        Ok(fetch_space_history_impl(user_id, blocked, None).await?)
+    } else {
+        Ok(res?)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+enum FetchSpaceHistoryError {
+    #[error("auth error (cookies used: {0})")]
+    Auth(bool),
+    #[error("{0}")]
+    Anyhow(#[from] anyhow::Error),
+    #[error("response contains error, response '{0}'")]
+    Others(String),
 }
 
 fn fetch_space_history_impl<'a>(
     user_id: u64,
     blocked: &'a mut BlockedPostIds,
-) -> Pin<Box<dyn Future<Output = anyhow::Result<Posts>> + Send + 'a>> {
+    cookies: Option<Cow<'a, str>>,
+) -> Pin<Box<dyn Future<Output = Result<Posts, FetchSpaceHistoryError>> + Send + 'a>> {
     Box::pin(async move {
-        let (status, text) = fetch_space(user_id)
+        let cookies_used = cookies.is_some();
+        let (status, text) = fetch_space(user_id, cookies)
             .await
             .map_err(|err| anyhow!("failed to send request: {err}"))?;
         if status != 200 {
-            bail!("response status is not success: {text:?}");
+            return Err(anyhow!("response status is not success: {text:?}").into());
         }
 
         let resp: Response<data::SpaceHistory> = json::from_str(&text)
@@ -526,11 +563,11 @@ fn fetch_space_history_impl<'a>(
 
         match resp.code {
             0 => {} // Success
-            -352 => bail!("auth error"),
-            _ => bail!("response contains error, response '{text}'"),
+            -352 => return Err(FetchSpaceHistoryError::Auth(cookies_used)),
+            _ => return Err(FetchSpaceHistoryError::Others(text)),
         }
 
-        parse_response(resp.data.unwrap(), blocked)
+        Ok(parse_response(resp.data.unwrap(), blocked)?)
     })
 }
 
@@ -787,7 +824,47 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
     Ok(Posts(items))
 }
 
-async fn fetch_space(user_id: u64) -> anyhow::Result<(u32, String)> {
+const ENDPOINT_URL: &str = "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space";
+
+async fn fetch_space(user_id: u64, cookies: Option<Cow<'_, str>>) -> anyhow::Result<(u32, String)> {
+    let Some(cookies) = cookies else {
+        return fetch_space_via_headless(user_id).await;
+    };
+
+    const FEATURES: &[&str] = &[
+        "itemOpusStyle",
+        "listOnlyfans",
+        "opusBigCover",
+        "onlyfansVote",
+        "forwardListHidden",
+        "decorationCard",
+        "commentsNewVersion",
+        "onlyfansAssetsV2",
+        "ugcDelete",
+        "onlyfansQaCard",
+    ];
+    let mut url = Url::from_str(ENDPOINT_URL)?;
+    {
+        let mut query = url.query_pairs_mut();
+        query.append_pair("host_mid", &user_id.to_string());
+        query.append_pair("platform", "web");
+        query.append_pair("features", &FEATURES.join(","));
+    }
+    let resp = bilibili_request_builder()?
+        .get(url.as_ref())
+        .header(COOKIE, &*cookies)
+        .send()
+        .await
+        .map_err(|err| anyhow!("failed to send request with cookies: {err}"))?;
+    let status = resp.status();
+    let text = resp
+        .text()
+        .await
+        .map_err(|err| anyhow!("failed to read response text for bilibili: {err}"))?;
+    Ok((status.as_u16() as u32, text))
+}
+
+async fn fetch_space_via_headless(user_id: u64) -> anyhow::Result<(u32, String)> {
     // Okay, I gave up on cracking the auth process
     use headless_chrome::{Browser, LaunchOptionsBuilder};
 
@@ -805,11 +882,7 @@ async fn fetch_space(user_id: u64) -> anyhow::Result<(u32, String)> {
         Box::new({
             let body_res = Arc::clone(&body_res);
             move |event, fetch_body| {
-                if event
-                    .response
-                    .url
-                    .starts_with("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space")
-                {
+                if event.response.url.starts_with(ENDPOINT_URL) {
                     *body_res.lock().unwrap() = Some((event.response.status, fetch_body()));
                 }
             }
@@ -846,7 +919,9 @@ mod tests {
     async fn deser() {
         let mut blocked = BlockedPostIds(HashSet::new());
 
-        let history = fetch_space_history(8047632, &mut blocked).await.unwrap();
+        let history = fetch_space_history(8047632, &mut blocked, None)
+            .await
+            .unwrap();
         assert!(history.0.iter().all(|post| !post
             .urls
             .major()
@@ -856,7 +931,9 @@ mod tests {
             .is_empty()));
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
 
-        let history = fetch_space_history(178362496, &mut blocked).await.unwrap();
+        let history = fetch_space_history(178362496, &mut blocked, None)
+            .await
+            .unwrap();
         assert!(history.0.iter().all(|post| !post
             .urls
             .major()

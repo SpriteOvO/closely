@@ -396,6 +396,7 @@ dependencies = [
  "shadow-rs",
  "spdlog-rs",
  "tempfile",
+ "thiserror 2.0.16",
  "tokio",
  "toml 0.9.5",
  "warp",

@@ -4,17 +4,20 @@ use reqwest::header::{self, HeaderMap, HeaderValue};
 use serde::Deserialize;
 
 use crate::{
-    config::{Accessor, Validator},
+    config::{Accessor, ConfigCookies, Validator},
     helper, prop,
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigGlobal {
+    #[serde(flatten)]
+    pub cookies: Accessor<Option<ConfigCookies>>,
     pub playback: Accessor<Option<source::playback::ConfigGlobal>>,
 }
 
 impl Validator for ConfigGlobal {
     fn validate(&self) -> anyhow::Result<()> {
+        self.cookies.validate()?;
         self.playback.validate()?;
         Ok(())
     }
