@@ -19,7 +19,7 @@ use tokio::sync::Mutex;
 use super::{ConfigChat, ConfigToken};
 use crate::{
     config::{self, Accessor, AsSecretRef, Config, Overridable, Validator},
-    helper,
+    format_if, helper,
     notify::NotifierTrait,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
@@ -231,6 +231,7 @@ impl Notifier {
         let start_time = start_time.unwrap_or_else(SystemTime::now);
 
         let text = make_live_text(
+            self.params.base.option.platform_name,
             self.params.base.option.author_name,
             &title_history,
             live_status,
@@ -272,6 +273,7 @@ impl Notifier {
             let token = self.token()?;
 
             let text = make_live_text(
+                self.params.base.option.platform_name,
                 self.params.base.option.author_name,
                 &current_live.title_history,
                 live_status,
@@ -319,13 +321,17 @@ impl Notifier {
 
         let text = Text::link(
             format!(
-                "[{}] ✏️ {}{}",
-                source.platform.display_name,
-                if self.params.base.option.author_name {
-                    Cow::Owned(format!("[{}] ", live_status.streamer_name))
-                } else {
-                    Cow::Borrowed("")
-                },
+                "{}✏️ {}{}",
+                format_if!(
+                    self.params.base.option.platform_name,
+                    "[{}] ",
+                    source.platform.display_name
+                ),
+                format_if!(
+                    self.params.base.option.author_name,
+                    "[{}] ",
+                    live_status.streamer_name
+                ),
                 live_status.title
             ),
             &live_status.live_url,
@@ -362,6 +368,7 @@ impl Notifier {
                 .push_front(live_status.title.clone());
 
             let text = make_live_text(
+                self.params.base.option.platform_name,
                 self.params.base.option.author_name,
                 &current_live.title_history,
                 live_status,
@@ -412,7 +419,11 @@ impl Notifier {
         post: &Post,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
-        let mut text = Text::plain(format!("[{}] ", source.platform.display_name));
+        let mut text = Text::plain(format_if!(
+            self.params.base.option.platform_name,
+            "[{}] ",
+            source.platform.display_name
+        ));
 
         match &post.repost_from {
             Some(RepostFrom::Recursion(repost_from)) => {
@@ -626,6 +637,7 @@ impl Notifier {
             .send_message(
                 &self.params.chat,
                 make_file_text(
+                    self.params.base.option.platform_name,
                     self.params.base.option.author_name,
                     FileUploadStage::PlaybackUploading,
                     &playback.file,
@@ -664,6 +676,7 @@ impl Notifier {
                     }),
                 )
                 .text(make_file_text(
+                    self.params.base.option.platform_name,
                     self.params.base.option.author_name,
                     FileUploadStage::PlaybackFinished,
                     &playback.file,
@@ -696,6 +709,7 @@ impl Notifier {
                         &self.params.chat,
                         message_id,
                         make_file_text(
+                            self.params.base.option.platform_name,
                             self.params.base.option.author_name,
                             FileUploadStage::PlaybackFailed,
                             &playback.file,
@@ -739,6 +753,7 @@ impl Notifier {
                 },
             )
             .text(make_file_text(
+                self.params.base.option.platform_name,
                 self.params.base.option.author_name,
                 FileUploadStage::MetadataFinished,
                 &document.file,
@@ -761,6 +776,7 @@ impl Notifier {
 }
 
 fn make_live_text<'a>(
+    platform_name: bool,
     author_name: bool,
     title_history: impl IntoIterator<Item = &'a String>,
     live_status: &'a LiveStatus,
@@ -768,18 +784,14 @@ fn make_live_text<'a>(
     start_time: SystemTime,
 ) -> Text<'a> {
     let text = format!(
-        "[{}] {} {}{}{}",
-        source.platform.display_name,
+        "{}{} {}{}{}",
+        format_if!(platform_name, "[{}] ", source.platform.display_name),
         match live_status.kind {
             LiveStatusKind::Online { start_time: _ } => "🟢",
             LiveStatusKind::Offline => "🟠",
             LiveStatusKind::Banned => "🔴",
         },
-        if author_name {
-            Cow::Owned(format!("[{}] ", live_status.streamer_name))
-        } else {
-            Cow::Borrowed("")
-        },
+        format_if!(author_name, "[{}] ", live_status.streamer_name),
         itertools::join(title_history, " ⬅️ "),
         if live_status.kind == LiveStatusKind::Offline || live_status.kind == LiveStatusKind::Banned
         {
@@ -803,6 +815,7 @@ enum FileUploadStage {
 }
 
 fn make_file_text<'a>(
+    platform_name: bool,
     _author_name: bool,
     stage: FileUploadStage,
     file: &FileRef<'a>,
@@ -816,8 +829,9 @@ fn make_file_text<'a>(
     };
     // TODO: Append author_name
     let mut text = Text::plain(format!(
-        "[{}] {emoji} {}",
-        source.platform.display_name, file.name,
+        "{}{emoji} {}",
+        format_if!(platform_name, "[{}] ", source.platform.display_name),
+        file.name,
     ));
     match stage {
         FileUploadStage::PlaybackUploading | FileUploadStage::PlaybackFailed => {

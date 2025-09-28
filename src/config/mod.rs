@@ -286,6 +286,8 @@ pub struct NotificationSwitchOverride {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct NotificationOption<O> {
+    #[serde(default = "helper::refl_bool::<true>")]
+    pub platform_name: bool,
     #[serde(default = "helper::refl_bool::<false>")]
     pub author_name: bool,
     #[serde(default, flatten)]
@@ -306,6 +308,7 @@ impl<'a, O: Deserialize<'a> + Overridable> Overridable for NotificationOption<O>
         Self: Sized,
     {
         Self {
+            platform_name: new.platform_name.unwrap_or(self.platform_name),
             author_name: new.author_name.unwrap_or(self.author_name),
             ext: match new.ext {
                 Some(ext) => self.ext.override_into(ext),
@@ -317,6 +320,7 @@ impl<'a, O: Deserialize<'a> + Overridable> Overridable for NotificationOption<O>
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct NotificationOptionOverride<O> {
+    pub platform_name: Option<bool>,
     pub author_name: Option<bool>,
     #[serde(flatten)]
     pub ext: Option<O>,
@@ -487,6 +491,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                         document: true,
                                     },
                                     option: NotificationOption {
+                                        platform_name: true,
                                         author_name: false,
                                         ext: telegram::notify::OptionExt {
                                             no_button: false,

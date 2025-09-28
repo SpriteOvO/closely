@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt, future::Future, pin::Pin};
+use std::{fmt, future::Future, pin::Pin};
 
 use anyhow::{anyhow, ensure};
 use serde::Deserialize;
@@ -7,7 +7,7 @@ use spdlog::prelude::*;
 use super::{lagrange, ConfigChat};
 use crate::{
     config::{self, Accessor, AccountRef, Config, ContextualValidator, Overridable, Validator},
-    helper,
+    format_if, helper,
     notify::NotifierTrait,
     platform::{PlatformMetadata, PlatformTrait},
     source::{
@@ -180,13 +180,17 @@ impl Notifier {
                     builder.text(format!("{custom_live_text}\n{}", live_status.live_url))
                 } else {
                     builder.text(format!(
-                        "[{}] 🟢 {}{}\n{}",
-                        source.platform.display_name,
-                        if self.params.base.option.author_name {
-                            Cow::Owned(format!("[{}] ", live_status.streamer_name))
-                        } else {
-                            Cow::Borrowed("")
-                        },
+                        "{}🟢 {}{}\n{}",
+                        format_if!(
+                            self.params.base.option.platform_name,
+                            "[{}] ",
+                            source.platform.display_name
+                        ),
+                        format_if!(
+                            self.params.base.option.author_name,
+                            "[{}] ",
+                            live_status.streamer_name
+                        ),
                         live_status.title,
                         live_status.live_url
                     ))
@@ -213,13 +217,17 @@ impl Notifier {
 
         let message = lagrange::Message::builder()
             .text(format!(
-                "[{}] ✏️ {}{}",
-                source.platform.display_name,
-                if self.params.base.option.author_name {
-                    Cow::Owned(format!("[{}] ", live_status.streamer_name))
-                } else {
-                    Cow::Borrowed("")
-                },
+                "{}✏️ {}{}",
+                format_if!(
+                    self.params.base.option.platform_name,
+                    "[{}] ",
+                    source.platform.display_name
+                ),
+                format_if!(
+                    self.params.base.option.author_name,
+                    "[{}] ",
+                    live_status.streamer_name
+                ),
                 live_status.title
             ))
             .mention_all_if(self.params.mention_all, true)
@@ -283,9 +291,11 @@ impl Notifier {
             Some(RepostFrom::Recursion(repost_from)) => {
                 if !post.content.is_empty() {
                     builder.ref_text("💬 ");
-                    if self.params.base.option.author_name {
-                        builder.ref_text(format!("{}: ", post.user.nickname));
-                    }
+                    builder.ref_text(format_if!(
+                        self.params.base.option.author_name,
+                        "{}: ",
+                        post.user.nickname
+                    ));
                     append_media(&mut builder, post.attachments(false));
                     builder.ref_text(post.content.fallback());
                     builder.ref_text("\n\n");
@@ -297,9 +307,11 @@ impl Notifier {
                 builder.ref_text(repost_from.content.fallback());
             }
             None => {
-                if self.params.base.option.author_name {
-                    builder.ref_text(format!("{}: ", post.user.nickname));
-                }
+                builder.ref_text(format_if!(
+                    self.params.base.option.author_name,
+                    "{}: ",
+                    post.user.nickname
+                ));
                 append_media(&mut builder, post.attachments(false));
                 builder.ref_text(post.content.fallback());
             }

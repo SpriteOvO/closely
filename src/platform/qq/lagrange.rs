@@ -170,7 +170,7 @@ impl Message {
         MessageBuilder(Message(vec![]))
     }
 
-    pub fn text(text: impl Into<String>) -> Self {
+    pub fn text<'a>(text: impl Into<Cow<'a, str>>) -> Self {
         Self::builder().text(text).build()
     }
 }
@@ -178,14 +178,17 @@ impl Message {
 pub struct MessageBuilder(Message);
 
 impl MessageBuilder {
-    pub fn ref_text(&mut self, text: impl Into<String>) -> &mut Self {
-        self.0 .0.push(MessageSegment::Text(MessageSegmentText {
-            text: text.into(),
-        }));
+    pub fn ref_text<'a>(&mut self, text: impl Into<Cow<'a, str>>) -> &mut Self {
+        let text = text.into();
+        if !text.is_empty() {
+            self.0 .0.push(MessageSegment::Text(MessageSegmentText {
+                text: text.into(),
+            }));
+        }
         self
     }
 
-    pub fn text(mut self, text: impl Into<String>) -> Self {
+    pub fn text<'a>(mut self, text: impl Into<Cow<'a, str>>) -> Self {
         self.ref_text(text);
         self
     }

@@ -48,6 +48,17 @@ pub fn serde_default<'a, T: Default + Deserialize<'a>>() -> T {
     .unwrap()
 }
 
+#[macro_export]
+macro_rules! format_if {
+    ( $cond:expr, $($fmt_arg:tt)+ ) => {
+        if $cond {
+            std::borrow::Cow::Owned(format!($($fmt_arg)+))
+        } else {
+            std::borrow::Cow::Borrowed("")
+        }
+    };
+}
+
 pub fn format_duration_in_sec(dur: Duration) -> String {
     humantime::format_duration(Duration::from_secs(dur.as_secs())).to_string()
 }
