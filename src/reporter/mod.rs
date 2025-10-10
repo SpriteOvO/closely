@@ -6,9 +6,9 @@ use norec::NoRec;
 use reqwest::Url;
 use serde::Deserialize;
 use spdlog::{
-    formatter::{pattern, Formatter, FormatterContext, PatternFormatter},
+    formatter::{pattern, FormatterContext, PatternFormatter},
     prelude::*,
-    sink::Sink,
+    sink::{GetSinkProp, Sink, SinkProp},
     Record, StringBuf,
 };
 
@@ -125,8 +125,8 @@ pub struct ReporterParams {
 const LOG_LEVEL_FILTER: LevelFilter = LevelFilter::MoreSevereEqual(Level::Warn);
 
 struct NotifySink {
+    prop: SinkProp,
     rt: tokio::runtime::Handle,
-    formatter: Box<dyn Formatter>,
     notifiers: Vec<Box<dyn notify::NotifierTrait>>,
     no_rec: NoRec,
 }
@@ -140,23 +140,28 @@ impl NotifySink {
     };
 
     fn new(notify: Vec<Accessor<notify::NotifierConfig>>) -> Self {
+        let prop = SinkProp::default();
+        prop.set_level_filter(LevelFilter::MoreSevereEqual(Level::Warn));
+        prop.set_formatter(PatternFormatter::new(pattern!(
+            "#log #{level} {payload}{eol}@{source}"
+        )));
         Self {
+            prop,
             rt: tokio::runtime::Handle::current(),
-            formatter: Box::new(PatternFormatter::new(pattern!(
-                "#log #{level} {payload}{eol}@{source}"
-            ))),
             notifiers: notify.into_iter().map(notify::notifier).collect(),
             no_rec: NoRec::new(),
         }
     }
 }
 
+impl GetSinkProp for NotifySink {
+    fn prop(&self) -> &SinkProp {
+        &self.prop
+    }
+}
+
 impl Sink for NotifySink {
     fn log(&self, record: &Record) -> spdlog::Result<()> {
-        if !self.should_log(record.level()) {
-            return Ok(());
-        }
-
         let guard = self.no_rec.enter();
         if guard.is_none() {
             return Ok(());
@@ -164,7 +169,7 @@ impl Sink for NotifySink {
 
         let mut buf = StringBuf::new();
         let mut ctx = FormatterContext::new();
-        self.formatter.format(record, &mut buf, &mut ctx)?;
+        self.prop.formatter().format(record, &mut buf, &mut ctx)?;
 
         let notification = Notification {
             kind: NotificationKind::Log(buf),
@@ -183,21 +188,5 @@ impl Sink for NotifySink {
 
     fn flush(&self) -> spdlog::Result<()> {
         Ok(()) // No-op
-    }
-
-    fn level_filter(&self) -> LevelFilter {
-        LOG_LEVEL_FILTER
-    }
-
-    fn set_level_filter(&self, _level_filter: LevelFilter) {
-        unreachable!("no-op")
-    }
-
-    fn set_formatter(&self, _formatter: Box<dyn Formatter>) {
-        unreachable!("no-op")
-    }
-
-    fn set_error_handler(&self, _handler: Option<spdlog::ErrorHandler>) {
-        unreachable!("no-op")
     }
 }
