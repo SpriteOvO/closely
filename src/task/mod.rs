@@ -8,32 +8,40 @@ pub use equidistant::equidistant_intervals;
 pub use reporter::TaskReporter;
 use spdlog::prelude::*;
 pub use subscription::TaskSubscription;
+use tokio::task::JoinSet;
 
 pub trait Task: Send {
     fn run(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
 pub struct Runner {
-    join_handles: Vec<tokio::task::JoinHandle<()>>,
+    join_set: JoinSet<()>,
 }
 
 impl Runner {
-    pub async fn join_all(self) {
-        for join_handle in self.join_handles {
-            if let Err(err) = join_handle.await {
-                error!("failed to join task: {err}");
+    pub async fn join_all(mut self) {
+        while let Some(join_handle) = self.join_set.join_next().await {
+            if let Err(err) = join_handle {
+                if err.is_panic() {
+                    error!("task panicked: {err}");
+                    panic!("task panicked: {err}");
+                } else {
+                    error!("failed to join task: {err}");
+                }
             }
         }
     }
 }
 
 pub async fn run_tasks(tasks: impl IntoIterator<Item = Box<dyn Task>>) -> anyhow::Result<Runner> {
-    let join_handles = tasks
+    let join_set = tasks
         .into_iter()
-        .map(|mut task| tokio::spawn(async move { task.run().await }))
-        .collect::<Vec<_>>();
+        .fold(JoinSet::new(), |mut join_set, mut task| {
+            join_set.spawn(async move { task.run().await });
+            join_set
+        });
 
-    info!("{} tasks are running", join_handles.len());
+    info!("{} tasks are running", join_set.len());
 
-    Ok(Runner { join_handles })
+    Ok(Runner { join_set })
 }
