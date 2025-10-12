@@ -144,6 +144,74 @@ impl TwitterRequester {
             .map_err(|err| anyhow!("failed to fetch user tweets: {err}"))
     }
 
+    pub async fn tweet_result_by_rest_id(
+        &self,
+        tweet_id: impl AsRef<str>,
+    ) -> anyhow::Result<reqwest::Response> {
+        let tweet_id = tweet_id.as_ref();
+
+        let variables = json!({
+            "tweetId": tweet_id,
+            "includePromotedContent": true,
+            "withBirdwatchNotes": true,
+            "withVoice": true,
+            "withCommunity": true
+        });
+        let features = json!({
+            "creator_subscriptions_tweet_preview_api_enabled": true,
+            "premium_content_api_read_enabled": false,
+            "communities_web_enable_tweet_community_results_fetch": true,
+            "c9s_tweet_anatomy_moderator_badge_enabled": true,
+            "responsive_web_grok_analyze_button_fetch_trends_enabled": false,
+            "responsive_web_grok_analyze_post_followups_enabled": true,
+            "responsive_web_jetfuel_frame": true,
+            "responsive_web_grok_share_attachment_enabled": true,
+            "articles_preview_enabled": true,
+            "responsive_web_edit_tweet_api_enabled": true,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": true,
+            "view_counts_everywhere_api_enabled": true,
+            "longform_notetweets_consumption_enabled": true,
+            "responsive_web_twitter_article_tweet_consumption_enabled": true,
+            "tweet_awards_web_tipping_enabled": false,
+            "responsive_web_grok_show_grok_translated_post": true,
+            "responsive_web_grok_analysis_button_from_backend": true,
+            "creator_subscriptions_quote_tweet_preview_enabled": false,
+            "freedom_of_speech_not_reach_fetch_enabled": true,
+            "standardized_nudges_misinfo": true,
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": true,
+            "longform_notetweets_rich_text_read_enabled": true,
+            "longform_notetweets_inline_media_enabled": true,
+            "payments_enabled": false,
+            "profile_label_improvements_pcf_label_in_post_enabled": true,
+            "responsive_web_profile_redirect_enabled": false,
+            "rweb_tipjar_consumption_enabled": true,
+            "verified_phone_label_enabled": false,
+            "responsive_web_grok_image_annotation_enabled": true,
+            "responsive_web_grok_imagine_annotation_enabled": true,
+            "responsive_web_grok_community_note_auto_translation_is_enabled": false,
+            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": false,
+            "responsive_web_graphql_timeline_navigation_enabled": true,
+            "responsive_web_enhance_cards_enabled": false
+        });
+        let field_toggles = json!({
+            "withArticleRichContentState": true,
+            "withArticlePlainText": false
+        });
+        let mut url = Url::from_str(
+            "https://x.com/i/api/graphql/WvlrBJ2bz8AuwoszWyie8A/TweetResultByRestId",
+        )?;
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("variables", &json::to_string(&variables)?);
+            query.append_pair("features", &json::to_string(&features)?);
+            query.append_pair("fieldToggles", &json::to_string(&field_toggles)?);
+        }
+
+        self.request(url)
+            .await
+            .map_err(|err| anyhow!("failed to fetch tweet result by rest id: {err}"))
+    }
+
     async fn request(&self, url: impl AsRef<str>) -> anyhow::Result<reqwest::Response> {
         let resp = helper::reqwest_client()?
             .get(url.as_ref())

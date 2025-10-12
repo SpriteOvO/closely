@@ -710,7 +710,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
             urls: PostUrls::new(url),
             time,
             is_pinned,
-            repost_from: original.map(|original| RepostFrom::Recursion(Box::new(original))),
+            repost_from: original.map(RepostFrom::new_quote),
             attachments: item
                 .modules
                 .dynamic

@@ -38,9 +38,9 @@ impl Post {
     }
 
     pub fn attachments_recursive(&self, include_inlined: bool) -> Vec<&PostAttachment> {
-        if let Some(RepostFrom::Recursion(repost_from)) = &self.repost_from {
+        if let Some(repost_from) = &self.repost_from {
             self.attachments(include_inlined)
-                .chain(repost_from.attachments_recursive(include_inlined))
+                .chain(repost_from.post.attachments_recursive(include_inlined))
                 .collect()
         } else {
             self.attachments(include_inlined).collect()
@@ -48,11 +48,11 @@ impl Post {
     }
 
     pub fn urls_recursive(&self) -> PostUrlsRef<'_> {
-        if let Some(RepostFrom::Recursion(repost_from)) = &self.repost_from {
+        if let Some(repost_from) = &self.repost_from {
             let mut v = self
                 .urls
                 .iter()
-                .chain(repost_from.urls_recursive().into_iter().skip(1)) // Skip the major URL from the repost
+                .chain(repost_from.post.urls_recursive().into_iter().skip(1)) // Skip the major URL from the repost
                 .collect::<Vec<_>>();
             v.dedup_by_key(|url| url.unique_id());
             PostUrlsRef(v)
@@ -239,8 +239,31 @@ pub struct User {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum RepostFrom {
-    Recursion(Box<Post>),
+pub enum RepostFromPostKind {
+    Quote,
+    Reply,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RepostFrom {
+    pub post: Box<Post>,
+    pub post_kind: RepostFromPostKind,
+}
+
+impl RepostFrom {
+    pub fn new_quote(post: Post) -> Self {
+        Self {
+            post: Box::new(post),
+            post_kind: RepostFromPostKind::Quote,
+        }
+    }
+
+    pub fn new_reply(post: Post) -> Self {
+        Self {
+            post: Box::new(post),
+            post_kind: RepostFromPostKind::Reply,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

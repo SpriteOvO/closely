@@ -24,8 +24,7 @@ use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         DocumentRef, FileRef, LiveStatus, LiveStatusKind, Notification, NotificationKind,
-        PlaybackFormat, PlaybackRef, Post, PostAttachment, PostUrl, PostsRef, RepostFrom,
-        StatusSource,
+        PlaybackFormat, PlaybackRef, Post, PostAttachment, PostUrl, PostsRef, StatusSource,
     },
 };
 
@@ -426,7 +425,7 @@ impl Notifier {
         ));
 
         match &post.repost_from {
-            Some(RepostFrom::Recursion(repost_from)) => {
+            Some(repost_from) => {
                 if !post.content.is_empty() {
                     text.push_plain("💬 ");
                     if self.params.base.option.author_name {
@@ -444,13 +443,13 @@ impl Notifier {
                     // post, we don't use `profile_url` here
                     //
                     // &repost_from.user.profile_url,
-                    if let PostUrl::Clickable(url) = &repost_from.urls_recursive().major() {
-                        text.push_link(&repost_from.user.nickname, &url.url);
+                    if let PostUrl::Clickable(url) = &repost_from.post.urls_recursive().major() {
+                        text.push_link(&repost_from.post.user.nickname, &url.url);
                     } else {
-                        text.push_plain(&repost_from.user.nickname);
+                        text.push_plain(&repost_from.post.user.nickname);
                     }
                     text.push_plain(": ");
-                    text.push_content(&repost_from.content);
+                    text.push_content(&repost_from.post.content);
                 });
             }
             None => {

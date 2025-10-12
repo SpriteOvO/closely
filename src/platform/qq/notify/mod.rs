@@ -12,7 +12,7 @@ use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         LiveStatus, LiveStatusKind, Notification, NotificationKind, Post, PostAttachment, PostsRef,
-        RepostFrom, StatusSource,
+        StatusSource,
     },
 };
 
@@ -288,7 +288,7 @@ impl Notifier {
         }
 
         match &post.repost_from {
-            Some(RepostFrom::Recursion(repost_from)) => {
+            Some(repost_from) => {
                 if !post.content.is_empty() {
                     builder.ref_text("💬 ");
                     builder.ref_text(format_if!(
@@ -302,9 +302,9 @@ impl Notifier {
                 }
 
                 builder.ref_text("🔁 ");
-                builder.ref_text(format!("{}: ", repost_from.user.nickname));
-                append_media(&mut builder, repost_from.attachments(false));
-                builder.ref_text(repost_from.content.fallback());
+                builder.ref_text(format!("{}: ", repost_from.post.user.nickname));
+                append_media(&mut builder, repost_from.post.attachments(false));
+                builder.ref_text(repost_from.post.content.fallback());
             }
             None => {
                 builder.ref_text(format_if!(

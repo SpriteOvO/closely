@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::anyhow;
 use chrono::DateTime;
+use futures::future::{join_all, OptionFuture};
 use serde::Deserialize;
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
@@ -118,6 +119,15 @@ mod data {
         }
     }
 
+    #[derive(Clone, Debug, PartialEq, Deserialize)]
+    pub struct ResponseData<T>(wrapper::Data<T>);
+
+    impl<T> ResponseData<T> {
+        pub fn into_inner(self) -> T {
+            self.0.data
+        }
+    }
+
     //
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -161,6 +171,12 @@ mod data {
     #[derive(Clone, Debug, PartialEq, Deserialize)]
     pub struct Location {
         pub location: String,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Deserialize)]
+    pub struct TweetResult {
+        #[serde(rename = "tweetResult")]
+        pub tweet_result: wrapper::Result<ResultTweet>,
     }
 
     //
@@ -283,6 +299,7 @@ mod data {
         pub conversation_id_str: String,
         pub entities: TweetLegacyEntities,
         pub full_text: String,
+        pub in_reply_to_status_id_str: Option<String>,
         pub is_quote_status: bool,
         pub possibly_sensitive: Option<bool>, // TODO
         pub user_id_str: String,
@@ -444,201 +461,238 @@ impl FetcherInner {
             .await
             .map_err(|err| anyhow!("failed to deserialize UserTweets: {err}"))?;
 
-        let posts = resp
-            .into_inner()
-            .timeline
-            .timeline
-            .instructions
-            .into_iter()
-            .filter_map(|instruction| match instruction {
-                data::TimelineInstruction::ClearCache => None,
-                data::TimelineInstruction::PinEntry { entry } => Some(vec![entry]),
-                data::TimelineInstruction::AddEntries { entries } => Some(entries),
-            })
-            .flatten()
-            .filter_map(|entry| match entry.content {
-                data::TimelineEntryContent::Item(item) => Some(vec![item]),
-                data::TimelineEntryContent::Module { items } => {
-                    Some(items.into_iter().map(|item| item.item).collect())
-                }
-                data::TimelineEntryContent::Cursor => None,
-            })
-            .flatten()
-            .filter_map(|item| match item.item_content {
-                data::TimelineItemContent::Tweet { tweet_results } => tweet_results.into_option(),
-                data::TimelineItemContent::User => None,
-            })
-            .map(|result| result.result.into_tweet())
-            .map(parse_tweet)
-            .collect::<Result<Vec<_>, _>>()?;
+        let posts = join_all(
+            resp.into_inner()
+                .timeline
+                .timeline
+                .instructions
+                .into_iter()
+                .filter_map(|instruction| match instruction {
+                    data::TimelineInstruction::ClearCache => None,
+                    data::TimelineInstruction::PinEntry { entry } => Some(vec![entry]),
+                    data::TimelineInstruction::AddEntries { entries } => Some(entries),
+                })
+                .flatten()
+                .filter_map(|entry| match entry.content {
+                    data::TimelineEntryContent::Item(item) => Some(vec![item]),
+                    data::TimelineEntryContent::Module { items } => {
+                        Some(items.into_iter().map(|item| item.item).collect())
+                    }
+                    data::TimelineEntryContent::Cursor => None,
+                })
+                .flatten()
+                .filter_map(|item| match item.item_content {
+                    data::TimelineItemContent::Tweet { tweet_results } => {
+                        tweet_results.into_option()
+                    }
+                    data::TimelineItemContent::User => None,
+                })
+                .map(|result| result.result.into_tweet())
+                .map(|tweet| self.parse_tweet(tweet)),
+        )
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Posts(posts))
     }
-}
 
-fn parse_tweet(tweet: data::Tweet) -> anyhow::Result<Post> {
-    let content = if tweet.legacy.retweeted_status_result.is_none() {
-        Some(replace_entities(
-            tweet.legacy.full_text,
-            &tweet.legacy.entities,
-        ))
-    } else {
-        None
-    };
-
-    let urls = PostUrls::new(PostUrl::Clickable(PostUrlClickable {
-        url: format!(
-            "https://x.com/{}/status/{}",
-            tweet.core.user_results.result.core.screen_name, tweet.rest_id
-        ),
-        display: "View Tweet".into(),
-    }));
-
-    let repost_from = if !tweet.legacy.is_quote_status {
-        tweet.legacy.retweeted_status_result
-    } else {
-        tweet.quoted_status_result.and_then(|q| q.into_option())
+    async fn tweet_result_by_rest_id(&self, tweet_id: impl AsRef<str>) -> anyhow::Result<Post> {
+        let tweet = self
+            .requester
+            .tweet_result_by_rest_id(tweet_id)
+            .await?
+            .json::<data::ResponseData<data::TweetResult>>()
+            .await
+            .map_err(|err| anyhow!("failed to deserialize TweetResult by id: {err}"))?
+            .into_inner()
+            .tweet_result
+            .result
+            .into_tweet();
+        self.parse_tweet(tweet).await
     }
-    .map(|result| -> anyhow::Result<RepostFrom> {
-        Ok(RepostFrom::Recursion(Box::new(parse_tweet(
-            result.result.into_tweet(),
-        )?)))
-    })
-    .transpose()?;
 
-    let possibly_sensitive = tweet.legacy.possibly_sensitive.unwrap_or(false);
+    async fn parse_tweet(&self, tweet: data::Tweet) -> anyhow::Result<Post> {
+        let content = if tweet.legacy.retweeted_status_result.is_none() {
+            Some(replace_entities(
+                tweet.legacy.full_text,
+                &tweet.legacy.entities,
+            ))
+        } else {
+            None
+        };
 
-    let card_attachment = tweet.card.and_then(|card| {
-        const IMAGE_KEYS: [&str; 3] = [
-            "photo_image_full_size_original",
-            "summary_photo_image_original",
-            "thumbnail_image_original",
-        ];
+        let urls = PostUrls::new(PostUrl::Clickable(PostUrlClickable {
+            url: format!(
+                "https://x.com/{}/status/{}",
+                tweet.core.user_results.result.core.screen_name, tweet.rest_id
+            ),
+            display: "View Tweet".into(),
+        }));
 
-        let image = IMAGE_KEYS.into_iter().find_map(|key| {
-            card.legacy
-                .binding_values
-                .iter()
-                .find_map(|kv| (kv.key == key).then_some(&kv.value))
-        });
-
-        match image {
-            Some(data::TweetCardValue::Image { image_value }) => {
-                Some(PostAttachment::Image(PostAttachmentImage {
-                    media_url: image_value.url.clone(),
-                    has_spoiler: possibly_sensitive,
-                }))
+        let mut repost_from = OptionFuture::from(
+            if !tweet.legacy.is_quote_status {
+                tweet.legacy.retweeted_status_result
+            } else {
+                tweet.quoted_status_result.and_then(|q| q.into_option())
             }
-            Some(_) => {
-                critical!(
-                    "type of image card mismatched! tweet: {:?}, card kv: {:?}",
-                    urls.major(),
-                    card.legacy.binding_values
-                );
-                None
-            }
-            None => {
-                if card
+            .map(|result| Box::pin(self.parse_tweet(result.result.into_tweet()))),
+        )
+        .await
+        .transpose()?
+        .map(RepostFrom::new_quote);
+
+        // Not a quote, but a reply?
+        if repost_from.is_none() {
+            repost_from = OptionFuture::from(
+                tweet
                     .legacy
+                    .in_reply_to_status_id_str
+                    .map(|tweet_id| Box::pin(self.tweet_result_by_rest_id(tweet_id))),
+            )
+            .await
+            .transpose()?
+            .map(RepostFrom::new_reply);
+        }
+
+        let possibly_sensitive = tweet.legacy.possibly_sensitive.unwrap_or(false);
+
+        let card_attachment = tweet.card.and_then(|card| {
+            const IMAGE_KEYS: [&str; 3] = [
+                "photo_image_full_size_original",
+                "summary_photo_image_original",
+                "thumbnail_image_original",
+            ];
+
+            let image = IMAGE_KEYS.into_iter().find_map(|key| {
+                card.legacy
                     .binding_values
                     .iter()
-                    .any(|kv| matches!(kv.value, data::TweetCardValue::Image { .. }))
-                {
-                    // TODO: Make it more general for using in other places
-                    static REPORTED: LazyLock<StdMutex<HashSet<String>>> =
-                        LazyLock::new(|| StdMutex::new(HashSet::new()));
+                    .find_map(|kv| (kv.key == key).then_some(&kv.value))
+            });
 
-                    if REPORTED
-                        .lock()
-                        .unwrap()
-                        .insert(urls.major().unique_id().into())
-                    {
-                        let rustfmt_bug =
-                            "expected image key not found in card, but the card contains image.";
-                        warn!(
-                            "{rustfmt_bug} tweet: {:?}, card kv: {:?}",
-                            urls.major(),
-                            card.legacy.binding_values
-                        );
-                    }
-                }
-                None
-            }
-        }
-    });
-
-    let attachments = tweet
-        .legacy
-        .entities
-        .media
-        .unwrap_or_default()
-        .into_iter()
-        .map(|media| match media.kind {
-            data::TweetLegacyEntityMediaKind::Photo => PostAttachment::Image(PostAttachmentImage {
-                media_url: media.media_url_https,
-                has_spoiler: possibly_sensitive,
-            }),
-            data::TweetLegacyEntityMediaKind::Video
-            | data::TweetLegacyEntityMediaKind::AnimatedGif => {
-                // TODO: Distinguish GIF?
-                let video_info = media.video_info.and_then(|mut video_info| {
-                    video_info.variants.sort_by(|lhs, rhs| {
-                        rhs.bitrate.unwrap_or(0).cmp(&lhs.bitrate.unwrap_or(0))
-                    });
-                    video_info.variants.into_iter().next()
-                });
-                match video_info {
-                    Some(video_info) => PostAttachment::Video(PostAttachmentVideo {
-                        media_url: video_info.url,
+            match image {
+                Some(data::TweetCardValue::Image { image_value }) => {
+                    Some(PostAttachment::Image(PostAttachmentImage {
+                        media_url: image_value.url.clone(),
                         has_spoiler: possibly_sensitive,
-                    }),
-                    None => PostAttachment::Image(PostAttachmentImage {
+                    }))
+                }
+                Some(_) => {
+                    critical!(
+                        "type of image card mismatched! tweet: {:?}, card kv: {:?}",
+                        urls.major(),
+                        card.legacy.binding_values
+                    );
+                    None
+                }
+                None => {
+                    if card
+                        .legacy
+                        .binding_values
+                        .iter()
+                        .any(|kv| matches!(kv.value, data::TweetCardValue::Image { .. }))
+                    {
+                        // TODO: Make it more general for using in other places
+                        static REPORTED: LazyLock<StdMutex<HashSet<String>>> =
+                            LazyLock::new(|| StdMutex::new(HashSet::new()));
+
+                        if REPORTED
+                            .lock()
+                            .unwrap()
+                            .insert(urls.major().unique_id().into())
+                        {
+                            let rustfmt_bug =
+                            "expected image key not found in card, but the card contains image.";
+                            warn!(
+                                "{rustfmt_bug} tweet: {:?}, card kv: {:?}",
+                                urls.major(),
+                                card.legacy.binding_values
+                            );
+                        }
+                    }
+                    None
+                }
+            }
+        });
+
+        let attachments = tweet
+            .legacy
+            .entities
+            .media
+            .unwrap_or_default()
+            .into_iter()
+            .map(|media| match media.kind {
+                data::TweetLegacyEntityMediaKind::Photo => {
+                    PostAttachment::Image(PostAttachmentImage {
                         media_url: media.media_url_https,
                         has_spoiler: possibly_sensitive,
-                    }),
+                    })
                 }
-            }
+                data::TweetLegacyEntityMediaKind::Video
+                | data::TweetLegacyEntityMediaKind::AnimatedGif => {
+                    // TODO: Distinguish GIF?
+                    let video_info = media.video_info.and_then(|mut video_info| {
+                        video_info.variants.sort_by(|lhs, rhs| {
+                            rhs.bitrate.unwrap_or(0).cmp(&lhs.bitrate.unwrap_or(0))
+                        });
+                        video_info.variants.into_iter().next()
+                    });
+                    match video_info {
+                        Some(video_info) => PostAttachment::Video(PostAttachmentVideo {
+                            media_url: video_info.url,
+                            has_spoiler: possibly_sensitive,
+                        }),
+                        None => PostAttachment::Image(PostAttachmentImage {
+                            media_url: media.media_url_https,
+                            has_spoiler: possibly_sensitive,
+                        }),
+                    }
+                }
+            })
+            .chain(card_attachment)
+            .filter(|attachment| {
+                if let Some(repost_from) = &repost_from {
+                    !repost_from
+                        .post
+                        .attachments_recursive(true)
+                        .contains(&attachment)
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        let time = DateTime::parse_from_str(&tweet.legacy.created_at, "%a %b %d %H:%M:%S %z %Y")
+            .map_err(|err| {
+                anyhow!(
+                    "failed to parse tweet time '{}', err: {err}, urls={urls:?}",
+                    tweet.legacy.created_at
+                )
+            })?
+            .into();
+
+        let is_pinned = tweet
+            .core
+            .user_results
+            .result
+            .legacy
+            .pinned_tweet_ids_str
+            .contains(&tweet.rest_id);
+
+        Ok(Post {
+            user: tweet.core.user_results.result.into(),
+            content: PostContent::plain(
+                content
+                    .unwrap_or_else(|| if repost_from.is_some() { "Retweet" } else { "" }.into()),
+            ),
+            urls,
+            time,
+            is_pinned,
+            repost_from,
+            attachments,
         })
-        .chain(card_attachment)
-        .filter(|attachment| {
-            if let Some(RepostFrom::Recursion(repost_from)) = &repost_from {
-                !repost_from
-                    .attachments_recursive(true)
-                    .contains(&attachment)
-            } else {
-                true
-            }
-        })
-        .collect();
-
-    let time = DateTime::parse_from_str(&tweet.legacy.created_at, "%a %b %d %H:%M:%S %z %Y")
-        .map_err(|err| {
-            anyhow!(
-                "failed to parse tweet time '{}', err: {err}, urls={urls:?}",
-                tweet.legacy.created_at
-            )
-        })?
-        .into();
-
-    let is_pinned = tweet
-        .core
-        .user_results
-        .result
-        .legacy
-        .pinned_tweet_ids_str
-        .contains(&tweet.rest_id);
-
-    Ok(Post {
-        user: tweet.core.user_results.result.into(),
-        content: PostContent::plain(
-            content.unwrap_or_else(|| if repost_from.is_some() { "Retweet" } else { "" }.into()),
-        ),
-        urls,
-        time,
-        is_pinned,
-        repost_from,
-        attachments,
-    })
+    }
 }
 
 enum ReplaceKind<'a> {
