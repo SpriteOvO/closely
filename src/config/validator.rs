@@ -144,7 +144,7 @@ mod tests {
 
     impl Validator for Odd {
         fn validate(&self) -> anyhow::Result<()> {
-            if self.0 % 2 == 0 {
+            if self.0.is_multiple_of(2) {
                 Err(anyhow!("{} is not odd", self.0))
             } else {
                 Ok(())
