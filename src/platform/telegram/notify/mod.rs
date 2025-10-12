@@ -24,7 +24,8 @@ use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         DocumentRef, FileRef, LiveStatus, LiveStatusKind, Notification, NotificationKind,
-        PlaybackFormat, PlaybackRef, Post, PostAttachment, PostUrl, PostsRef, StatusSource,
+        PlaybackFormat, PlaybackRef, Post, PostAttachment, PostUrl, PostsRef, RepostFrom,
+        StatusSource,
     },
 };
 
@@ -436,21 +437,29 @@ impl Notifier {
                     text.push_plain("\n");
                 }
 
-                text.push_quote(|text| {
-                    text.push_plain("🔁 ");
+                fn push_reposts_rec<'a>(text: &mut Text<'a>, repost_from: &'a RepostFrom) {
+                    text.push_quote(|text| {
+                        text.push_plain("🔁 ");
 
-                    // In order for Telegram to display more relevant information about the
-                    // post, we don't use `profile_url` here
-                    //
-                    // &repost_from.user.profile_url,
-                    if let PostUrl::Clickable(url) = &repost_from.post.urls_recursive().major() {
-                        text.push_link(&repost_from.post.user.nickname, &url.url);
-                    } else {
-                        text.push_plain(&repost_from.post.user.nickname);
+                        // In order for Telegram to display more relevant information about the
+                        // post, we don't use `profile_url` here
+                        //
+                        // &repost_from.post.user.profile_url,
+                        if let PostUrl::Clickable(url) = &repost_from.post.urls_recursive().major()
+                        {
+                            text.push_link(&repost_from.post.user.nickname, &url.url);
+                        } else {
+                            text.push_plain(&repost_from.post.user.nickname);
+                        }
+                        text.push_plain(": ");
+                        text.push_content(&repost_from.post.content);
+                    });
+                    if let Some(repost_from) = &repost_from.post.repost_from {
+                        text.push_plain("\n");
+                        push_reposts_rec(text, repost_from);
                     }
-                    text.push_plain(": ");
-                    text.push_content(&repost_from.post.content);
-                });
+                }
+                push_reposts_rec(&mut text, repost_from);
             }
             None => {
                 if self.params.base.option.author_name {

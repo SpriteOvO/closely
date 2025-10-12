@@ -12,7 +12,7 @@ use crate::{
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         LiveStatus, LiveStatusKind, Notification, NotificationKind, Post, PostAttachment, PostsRef,
-        StatusSource,
+        RepostFrom, StatusSource,
     },
 };
 
@@ -301,10 +301,20 @@ impl Notifier {
                     builder.ref_text("\n\n");
                 }
 
-                builder.ref_text("🔁 ");
-                builder.ref_text(format!("{}: ", repost_from.post.user.nickname));
-                append_media(&mut builder, repost_from.post.attachments(false));
-                builder.ref_text(repost_from.post.content.fallback());
+                fn append_reposts_rec(
+                    builder: &mut lagrange::MessageBuilder,
+                    repost_from: &RepostFrom,
+                ) {
+                    builder.ref_text("🔁 ");
+                    builder.ref_text(format!("{}: ", repost_from.post.user.nickname));
+                    append_media(builder, repost_from.post.attachments(false));
+                    builder.ref_text(repost_from.post.content.fallback());
+                    if let Some(repost_from) = &repost_from.post.repost_from {
+                        builder.ref_text("\n\n");
+                        append_reposts_rec(builder, repost_from);
+                    }
+                }
+                append_reposts_rec(&mut builder, repost_from);
             }
             None => {
                 builder.ref_text(format_if!(
