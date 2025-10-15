@@ -625,7 +625,7 @@ impl FetcherInner {
             .map(|media| match media.kind {
                 data::TweetLegacyEntityMediaKind::Photo => {
                     PostAttachment::Image(PostAttachmentImage {
-                        media_url: media.media_url_https,
+                        media_url: format!("{}:orig", media.media_url_https),
                         has_spoiler: possibly_sensitive,
                     })
                 }
