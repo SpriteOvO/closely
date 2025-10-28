@@ -5,7 +5,10 @@ use bytes::Bytes;
 use http::Uri;
 use image::{imageops::FilterType as ImageFilterType, DynamicImage, GenericImageView, ImageFormat};
 use itertools::Itertools;
-use reqwest::multipart::{Form, Part};
+use reqwest::{
+    multipart::{Form, Part},
+    Url,
+};
 use serde::{
     de::{DeserializeOwned, IgnoredAny},
     Deserialize,
@@ -17,6 +20,7 @@ use super::super::{ConfigApiServer, ConfigChat};
 use crate::{
     config::Config,
     helper::{self, VideoResolution},
+    platform::twitter::source::TWITTER_IMAGE_URL_END_TAG,
     source::{PostAttachmentImage, PostAttachmentVideo, PostContent, PostContentPart},
 };
 
@@ -483,6 +487,23 @@ impl<'a> Media<'a> {
             Self::Document(document) => document.input,
         }
     }
+
+    fn convert_to_document(&mut self) {
+        let dropped = MediaInput::Url("* should never happen *");
+        match self {
+            Self::Document(_) => {}
+            Self::Photo(photo) => {
+                *self = Self::Document(MediaDocument {
+                    input: mem::replace(&mut photo.input, dropped),
+                });
+            }
+            Self::Video(video) => {
+                *self = Self::Document(MediaDocument {
+                    input: mem::replace(&mut video.input, dropped),
+                });
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -490,15 +511,36 @@ pub enum MediaInput<'a> {
     Url(&'a str),
     Memory {
         data: Bytes,
-        filename: Option<&'a str>,
+        filename: Option<Cow<'a, str>>,
     },
 }
 
-impl MediaInput<'_> {
+impl<'a> MediaInput<'a> {
+    fn as_memory(&self) -> Option<&Bytes> {
+        match self {
+            Self::Memory { data, .. } => Some(data),
+            _ => None,
+        }
+    }
+
     fn to_url(&self, index: usize) -> Cow<'_, str> {
         match self {
             Self::Url(url) => Cow::Borrowed(url),
             Self::Memory { .. } => Cow::Owned(format!("attach://{index}")),
+        }
+    }
+
+    fn extract_filename<'b>(&'a self) -> Option<Cow<'b, str>>
+    where
+        'a: 'b,
+    {
+        match self {
+            Self::Url(url) => Url::parse(url).ok().and_then(|url| {
+                url.path_segments()
+                    .and_then(|mut segments| segments.next_back())
+                    .map(|filename| Cow::Owned(filename.to_string()))
+            }),
+            Self::Memory { filename, .. } => filename.as_deref().map(Cow::Borrowed),
         }
     }
 }
@@ -613,7 +655,7 @@ impl<'a> SendMedia<'a> {
         }
     }
 
-    pub async fn send(self) -> anyhow::Result<Response<ResultMessage>> {
+    pub async fn send(mut self) -> anyhow::Result<Response<ResultMessage>> {
         let mut body = json!(
             {
                 "chat_id": self.chat.to_json(),
@@ -621,22 +663,45 @@ impl<'a> SendMedia<'a> {
                 "disable_notification": self.disable_notification
             }
         );
-        let (method, url, retry_multipart) = match &self.media {
-            Media::Photo(photo) => {
-                let url = photo.input.to_url(0);
-                body["photo"] = url.clone().into();
-                body["has_spoiler"] = photo.has_spoiler.into();
-                ("sendPhoto", url, matches!(photo.input, MediaInput::Url(_)))
-            }
+
+        let mut convert_to_document = false;
+        let (mut method, url, retry_multipart) = match &mut self.media {
+            Media::Photo(photo) => match &photo.input {
+                MediaInput::Url(_) => {
+                    let url = photo.input.to_url(0).to_string();
+                    body["photo"] = url.clone().into();
+                    body["has_spoiler"] = photo.has_spoiler.into();
+                    ("sendPhoto", url, true)
+                }
+                MediaInput::Memory { data, .. } => {
+                    // Width and height ratio must be at most 20.
+                    if check_image_aspect_radio(data) {
+                        let url = photo.input.to_url(0).to_string();
+                        body["photo"] = url.clone().into();
+                        body["has_spoiler"] = photo.has_spoiler.into();
+                        ("sendPhoto", url, false)
+                    } else {
+                        // If the ratio is not satisfied, send as document (image without
+                        // compression)
+                        //
+                        // TODO: Do the same thing for send_media_group
+                        warn!("photo aspect ratio exceeds limit, sending as document instead @1");
+                        convert_to_document = true;
+                        let url = photo.input.to_url(0).to_string();
+                        body["document"] = url.clone().into();
+                        ("sendDocument", url, false)
+                    }
+                }
+            },
             Media::Video(video) => {
-                let url = video.input.to_url(0);
+                let url = video.input.to_url(0).to_string();
                 body["video"] = url.clone().into();
                 body["supports_streaming"] = true.into();
                 body["has_spoiler"] = video.has_spoiler.into();
                 ("sendVideo", url, matches!(video.input, MediaInput::Url(_)))
             }
             Media::Document(document) => {
-                let url = document.input.to_url(0);
+                let url = document.input.to_url(0).to_string();
                 body["document"] = url.clone().into();
                 (
                     "sendDocument",
@@ -645,6 +710,9 @@ impl<'a> SendMedia<'a> {
                 )
             }
         };
+        if convert_to_document {
+            self.media.convert_to_document();
+        }
         if let Some(text) = self.text {
             let (text, entities) = text.into_json();
             let body = body.as_object_mut().unwrap();
@@ -662,10 +730,20 @@ impl<'a> SendMedia<'a> {
         if retry_multipart && is_media_failure(&resp) {
             warn!("failed to send media with URL, retrying with HTTP multipart. url '{url}', description '{}'", resp.description.as_deref().unwrap_or("*no description*"));
 
-            let downloaded = download_file(self.media).await?;
+            let mut downloaded = download_file(self.media).await?;
             match &downloaded {
                 Media::Photo(photo) => {
-                    body["photo"] = photo.input.to_url(0).into();
+                    if check_image_aspect_radio(photo.input.as_memory().unwrap()) {
+                        body["photo"] = photo.input.to_url(0).into();
+                    } else {
+                        warn!("photo aspect ratio exceeds limit, sending as document instead @2");
+                        let body = body.as_object_mut().unwrap();
+                        body.remove("photo");
+                        body.remove("has_spoiler");
+                        body.insert("document".into(), dbg!(&photo.input).to_url(0).into());
+                        method = "sendDocument";
+                        downloaded.convert_to_document();
+                    }
                 }
                 Media::Video(video) => {
                     body["video"] = video.input.to_url(0).into();
@@ -1214,10 +1292,17 @@ async fn download_file<'a>(mut file: Media<'a>) -> anyhow::Result<Media<'a>> {
         anyhow!("{rustfmt_bug}: {err}, status: {status} from url '{url}'")
     })?;
 
-    *input = MediaInput::Memory {
-        data,
-        filename: None,
-    };
+    let filename = Url::parse(url).ok().and_then(|url| {
+        url.path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .map(|filename| {
+                // Workaround for Twitter image URLs
+                let filename = filename.trim_end_matches(TWITTER_IMAGE_URL_END_TAG);
+                Cow::Owned(filename.to_string())
+            })
+    });
+
+    *input = MediaInput::Memory { data, filename };
     // TODO: Replace failed image with a fallback image
     Ok(file)
 }
@@ -1233,20 +1318,25 @@ async fn download_files<'a>(
     Ok(ret)
 }
 
+fn image(bytes: &Bytes) -> anyhow::Result<(DynamicImage, Option<ImageFormat>)> {
+    let image_reader = image::ImageReader::new(Cursor::new(&bytes))
+        .with_guessed_format()
+        .map_err(|err| anyhow!("failed to guess format for downloaded image: {err}"))?;
+
+    let format = image_reader.format();
+    let image = image_reader
+        .decode()
+        .map_err(|err| anyhow!("failed to decode downloaded image: {err}"))?;
+    Ok((image, format))
+}
+
 macro_rules! workaround_rustfmt_bug {
     (trying) => {"photo #{} bytes size exceeds the limit, try scaling down with ratio {} from {},{} to {},{}, now the binary size is {}, attempt {}"};
     (giving_up) => {"photo #{} bytes size still exceeds the limit after 10 iterations of scaling down, giving up"};
 }
 fn media_into_part(i: usize, bytes: Bytes, is_photo: bool) -> anyhow::Result<Part> {
     let part = if is_photo {
-        let image_reader = image::ImageReader::new(Cursor::new(&bytes))
-            .with_guessed_format()
-            .map_err(|err| anyhow!("failed to guess format for downloaded image: {err}"))?;
-
-        let format = image_reader.format();
-        let image = image_reader
-            .decode()
-            .map_err(|err| anyhow!("failed to decode downloaded image: {err}"))?;
+        let (image, format) = image(&bytes)?;
 
         fn adjust_dimensions(i: usize, mut image: DynamicImage) -> DynamicImage {
             // Based on my testing, the actual limit is <=10001 :)
@@ -1330,6 +1420,17 @@ fn media_into_part(i: usize, bytes: Bytes, is_photo: bool) -> anyhow::Result<Par
     .file_name("");
 
     Ok(part)
+}
+
+fn check_image_aspect_radio(bytes: &Bytes) -> bool {
+    fn check_image_radio_impl(bytes: &Bytes) -> anyhow::Result<bool> {
+        let (image, _) = image(bytes)?;
+        let (width, height) = image.dimensions();
+        Ok(width / height <= 20 && height / width <= 20)
+    }
+    check_image_radio_impl(bytes)
+        .inspect_err(|err| warn!("failed to check image aspect radio: {err}, assuming satisfied"))
+        .unwrap_or(true)
 }
 
 #[cfg(test)]

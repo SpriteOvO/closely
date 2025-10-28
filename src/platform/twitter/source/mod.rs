@@ -24,6 +24,8 @@ use crate::{
     },
 };
 
+pub(crate) const TWITTER_IMAGE_URL_END_TAG: &str = ":orig";
+
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
     pub username: String,
@@ -625,7 +627,7 @@ impl FetcherInner {
             .map(|media| match media.kind {
                 data::TweetLegacyEntityMediaKind::Photo => {
                     PostAttachment::Image(PostAttachmentImage {
-                        media_url: format!("{}:orig", media.media_url_https),
+                        media_url: format!("{}{TWITTER_IMAGE_URL_END_TAG}", media.media_url_https),
                         has_spoiler: possibly_sensitive,
                     })
                 }

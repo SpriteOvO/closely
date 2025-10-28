@@ -677,7 +677,7 @@ impl Notifier {
                     Media::Video(MediaVideo {
                         input: MediaInput::Memory {
                             data: playback.file.data.clone(),
-                            filename: Some(&playback.file.name),
+                            filename: Some(Cow::Borrowed(&playback.file.name)),
                         },
                         resolution: Some(playback.resolution),
                         has_spoiler: false,
@@ -756,7 +756,7 @@ impl Notifier {
                 MediaDocument {
                     input: MediaInput::Memory {
                         data: document.file.data.clone(),
-                        filename: Some(&document.file.name),
+                        filename: Some(Cow::Borrowed(&document.file.name)),
                     },
                 },
             )
