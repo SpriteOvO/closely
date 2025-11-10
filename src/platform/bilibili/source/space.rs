@@ -49,7 +49,7 @@ mod data {
     use super::*;
     use crate::source::PostContentPart;
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Clone, Debug, Deserialize)]
     #[serde(untagged, deny_unknown_fields)]
     pub enum StrOrNumber {
         Str(String),
@@ -135,7 +135,7 @@ mod data {
     #[derive(Clone, Debug, Deserialize)]
     pub struct ModuleAuthorNormal {
         pub face: String, // URL
-        pub mid: u64,
+        pub mid: StrOrNumber,
         pub name: String,
         pub pub_ts: u64,
     }
@@ -143,7 +143,7 @@ mod data {
     #[derive(Clone, Debug, Deserialize)]
     pub struct ModuleAuthorPgc {
         pub face: String, // URL
-        pub mid: u64,
+        pub mid: StrOrNumber,
         pub name: String,
         pub pub_ts: u64, // Always 0?
     }
