@@ -56,6 +56,15 @@ mod data {
         Number(u64),
     }
 
+    impl StrOrNumber {
+        pub fn try_to_number(&self) -> Option<u64> {
+            match self {
+                Self::Str(s) => s.parse::<u64>().ok(),
+                Self::Number(n) => Some(*n),
+            }
+        }
+    }
+
     impl Display for StrOrNumber {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
@@ -108,9 +117,10 @@ mod data {
     impl ModuleAuthor {
         pub fn pub_time(&self) -> Option<u64> {
             let pub_ts = match self {
-                ModuleAuthor::Normal(normal) => normal.pub_ts,
-                ModuleAuthor::Pgc(pgc) => pgc.pub_ts,
-            };
+                ModuleAuthor::Normal(normal) => &normal.pub_ts,
+                ModuleAuthor::Pgc(pgc) => &pgc.pub_ts,
+            }
+            .try_to_number()?;
             (pub_ts != 0).then_some(pub_ts)
         }
     }
@@ -137,7 +147,7 @@ mod data {
         pub face: String, // URL
         pub mid: StrOrNumber,
         pub name: String,
-        pub pub_ts: u64,
+        pub pub_ts: StrOrNumber,
     }
 
     #[derive(Clone, Debug, Deserialize)]
@@ -145,7 +155,7 @@ mod data {
         pub face: String, // URL
         pub mid: StrOrNumber,
         pub name: String,
-        pub pub_ts: u64, // Always 0?
+        pub pub_ts: StrOrNumber, // Always 0?
     }
 
     #[derive(Debug, Deserialize)]
