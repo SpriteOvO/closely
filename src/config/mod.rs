@@ -376,9 +376,12 @@ impl NotifyMap {
 
 #[cfg(test)]
 mod tests {
+    use reqwest::Url;
+
     use super::*;
     use crate::reporter::{
         ConfigHeartbeat, ConfigHeartbeatHttpGet, ConfigHeartbeatKind, ConfigReporterLog,
+        ConfigReporterLogOpenTelemetry,
     };
 
     #[test]
@@ -387,7 +390,15 @@ mod tests {
             r#"
 interval = '1min'
 equidistant_intervals = true
-reporter = { log = { notify = ["meow"] }, heartbeat = { type = "HttpGet", url = "https://example.com/", interval = '1min' } } 
+
+[reporter.log]
+notify = ["meow"]
+opentelemetry = { endpoint = "http://localhost:4317" }
+
+[reporter.heartbeat]
+type = "HttpGet"
+url = "https://example.com/"
+interval = '1min'
 
 [platform.QQ.account.MyQQ]
 lagrange = { remote_http = { host = "localhost", port = 8000 } }
@@ -424,7 +435,10 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                     equidistant_intervals: true,
                     reporter: Accessor::new(Some(ConfigReporterRaw {
                         log: Accessor::new(Some(ConfigReporterLog {
-                            notify_ref: vec![NotifyRef::Direct("meow".into())],
+                            opentelemetry: Some(ConfigReporterLogOpenTelemetry {
+                                endpoint: Url::parse("http://localhost:4317").unwrap(),
+                            }),
+                            notify_ref: Some(vec![NotifyRef::Direct("meow".into())]),
                         })),
                         heartbeat: Accessor::new(Some(ConfigHeartbeat {
                             kind: ConfigHeartbeatKind::HttpGet(ConfigHeartbeatHttpGet {

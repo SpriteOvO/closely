@@ -2,7 +2,9 @@ mod norec;
 
 use std::{sync::Arc, time::Duration};
 
+use anyhow::anyhow;
 use norec::NoRec;
+use opentelemetry_otlp::WithExportConfig as _;
 use reqwest::Url;
 use serde::Deserialize;
 use spdlog::{
@@ -11,11 +13,14 @@ use spdlog::{
     sink::{GetSinkProp, Sink, SinkProp},
     Record, StringBuf,
 };
+use spdlog_opentelemetry::OpenTelemetrySink;
 
 use crate::{
+    cli,
     config::{self, Accessor, Config, Validator},
     notify,
     platform::PlatformMetadata,
+    prop,
     source::{Notification, NotificationKind, StatusSource},
 };
 
@@ -50,36 +55,74 @@ impl ConfigReporterRaw {
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct ConfigReporterLog {
+    pub(crate) opentelemetry: Option<ConfigReporterLogOpenTelemetry>,
     #[serde(rename = "notify")]
-    pub(crate) notify_ref: Vec<config::NotifyRef>,
+    pub(crate) notify_ref: Option<Vec<config::NotifyRef>>,
 }
 
 impl Validator for ConfigReporterLog {
     fn validate(&self) -> anyhow::Result<()> {
-        self.notify_ref
-            .iter()
-            .map(|notify_ref| Config::global().notify_map().get_by_ref(notify_ref))
-            .collect::<Result<Vec<_>, _>>()?;
+        if let Some(notify_ref) = &self.notify_ref {
+            notify_ref
+                .iter()
+                .map(|notify_ref| Config::global().notify_map().get_by_ref(notify_ref))
+                .collect::<Result<Vec<_>, _>>()?;
+        }
         Ok(())
     }
 }
 
 impl ConfigReporterLog {
     pub fn init(&self, notify_map: &config::NotifyMap) -> anyhow::Result<()> {
-        let notify = self
-            .notify_ref
-            .iter()
-            .map(|notify_ref| notify_map.get_by_ref(notify_ref).unwrap())
-            .collect::<Vec<_>>();
+        let mut sinks: Vec<Arc<dyn Sink>> = Vec::new();
 
-        let sink = Arc::new(NotifySink::new(notify));
+        if let Some(otel) = &self.opentelemetry {
+            sinks.push(Arc::new(
+                OpenTelemetrySink::builder()
+                    .provider(&otel.provider()?)
+                    .build()?,
+            ));
+        }
+        if let Some(notify_ref) = &self.notify_ref {
+            let notify = notify_ref
+                .iter()
+                .map(|notify_ref| notify_map.get_by_ref(notify_ref).unwrap())
+                .collect::<Vec<_>>();
+            sinks.push(Arc::new(NotifySink::new(notify)));
+        }
+
         let logger = spdlog::default_logger().fork_with(|logger| {
-            logger.sinks_mut().push(sink);
+            logger.sinks_mut().append(&mut sinks);
             Ok(())
         })?;
         spdlog::set_default_logger(logger);
 
         Ok(())
+    }
+}
+
+#[derive(Debug, PartialEq, Deserialize)]
+pub struct ConfigReporterLogOpenTelemetry {
+    pub(crate) endpoint: Url,
+}
+
+impl ConfigReporterLogOpenTelemetry {
+    fn provider(&self) -> anyhow::Result<opentelemetry_sdk::logs::SdkLoggerProvider> {
+        let exporter = opentelemetry_otlp::LogExporter::builder()
+            .with_tonic()
+            .with_endpoint(self.endpoint.to_string())
+            .build()
+            .map_err(|err| anyhow!("failed to build opentelemetry_otlp::LogExporter: {err}"))?;
+        let logger_provider = opentelemetry_sdk::logs::SdkLoggerProvider::builder()
+            .with_resource(
+                opentelemetry_sdk::Resource::builder()
+                    .with_service_name(prop::PACKAGE.name)
+                    .with_attribute(opentelemetry::KeyValue::new("service.version", cli::VER))
+                    .build(),
+            )
+            .with_batch_exporter(exporter)
+            .build();
+        Ok(logger_provider)
     }
 }
 
