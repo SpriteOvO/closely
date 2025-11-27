@@ -186,7 +186,7 @@ impl NotifySink {
         let prop = SinkProp::default();
         prop.set_level_filter(LevelFilter::MoreSevereEqual(Level::Warn));
         prop.set_formatter(PatternFormatter::new(pattern!(
-            "#log #{level} {payload}{eol}@{source}"
+            "#log #{level} {payload}{eol}@{source}{eol}{kv}"
         )));
         Self {
             prop,
