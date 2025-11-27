@@ -352,7 +352,7 @@ mod data {
                             url: format!("https:{jump_url}"),
                         }
                     } else {
-                        warn!("unexpected bilibili topic URL '{jump_url}' in rich text node");
+                        warn!("unexpected bilibili topic URL in rich text node", kv: { jump_url: });
                         PostContentPart::Plain(node.orig_text.clone())
                     }
                 }
@@ -362,10 +362,7 @@ mod data {
                 },
                 RichTextNodeKind::ViewPicture { pics, .. } => {
                     if pics.len() != 1 {
-                        warn!(
-                            "bilibili rich text view-pic node has pics.len() = {}",
-                            pics.len()
-                        );
+                        warn!("bilibili rich text view-pic node has unexpected number of pics", kv: { len = pics.len() });
                         PostContentPart::Plain(node.orig_text.clone())
                     } else {
                         PostContentPart::InlineAttachment(PostAttachment::Image(
@@ -389,7 +386,7 @@ mod data {
                 | RichTextNodeKind::Lottery { .. }
                 | RichTextNodeKind::Vote => PostContentPart::Plain(node.orig_text.clone()),
                 RichTextNodeKind::Unknown(info) => {
-                    warn!("unexpected bilibili rich text node '{info}'");
+                    warn!("unexpected bilibili rich text node", kv: { info: });
                     PostContentPart::Plain(node.orig_text.clone())
                 }
             }))
@@ -629,7 +626,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
                             Some(PostContent::plain(&live.live.title))
                         }
                         data::ModuleDynamicMajor::LiveRcmd | data::ModuleDynamicMajor::Blocked => {
-                            critical!("unexpected major type: {major:?}");
+                            critical!("unexpected major type", kv: { major:? });
                             unreachable!()
                         }
                     }
@@ -689,7 +686,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
                     "前往直播间",
                 )),
                 data::ModuleDynamicMajor::LiveRcmd | data::ModuleDynamicMajor::Blocked => {
-                    critical!("unexpected major type: {major:?}");
+                    critical!("unexpected major type", kv: { major:? });
                     unreachable!()
                 }
             })
@@ -814,9 +811,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
                         blocked.0.insert(id_str.to_string());
                         false
                     } else if blocked.0.contains(&id_str.to_string()) {
-                        let rustfmt_bug = "filtered out a bilibili space item";
-                        let rustfmt_bug2 = "as it was blocked and probobly a fans-only post";
-                        warn!("{rustfmt_bug} '{id_str}' {rustfmt_bug2}");
+                        warn!("filtered out a bilibili space item as it was blocked and probobly a fans-only post", kv: { id: = id_str });
                         false
                     } else {
                         true
@@ -826,7 +821,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
         })
         .filter_map(|item| {
             parse_item(&item, None)
-                .inspect_err(|err| error!("failed to deserialize item: {err} for '{item:?}'"))
+                .inspect_err(|err| error!("failed to deserialize item", kv: { err:, item:? }))
                 .ok()
         })
         .collect();

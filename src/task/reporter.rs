@@ -28,7 +28,7 @@ impl TaskReporter {
         loop {
             interval.tick().await;
             if let Err(err) = Self::run_once(heartbeat).await {
-                error!("error occurred while sending heartbeat: {err}");
+                error!("error occurred while sending heartbeat", kv: { err: });
             } else {
                 trace!("heartbeat sent once");
             }

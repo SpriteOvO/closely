@@ -582,9 +582,8 @@ impl FetcherInner {
                 }
                 Some(_) => {
                     critical!(
-                        "type of image card mismatched! tweet: {:?}, card kv: {:?}",
-                        urls.major(),
-                        card.legacy.binding_values
+                        "type of image card mismatched!",
+                        kv: { tweet:? = urls.major(), card_kv:? = card.legacy.binding_values }
                     );
                     None
                 }
@@ -604,12 +603,9 @@ impl FetcherInner {
                             .unwrap()
                             .insert(urls.major().unique_id().into())
                         {
-                            let rustfmt_bug =
-                            "expected image key not found in card, but the card contains image.";
                             warn!(
-                                "{rustfmt_bug} tweet: {:?}, card kv: {:?}",
-                                urls.major(),
-                                card.legacy.binding_values
+                                "expected image key not found in card, but the card contains image",
+                                kv: { tweet:? = urls.major(), card_kv:? = card.legacy.binding_values }
                             );
                         }
                     }
@@ -727,7 +723,7 @@ fn replace_entities(mut text: String, entities: &data::TweetLegacyEntities) -> S
             .map(|(_, indices)| *indices)
             .collect::<Vec<_>>(),
     ) {
-        warn!("overlapping indices in tweet, give up replacing entities. text: '{text}', entities: {entities:?}");
+        warn!("overlapping indices in tweet, give up replacing entities", kv: { text, entities:? });
         return text;
     }
 
@@ -736,8 +732,7 @@ fn replace_entities(mut text: String, entities: &data::TweetLegacyEntities) -> S
         let byte_pos = |utf8_pos| text.char_indices().nth(utf8_pos).map(|(pos, _)| pos);
         let range = (byte_pos(start), byte_pos(end - 1));
         if range.0.is_none() || range.1.is_none() {
-            let rustfmt_bug = "invalid indices in tweet, give up replacing entities.";
-            warn!("{rustfmt_bug} text: '{text}', entities: {entities:?}");
+            warn!("invalid indices in tweet, give up replacing entities", kv: { text, entities:? });
             return;
         }
         let range = range.0.unwrap()..=range.1.unwrap();

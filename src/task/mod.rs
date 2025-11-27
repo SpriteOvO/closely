@@ -23,10 +23,10 @@ impl Runner {
         while let Some(join_handle) = self.join_set.join_next().await {
             if let Err(err) = join_handle {
                 if err.is_panic() {
-                    error!("task panicked: {err}");
+                    error!("task panicked", kv: { err: });
                     panic!("task panicked: {err}");
                 } else {
-                    error!("failed to join task: {err}");
+                    error!("failed to join task", kv: { err: });
                 }
             }
         }
@@ -41,7 +41,7 @@ pub async fn run_tasks(tasks: impl IntoIterator<Item = Box<dyn Task>>) -> anyhow
             join_set
         });
 
-    info!("{} tasks are running", join_set.len());
+    info!("tasks are running", kv: { count = join_set.len() });
 
     Ok(Runner { join_set })
 }

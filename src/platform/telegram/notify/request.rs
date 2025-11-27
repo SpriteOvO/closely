@@ -113,7 +113,7 @@ impl<'a> Request<'a> {
                 .unwrap()
                 .strip_prefix("Too Many Requests: retry after ")
             {
-                warn!("Telegram rate limited, retry after '{}' + 1 seconds", after);
+                warn!("Telegram rate limited, retry after '{}' + 1 seconds", after, kv: { after });
 
                 let after = after
                     .parse::<u64>()
@@ -728,7 +728,7 @@ impl<'a> SendMedia<'a> {
             .send_request(method, &body, [self.media.clone()], self.prefer_self_host)
             .await?;
         if retry_multipart && is_media_failure(&resp) {
-            warn!("failed to send media with URL, retrying with HTTP multipart. url '{url}', description '{}'", resp.description.as_deref().unwrap_or("*no description*"));
+            warn!("failed to send media with URL, retrying with HTTP multipart", kv: { url, description = resp.description.as_deref().unwrap_or("*no description*") });
 
             let mut downloaded = download_file(self.media).await?;
             match &downloaded {
@@ -827,10 +827,7 @@ impl<'a> SendMediaGroup<'a> {
         let mut ret = vec![];
 
         if self.medias.len() > 10 {
-            warn!(
-                "media group size '{}' exceeds 10, splitting into multiple messages",
-                self.medias.len()
-            );
+            warn!("media group size exceeds 10, splitting into multiple messages", kv: { size = self.medias.len()});
         }
 
         let mut medias = vec![];
@@ -921,7 +918,7 @@ impl<'a> SendMediaGroup<'a> {
             )
             .await?;
         if retry_multipart && is_media_failure(&resp) {
-            warn!("failed to send media group with URLs, retrying with HTTP multipart. urls '{medias:?}', description '{}'", resp.description.as_deref().unwrap_or("*no description*"));
+            warn!("failed to send media group with URLs, retrying with HTTP multipart", kv: { urls:? = medias, description = resp.description.as_deref().unwrap_or("*no description*") });
 
             let downloaded = download_files(medias).await?;
             for (i, downloaded_media) in downloaded.iter().enumerate() {
@@ -1273,7 +1270,7 @@ async fn download_file<'a>(mut file: Media<'a>) -> anyhow::Result<Media<'a>> {
         MediaInput::Memory { .. } => unreachable!(),
     };
 
-    trace!("downloading media from url '{url}'");
+    trace!("downloading media from url", kv: { url });
 
     let resp = helper::reqwest_client()?
         .get(url)
@@ -1330,10 +1327,6 @@ fn image(bytes: &Bytes) -> anyhow::Result<(DynamicImage, Option<ImageFormat>)> {
     Ok((image, format))
 }
 
-macro_rules! workaround_rustfmt_bug {
-    (trying) => {"photo #{} bytes size exceeds the limit, try scaling down with ratio {} from {},{} to {},{}, now the binary size is {}, attempt {}"};
-    (giving_up) => {"photo #{} bytes size still exceeds the limit after 10 iterations of scaling down, giving up"};
-}
 fn media_into_part(i: usize, bytes: Bytes, is_photo: bool) -> anyhow::Result<Part> {
     let part = if is_photo {
         let (image, format) = image(&bytes)?;
@@ -1351,10 +1344,7 @@ fn media_into_part(i: usize, bytes: Bytes, is_photo: bool) -> anyhow::Result<Par
                     (LIMIT as f64 * ratio.0).floor() as u32,
                     (LIMIT as f64 * ratio.1).floor() as u32,
                 );
-                warn!(
-                    "photo #{i} dimensions {width},{height} exceeds the limit, scale down to {},{}",
-                    new.0, new.1
-                );
+                warn!("photo #{i} dimensions exceeds the limit, scale down", kv: { i, dimensions:? = (width, height), new_dimensions:? = (new.0, new.1) });
 
                 image = image.resize(new.0, new.1, ImageFilterType::Lanczos3);
             }
@@ -1379,10 +1369,7 @@ fn media_into_part(i: usize, bytes: Bytes, is_photo: bool) -> anyhow::Result<Par
             if bytes.len() <= LIMIT {
                 return Ok(bytes);
             }
-            warn!(
-                "photo #{i} bytes size {} exceeds the limit, try reencoding without scaling down",
-                bytes.len()
-            );
+            warn!("photo #{i} bytes size exceeds the limit, try reencoding without scaling down", kv: { i, size = bytes.len() });
 
             for attempt in 0..10 {
                 let ratio = 1. - 0.1 * attempt as f64;
@@ -1396,21 +1383,14 @@ fn media_into_part(i: usize, bytes: Bytes, is_photo: bool) -> anyhow::Result<Par
                 let bytes = image_bytes(&image)?;
 
                 warn!(
-                    workaround_rustfmt_bug!(trying),
-                    i,
-                    ratio,
-                    width,
-                    height,
-                    new.0,
-                    new.1,
-                    bytes.len(),
-                    attempt + 1
+                    "photo #{i} bytes size exceeds the limit, try scaling down",
+                    kv: { ratio, from:? = (width, height), to:? = (new.0, new.1), size = bytes.len(), attempt = attempt + 1 }
                 );
                 if bytes.len() <= LIMIT {
                     return Ok(bytes);
                 }
             }
-            bail!(workaround_rustfmt_bug!(giving_up), i)
+            bail!("photo #{} bytes size still exceeds the limit after 10 iterations of scaling down, giving up", i)
         }
 
         Part::stream(adjust_filesize(i, adjust_dimensions(i, image), format)?)
@@ -1429,7 +1409,9 @@ fn check_image_aspect_radio(bytes: &Bytes) -> bool {
         Ok(width / height <= 20 && height / width <= 20)
     }
     check_image_radio_impl(bytes)
-        .inspect_err(|err| warn!("failed to check image aspect radio: {err}, assuming satisfied"))
+        .inspect_err(
+            |err| warn!("failed to check image aspect radio, assuming satisfied", kv: { err: }),
+        )
         .unwrap_or(true)
 }
 

@@ -117,13 +117,13 @@ async fn webhook_handler(
     ctx: Arc<Context>,
 ) -> Result<warp::http::StatusCode, warp::Rejection> {
     let debug_str = String::from_utf8_lossy(&event);
-    trace!("recevied a webhook call from bililive-recorder: {debug_str}");
+    trace!("recevied a webhook call from bililive-recorder", kv: { event = debug_str });
 
     if let Ok(event) = json::from_slice(&event).inspect_err(|err| {
-        error!("failed to deserialize bililive-recorder webhook request. {err} '{debug_str}'");
+        error!("failed to deserialize bililive-recorder webhook request", kv: { err:, event = debug_str });
     }) {
         if let Err(err) = handle(event, &ctx).await {
-            error!("bililive-recorder webhook handler error: {err}");
+            error!("bililive-recorder webhook handler error", kv: { err: });
         }
     }
 
@@ -137,10 +137,7 @@ async fn handle(event: data::WebhookV2, params: &Context) -> anyhow::Result<()> 
             let session = Session {
                 live_start_time: parse_timestamp(&event.timestamp)
                     .inspect_err(|err| {
-                        warn!(
-                            "bililive-recorder failed to parse timestamp '{}': {err}",
-                            event.timestamp
-                        )
+                        warn!("bililive-recorder failed to parse timestamp", kv: { err:, timestamp = event.timestamp })
                     })
                     .ok(),
                 room_id: session_started.room_id,
@@ -152,7 +149,7 @@ async fn handle(event: data::WebhookV2, params: &Context) -> anyhow::Result<()> 
                 .insert(session_started.room_id, session)
                 .is_some()
             {
-                warn!("started an existing session '{session_started:?}'");
+                warn!("started an existing session", kv: { session_started:? });
             }
             Ok(())
         }
@@ -164,7 +161,7 @@ async fn handle(event: data::WebhookV2, params: &Context) -> anyhow::Result<()> 
                 .remove(&session_ended.room_id)
                 .is_none()
             {
-                warn!("ended a non-existing session '{session_ended:?}'");
+                warn!("ended a non-existing session", kv: { session_ended:? });
             }
             Ok(())
         }
@@ -176,9 +173,7 @@ async fn handle(event: data::WebhookV2, params: &Context) -> anyhow::Result<()> 
                 .get(&file_closed.room_id)
                 .cloned()
                 .unwrap_or_else(|| {
-                    warn!(
-                        "bililive-recorder closed a file with an unknown session '{file_closed:?}'"
-                    );
+                    warn!("bililive-recorder closed a file with an unknown session", kv: { file_closed:? });
                     Session {
                         live_start_time: None,
                         room_id: file_closed.room_id,

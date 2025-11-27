@@ -102,7 +102,7 @@ impl Listener {
         BACKEND.add_listener(self.params.room_id, sender).await;
 
         if let Err(err) = BACKEND.listen().await {
-            error!("bilibili.playback failed to listen: {err}");
+            error!("bilibili.playback failed to listen", kv: { err: });
         }
     }
 }

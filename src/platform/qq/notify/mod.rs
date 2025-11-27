@@ -146,7 +146,7 @@ impl Notifier {
     }
 
     async fn notify_impl(&self, notification: &Notification<'_>) -> anyhow::Result<()> {
-        info!("notifying to '{}'", self.params);
+        info!("notifying to", kv: { to: = self.params });
 
         match &notification.kind {
             NotificationKind::LiveOnline(live_status) => {

@@ -177,7 +177,7 @@ impl Notifier {
     }
 
     async fn notify_impl(&self, notification: &Notification<'_>) -> anyhow::Result<()> {
-        info!("notifying to '{}'", self.params);
+        info!("notifying to", kv: { to: = self.params });
 
         match &notification.kind {
             NotificationKind::LiveOnline(live_status) => {
@@ -601,15 +601,10 @@ impl Notifier {
 
         for i in 0..3 {
             if let Err(err) = self.notify_playback_impl(playback, source, false).await {
-                warn!(
-                    "failed to notify playback '{playback}': {err}, wait for {} then retry",
-                    humantime::format_duration(WAIT_FOR)
-                );
+                let wait_for_fmt = humantime::format_duration(WAIT_FOR);
+                warn!("failed to notify playback, wait for {wait_for_fmt} then retry", kv: { err:, playback:, duration: = wait_for_fmt});
                 tokio::time::sleep(WAIT_FOR).await;
-                warn!(
-                    "notifying playback '{playback}' again, attempt {} of 3",
-                    i + 1
-                );
+                warn!("notifying playback '{playback}' again, attempt {} of 3", i + 1, kv: { attempt = i + 1 });
                 continue;
             }
             return Ok(());
@@ -617,7 +612,7 @@ impl Notifier {
         self.notify_playback_impl(playback, source, true)
             .await
             .inspect_err(|err| {
-                error!("failed to notify playback '{playback}': {err}, this is the last attempt")
+                error!("failed to notify playback, this is the last attempt", kv: { err:, playback: })
             })
     }
 
@@ -667,7 +662,7 @@ impl Notifier {
 
         // Edit the media
 
-        trace!("uploading playback to Telegram '{}'", playback.file);
+        trace!("uploading playback to Telegram", kv: { file: = playback.file });
 
         let edit_media = async || {
             let resp = Request::new(&token)
@@ -704,10 +699,7 @@ impl Notifier {
         };
 
         let ret = edit_media().await;
-        trace!(
-            "finished uploading playback to Telegram '{}'",
-            playback.file
-        );
+        trace!("finished uploading playback to Telegram", kv: { file: = playback.file });
 
         if let Err(err) = ret {
             let message_id = resp.result.unwrap().message_id;

@@ -75,11 +75,8 @@ pub fn notifier(params: Accessor<NotifierConfig>) -> Box<dyn NotifierTrait> {
 }
 
 pub async fn notify(notify: &dyn NotifierTrait, notification: &Notification<'_>) {
-    info!("notifying notification '{notification}'");
+    info!("notifying notification", kv: { notification: });
     if let Err(err) = notify.notify(notification).await {
-        error!(
-            "failed to notify to {}: {err}",
-            notify.metadata().display_name
-        );
+        error!("failed to notify to {}", notify.metadata().display_name, kv: { err: });
     }
 }

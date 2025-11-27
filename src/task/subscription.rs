@@ -28,9 +28,13 @@ impl TaskSubscription {
         source_platform: &Accessor<SourceConfig>,
     ) -> Self {
         trace!(
-            "task subscription '{name}' created, source '{source_platform}', interval {} (initial offset {})",
-            humantime::format_duration(interval),
-            humantime::format_duration(initial_offset.unwrap_or_default())
+            "task subscription created",
+            kv: {
+                subscription = name,
+                source: = source_platform,
+                interval: = humantime::format_duration(interval),
+                initial_offset: = humantime::format_duration(initial_offset.unwrap_or_default())
+            }
         );
         Self {
             name,
@@ -69,27 +73,21 @@ impl TaskSubscription {
         fetcher: &dyn FetcherTrait,
         last_status: &mut Status,
     ) {
-        let Ok(mut status) = fetcher.fetch_status().await.inspect_err(|err| {
-            error!(
-                "failed to fetch status for '{}' on '{}': {err}",
-                self.name, fetcher
-            )
-        }) else {
+        let Ok(mut status) = fetcher.fetch_status().await.inspect_err(
+            |err| error!("failed to fetch status for subscription", kv: { err:, subscription = self.name, fetcher: }),
+        ) else {
             return;
         };
 
         status.sort();
 
-        trace!(
-            "status of '{}' on '{fetcher}' now is '{status:?}'",
-            self.name
-        );
+        trace!("subscription status fetched", kv: { subscription = self.name, fetcher:, status:? });
 
         let notifications = status.generate_notifications(last_status);
         self.notify(notifications, &fetcher).await;
 
         last_status.update_incrementally(status);
-        trace!("subscription '{}' updated once", self.name);
+        trace!("subscription updated once", kv: { subscription = self.name });
     }
 
     // Handler for listen-based subscription
@@ -99,10 +97,7 @@ impl TaskSubscription {
         platform: impl Display,
     ) {
         while let Some(update) = receiver.recv().await {
-            trace!(
-                "event of '{}' on '{platform}' received an update '{update:?}'",
-                self.name
-            );
+            trace!("subscription received an update '{update:?}'", kv: { subscription = self.name, platform:, update:? });
 
             let notifications = update.generate_notifications().await;
             self.notify(notifications, &platform).await;
@@ -111,10 +106,7 @@ impl TaskSubscription {
 
     async fn notify(&self, notifications: Vec<Notification<'_>>, platform: &impl Display) {
         for notification in notifications {
-            info!(
-                "'{}' needs to send a notification for '{platform}': '{notification}'",
-                self.name
-            );
+            info!("subscription needs to send a notification", kv: { subscription = self.name, platform:, notification: });
 
             for notifier in &self.notifiers {
                 notify(&**notifier, &notification).await;

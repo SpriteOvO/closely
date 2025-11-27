@@ -123,7 +123,7 @@ impl Fetcher {
                             .then(|| SystemTime::UNIX_EPOCH + Duration::from_secs(data.live_time)),
                     },
                     (false, _) => {
-                        critical!("unexpected live status. data: {data:?}, is_banned: {is_banned}");
+                        critical!("unexpected live status", kv: { is_banned, data:? });
                         LiveStatusKind::Offline
                     }
                 },

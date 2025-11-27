@@ -144,7 +144,7 @@ impl PlaybackRef<'_> {
                         .join(src.file_name().unwrap_or_else(|| "unknown".as_ref()))
                         .with_extension(format.extension());
 
-                    trace!("converting playback file from '{src:?}' to '{target:?}'");
+                    trace!("converting playback file", kv: { from:? = src, to:? = target });
                     crate::helper::ffmpeg_copy(src, &target).await?;
                     trace!("converting done.");
 

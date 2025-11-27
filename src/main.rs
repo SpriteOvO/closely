@@ -14,8 +14,7 @@ async fn main() {
     let args = cli::Args::parse();
     let setup_logger_result = setup_logger(args.verbose, args.log_dir.as_deref());
 
-    info!("{} startup!", prop::PACKAGE.name);
-    info!("current version: {}", prop::PACKAGE.version);
+    info!("{} startup!", prop::PACKAGE.name, kv: { version = prop::PACKAGE.version });
 
     match (setup_logger_result, &args.log_dir) {
         (Ok(_), Some(log_dir)) => info!("logs will be written to '{}'", log_dir.display()),
@@ -23,12 +22,12 @@ async fn main() {
             warn!("logs will not be written to files, specify option '--log-dir' to enable it")
         }
         (Err(err), _) => {
-            error!("logs will not be written to files, failed to setup logger: {err}")
+            error!("logs will not be written to files, failed to setup logger", kv: { err: })
         }
     }
 
     if let Err(err) = run(args).await {
-        error!("exit with error: {err}");
+        error!("exit with error", kv: { err: });
         exit(1);
     }
 

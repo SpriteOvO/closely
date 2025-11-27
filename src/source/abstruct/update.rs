@@ -33,10 +33,7 @@ impl Update {
             }
             UpdateKind::Document(document) => {
                 let Ok(file) = FileRef::new(&document.file_path).await.inspect_err(|err| {
-                    error!(
-                        "failed to read document file '{:?}': {err}",
-                        document.file_path
-                    )
+                    error!("failed to read document", kv: { err:, file:? = document.file_path })
                 }) else {
                     return vec![];
                 };
