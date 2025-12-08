@@ -2,7 +2,7 @@ mod request;
 
 use std::{
     borrow::Cow,
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     fmt,
     future::Future,
     pin::Pin,
@@ -21,12 +21,13 @@ use super::{ConfigChat, ConfigToken};
 use crate::{
     config::{self, Accessor, AsSecretRef, Config, Overridable, Validator},
     format_if, helper,
+    helper::MaybeOwned,
     notify::{NotifierShared, NotifierTrait, SharedManager},
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         DocumentRef, FileRef, LiveStatus, LiveStatusKind, Notification, NotificationKind,
-        PlaybackFormat, PlaybackRef, Post, PostAttachment, PostUrl, PostsRef, RepostFrom,
-        StatusSource,
+        PlaybackFormat, PlaybackRef, Post, PostAttachment, PostPlatformUniqueId, PostUrl, PostsRef,
+        RepostFrom, StatusSource,
     },
 };
 
@@ -132,7 +133,7 @@ static SHARED_MANAGER: SharedManager<SharedStates> = SharedManager::new();
 
 #[derive(Default)]
 pub struct SharedStates {
-    //
+    sent_posts: HashMap<PostPlatformUniqueId, i64>,
 }
 
 impl NotifierShared for SharedStates {
@@ -431,12 +432,46 @@ impl Notifier {
         Ok(())
     }
 
+    async fn truncate_conversation<'a>(
+        &self,
+        current_post: &'a Post,
+        sent_posts: &mut HashMap<PostPlatformUniqueId, i64>,
+    ) -> (MaybeOwned<'a, Post>, Option<i64>) {
+        if !current_post
+            .repost_chain()
+            .any(|repost| sent_posts.contains_key(&repost.post.platform_unique_id()))
+        {
+            return (MaybeOwned::Borrowed(current_post), None);
+        }
+
+        let mut current_post = current_post.clone();
+
+        let mut post = &mut current_post;
+        while post.repost_from.is_some() {
+            if let Some(msg_id) =
+                sent_posts.get(&post.repost_from.as_ref().unwrap().post.platform_unique_id())
+            {
+                post.repost_from = None; // Cut the repost chain here
+                return (MaybeOwned::Owned(current_post), Some(*msg_id));
+            } else {
+                post = &mut post.repost_from.as_mut().unwrap().post;
+            }
+        }
+
+        (MaybeOwned::Owned(current_post), None)
+    }
+
     async fn notify_post(
         &self,
         token: &str,
         post: &Post,
         source: &StatusSource,
     ) -> anyhow::Result<()> {
+        let mut shared = self.shared.lock().await;
+        let sent_posts = &mut shared.sent_posts;
+        let (post, reply_to) = self.truncate_conversation(post, sent_posts).await;
+        let post = post.as_ref();
+
         let mut text = Text::plain(format_if!(
             self.params.base.option.platform_name,
             "[{}] ",
@@ -528,13 +563,13 @@ impl Notifier {
                 if num_attachments == 0 {
                     Request::new(token)
                         .send_message(&self.params.chat, text)
+                        .reply_to_opt(reply_to)
                         .thread_id_opt(self.params.thread_id)
                         .disable_notification_bool(DISABLE_NOTIFICATION)
                         .markup_opt(buttons)
                         .link_preview(LinkPreview::Disabled)
                         .send()
                         .await
-                        .map(|resp| resp.discard_result())
                 } else {
                     let attachment = attachments.first().unwrap();
 
@@ -548,13 +583,14 @@ impl Notifier {
                         }
                     }
                     .text(text)
+                    .reply_to_opt(reply_to)
                     .thread_id_opt(self.params.thread_id)
                     .disable_notification_bool(DISABLE_NOTIFICATION)
                     .markup_opt(buttons)
                     .send()
                     .await
-                    .map(|resp| resp.discard_result())
                 }
+                .map(|resp| resp.map_result(|r| Some(r.message_id)))
             }
             _ => {
                 let medias = attachments.iter().map(|attachment| match attachment {
@@ -572,7 +608,7 @@ impl Notifier {
                     .disable_notification_bool(DISABLE_NOTIFICATION)
                     .send()
                     .await
-                    .map(|resp| resp.discard_result())
+                    .map(|resp| resp.map_result(|r| r.first().map(|r| r.message_id)))
             }
         }
         .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
@@ -584,6 +620,9 @@ impl Notifier {
                 .unwrap_or_else(|| "*no description*".into())
         );
 
+        if let Some(message_id) = resp.result.unwrap() {
+            sent_posts.insert(post.platform_unique_id(), message_id);
+        }
         Ok(())
     }
 

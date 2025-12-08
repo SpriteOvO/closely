@@ -139,6 +139,7 @@ impl<'a> Request<'a> {
             base: self,
             chat,
             text,
+            reply_to_msg_id: None,
             thread_id: None,
             disable_notification: false,
             link_preview: None,
@@ -151,6 +152,7 @@ impl<'a> Request<'a> {
             base: self,
             chat,
             media: Media::Photo(photo),
+            reply_to_msg_id: None,
             thread_id: None,
             text: None,
             disable_notification: false,
@@ -164,6 +166,7 @@ impl<'a> Request<'a> {
             base: self,
             chat,
             media: Media::Video(video),
+            reply_to_msg_id: None,
             thread_id: None,
             text: None,
             disable_notification: false,
@@ -177,6 +180,7 @@ impl<'a> Request<'a> {
             base: self,
             chat,
             media: Media::Document(document),
+            reply_to_msg_id: None,
             thread_id: None,
             text: None,
             disable_notification: false,
@@ -380,6 +384,7 @@ pub struct SendMessage<'a> {
     base: Request<'a>,
     chat: &'a ConfigChat,
     text: Text<'a>,
+    reply_to_msg_id: Option<i64>,
     thread_id: Option<i64>,
     disable_notification: bool,
     link_preview: Option<LinkPreview<'a>>,
@@ -404,6 +409,20 @@ impl<'a> SendMessage<'a> {
     pub fn link_preview(self, options: LinkPreview<'a>) -> Self {
         Self {
             link_preview: Some(options),
+            ..self
+        }
+    }
+
+    pub fn reply_to(self, msg_id: i64) -> Self {
+        Self {
+            reply_to_msg_id: Some(msg_id),
+            ..self
+        }
+    }
+
+    pub fn reply_to_opt(self, msg_id: Option<i64>) -> Self {
+        Self {
+            reply_to_msg_id: msg_id,
             ..self
         }
     }
@@ -443,6 +462,9 @@ impl<'a> SendMessage<'a> {
             let body = body.as_object_mut().unwrap();
             body.insert("text".into(), text);
             body.insert("entities".into(), entities);
+        }
+        if let Some(reply_to_msg_id) = self.reply_to_msg_id {
+            body["reply_parameters"] = json!({ "message_id": reply_to_msg_id });
         }
         if let Some(link_preview) = self.link_preview {
             body["link_preview_options"] = link_preview.into_json();
@@ -597,6 +619,7 @@ pub struct SendMedia<'a> {
     base: Request<'a>,
     chat: &'a ConfigChat,
     media: Media<'a>,
+    reply_to_msg_id: Option<i64>,
     thread_id: Option<i64>,
     text: Option<Text<'a>>,
     disable_notification: bool,
@@ -605,6 +628,20 @@ pub struct SendMedia<'a> {
 }
 
 impl<'a> SendMedia<'a> {
+    pub fn reply_to(self, msg_id: i64) -> Self {
+        Self {
+            reply_to_msg_id: Some(msg_id),
+            ..self
+        }
+    }
+
+    pub fn reply_to_opt(self, msg_id: Option<i64>) -> Self {
+        Self {
+            reply_to_msg_id: msg_id,
+            ..self
+        }
+    }
+
     pub fn thread_id(self, thread_id: i64) -> Self {
         Self {
             thread_id: Some(thread_id),
@@ -718,6 +755,9 @@ impl<'a> SendMedia<'a> {
             let body = body.as_object_mut().unwrap();
             body.insert("caption".into(), text);
             body.insert("caption_entities".into(), entities);
+        }
+        if let Some(reply_to_msg_id) = self.reply_to_msg_id {
+            body["reply_parameters"] = json!({ "message_id": reply_to_msg_id });
         }
         if let Some(markup) = self.markup {
             body["reply_markup"] = markup.into_json();
@@ -1213,12 +1253,19 @@ pub struct Response<R = IgnoredAny> {
 }
 
 impl<R> Response<R> {
-    pub fn discard_result(self) -> Response<IgnoredAny> {
+    pub fn map_result<F, T>(self, f: F) -> Response<T>
+    where
+        F: FnOnce(R) -> T,
+    {
         Response {
             ok: self.ok,
             description: self.description,
-            result: Some(IgnoredAny),
+            result: self.result.map(f),
         }
+    }
+
+    pub fn discard_result(self) -> Response<IgnoredAny> {
+        self.map_result(|_| IgnoredAny)
     }
 }
 

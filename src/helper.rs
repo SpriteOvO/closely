@@ -59,6 +59,20 @@ macro_rules! format_if {
     };
 }
 
+pub enum MaybeOwned<'a, T> {
+    Borrowed(&'a T),
+    Owned(T),
+}
+
+impl<'a, T> MaybeOwned<'a, T> {
+    pub fn as_ref(&self) -> &T {
+        match self {
+            Self::Borrowed(b) => b,
+            Self::Owned(o) => o,
+        }
+    }
+}
+
 pub fn format_duration_in_sec(dur: Duration) -> String {
     humantime::format_duration(Duration::from_secs(dur.as_secs())).to_string()
 }

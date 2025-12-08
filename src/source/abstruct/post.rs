@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt, slice, vec};
+use std::{borrow::Cow, fmt, iter, slice, vec};
 
 use anyhow::ensure;
 use chrono::{DateTime, Local};
@@ -60,6 +60,12 @@ impl Post {
         } else {
             PostUrlsRef(self.urls.iter().collect())
         }
+    }
+
+    pub fn repost_chain(&self) -> impl Iterator<Item = &RepostFrom> {
+        iter::successors(self.repost_from.as_ref(), |repost_from| {
+            repost_from.post.repost_from.as_ref()
+        })
     }
 }
 
