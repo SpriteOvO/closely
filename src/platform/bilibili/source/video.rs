@@ -154,6 +154,7 @@ fn parse_response(mid: u64, resp: data::SeriesArchives) -> anyhow::Result<Posts>
                     media_url: upgrade_to_https(&archive.pic),
                     has_spoiler: false,
                 })],
+                prefer_treat_as_reply: false,
             })
         })
         .collect::<Result<_, _>>()?;

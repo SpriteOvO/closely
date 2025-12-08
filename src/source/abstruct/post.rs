@@ -15,6 +15,7 @@ pub struct Post {
     pub is_pinned: bool,
     pub repost_from: Option<RepostFrom>,
     pub(crate) attachments: Vec<PostAttachment>,
+    pub prefer_treat_as_reply: bool,
 }
 
 impl Post {

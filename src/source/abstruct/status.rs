@@ -213,6 +213,7 @@ mod tests {
                 is_pinned: false,
                 repost_from: None,
                 attachments: vec![],
+                prefer_treat_as_reply: false,
             }])),
             StatusSource {
                 platform: PlatformMetadata {
@@ -237,6 +238,7 @@ mod tests {
                     is_pinned: false,
                     repost_from: None,
                     attachments: vec![],
+                    prefer_treat_as_reply: false,
                 },
                 Post {
                     user: mock_user(),
@@ -246,6 +248,7 @@ mod tests {
                     is_pinned: false,
                     repost_from: None,
                     attachments: vec![],
+                    prefer_treat_as_reply: false,
                 },
             ])),
             StatusSource {
@@ -265,6 +268,7 @@ mod tests {
                     is_pinned: false,
                     repost_from: None,
                     attachments: vec![],
+                    prefer_treat_as_reply: false,
                 },
                 Post {
                     user: mock_user(),
@@ -274,6 +278,7 @@ mod tests {
                     is_pinned: false,
                     repost_from: None,
                     attachments: vec![],
+                    prefer_treat_as_reply: false,
                 },
             ])),
             StatusSource {
@@ -308,6 +313,7 @@ mod tests {
                 is_pinned: false,
                 repost_from: None,
                 attachments: vec![],
+                prefer_treat_as_reply: false,
             }])),
             StatusSource {
                 platform: PlatformMetadata {
@@ -329,6 +335,7 @@ mod tests {
                     is_pinned: false,
                     repost_from: None,
                     attachments: vec![],
+                    prefer_treat_as_reply: false,
                 },
                 Post {
                     user: mock_user(),
@@ -338,6 +345,7 @@ mod tests {
                     is_pinned: false,
                     repost_from: None,
                     attachments: vec![],
+                    prefer_treat_as_reply: false,
                 },
                 Post {
                     user: mock_user(),
@@ -347,6 +355,7 @@ mod tests {
                     is_pinned: false,
                     repost_from: None,
                     attachments: vec![],
+                    prefer_treat_as_reply: false,
                 },
             ])),
             StatusSource {
@@ -401,6 +410,7 @@ mod tests {
                 is_pinned: false,
                 repost_from: None,
                 attachments: vec![],
+                prefer_treat_as_reply: false,
             }])),
             StatusSource {
                 platform: PlatformMetadata {

@@ -290,7 +290,11 @@ impl Notifier {
         match &post.repost_from {
             Some(repost_from) => {
                 if !post.content.is_empty() {
-                    builder.ref_text("💬 ");
+                    builder.ref_text(if !post.prefer_treat_as_reply {
+                        "💬 "
+                    } else {
+                        "🗣 "
+                    });
                     builder.ref_text(format_if!(
                         self.params.base.option.author_name,
                         "{}: ",

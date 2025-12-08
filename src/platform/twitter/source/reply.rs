@@ -30,7 +30,7 @@ impl Validator for ConfigParams {
 
 impl fmt::Display for ConfigParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Twitter.post:{}", self.username)
+        write!(f, "Twitter.replies:{}", self.username)
     }
 }
 
@@ -80,7 +80,7 @@ impl Fetcher {
     }
 
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
-        let posts = self.inner.user_tweets(&self.params.username).await?;
+        let posts = self.inner.user_replies(&self.params.username).await?;
 
         Ok(Status::new(
             StatusKind::Posts(posts),

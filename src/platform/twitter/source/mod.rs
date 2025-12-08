@@ -1,4 +1,5 @@
 pub mod post;
+pub mod reply;
 
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
@@ -13,9 +14,12 @@ use spdlog::prelude::*;
 use tokio::sync::Mutex;
 
 use super::request::{TwitterCookies, TwitterRequester};
-use crate::source::{
-    Post, PostAttachment, PostAttachmentImage, PostAttachmentVideo, PostContent, PostUrl,
-    PostUrlClickable, PostUrls, Posts, RepostFrom, User,
+use crate::{
+    config::{AccountRef, Config, ContextualValidator},
+    source::{
+        Post, PostAttachment, PostAttachmentImage, PostAttachmentVideo, PostContent, PostUrl,
+        PostUrlClickable, PostUrls, Posts, RepostFrom, User,
+    },
 };
 
 pub(crate) const TWITTER_IMAGE_URL_END_TAG: &str = ":orig";
@@ -176,6 +180,8 @@ mod data {
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
     pub struct TimelineEntry {
+        #[serde(rename = "entryId")]
+        pub entry_id: String,
         pub content: TimelineEntryContent,
     }
 
@@ -326,6 +332,17 @@ mod data {
     }
 }
 
+pub(crate) fn validate_actor(actor: &AccountRef) -> anyhow::Result<()> {
+    actor.validate(
+        &Config::global()
+            .platform()
+            .twitter
+            .as_ref()
+            .ok_or_else(|| anyhow!("Twitter in global is missing"))?
+            .account,
+    )
+}
+
 struct FetcherInner {
     requester: TwitterRequester,
     users: Mutex<HashMap<String /* username */, data::UserByScreenName>>,
@@ -397,13 +414,91 @@ impl FetcherInner {
                     data::TimelineItemContent::User => None,
                 })
                 .map(|result| result.result.into_tweet())
-                .map(|tweet| self.parse_tweet(tweet)),
+                .map(|tweet| self.parse_tweet(tweet, true)),
         )
         .await
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Posts(posts))
+    }
+
+    async fn user_replies(&self, username: impl AsRef<str>) -> anyhow::Result<Posts> {
+        let username = username.as_ref();
+        let user_id = self
+            .user_id(username)
+            .await
+            .map_err(|err| anyhow!("failed to fetch user id for '{username}': {err}"))?;
+
+        let resp = self
+            .requester
+            .user_tweets_and_replies(user_id)
+            .await?
+            .json::<data::ResponseDataUserResult<data::UserTweets>>()
+            .await
+            .map_err(|err| anyhow!("failed to deserialize UserTweets for replies: {err}"))?;
+
+        let conversations = join_all(
+            resp.into_inner()
+                .timeline
+                .timeline
+                .instructions
+                .into_iter()
+                .filter_map(|instruction| match instruction {
+                    data::TimelineInstruction::ClearCache => None,
+                    data::TimelineInstruction::PinEntry { entry } => Some(vec![entry]),
+                    data::TimelineInstruction::AddEntries { entries } => Some(entries),
+                })
+                .flatten()
+                .filter(|entry| entry.entry_id.starts_with("profile-conversation-"))
+                .filter_map(|entry| match entry.content {
+                    data::TimelineEntryContent::Item(item) => Some(vec![item]),
+                    data::TimelineEntryContent::Module { items } => {
+                        Some(items.into_iter().map(|item| item.item).collect())
+                    }
+                    data::TimelineEntryContent::Cursor => None,
+                })
+                .map(|items| {
+                    join_all(
+                        items
+                            .into_iter()
+                            .filter_map(|item| match item.item_content {
+                                data::TimelineItemContent::Tweet { tweet_results } => {
+                                    tweet_results.into_option()
+                                }
+                                data::TimelineItemContent::User => None,
+                            })
+                            .map(|result| result.result.into_tweet())
+                            .map(|tweet| self.parse_tweet(tweet, false)),
+                    )
+                }),
+        )
+        .await
+        .into_iter()
+        .map(|conversation| conversation.into_iter().collect())
+        .collect::<Result<Vec<Vec<_>>, _>>()?
+        .into_iter()
+        .filter_map(|conversation| {
+            // Convert conversation
+            // from: [ a ,  b ,  c ,  d ]
+            //   to:   d -> c -> b -> a
+            let mut conversations = conversation.into_iter().rev();
+            let mut merged = conversations.next()?;
+            let mut encountered_unexpected = false;
+            conversations.fold(&mut merged, |last, reply| {
+                encountered_unexpected |= last.repost_from.is_some();
+                last.repost_from = Some(RepostFrom::new_reply(reply));
+                &mut *last.repost_from.as_mut().unwrap().post
+            });
+            if encountered_unexpected {
+                // This should not happen.
+                warn!("replied post already has an unexpected repost_from, overwriting it", kv: { url:? = merged.urls.major() });
+            }
+            Some(merged)
+        })
+        .collect();
+
+        Ok(Posts(conversations))
     }
 
     async fn tweet_result_by_rest_id(&self, tweet_id: impl AsRef<str>) -> anyhow::Result<Post> {
@@ -418,10 +513,10 @@ impl FetcherInner {
             .tweet_result
             .result
             .into_tweet();
-        self.parse_tweet(tweet).await
+        self.parse_tweet(tweet, true).await
     }
 
-    async fn parse_tweet(&self, tweet: data::Tweet) -> anyhow::Result<Post> {
+    async fn parse_tweet(&self, tweet: data::Tweet, query_reply: bool) -> anyhow::Result<Post> {
         let content = if tweet.legacy.retweeted_status_result.is_none() {
             Some(replace_entities(
                 tweet.legacy.full_text,
@@ -445,14 +540,14 @@ impl FetcherInner {
             } else {
                 tweet.quoted_status_result.and_then(|q| q.into_option())
             }
-            .map(|result| Box::pin(self.parse_tweet(result.result.into_tweet()))),
+            .map(|result| Box::pin(self.parse_tweet(result.result.into_tweet(), query_reply))),
         )
         .await
         .transpose()?
         .map(RepostFrom::new_quote);
 
         // Not a quote, but a reply?
-        if repost_from.is_none() {
+        if query_reply && repost_from.is_none() {
             repost_from = OptionFuture::from(
                 tweet
                     .legacy
@@ -596,6 +691,7 @@ impl FetcherInner {
             is_pinned,
             repost_from,
             attachments,
+            prefer_treat_as_reply: !query_reply,
         })
     }
 }

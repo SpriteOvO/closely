@@ -428,7 +428,11 @@ impl Notifier {
         match &post.repost_from {
             Some(repost_from) => {
                 if !post.content.is_empty() {
-                    text.push_plain("💬 ");
+                    text.push_plain(if !post.prefer_treat_as_reply {
+                        "💬 "
+                    } else {
+                        "🗣 "
+                    });
                     if self.params.base.option.author_name {
                         text.push_link(&post.user.nickname, &post.user.profile_url);
                         text.push_plain(": ");

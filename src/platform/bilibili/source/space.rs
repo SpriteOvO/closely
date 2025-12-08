@@ -788,6 +788,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
                     }
                 })
                 .unwrap_or_default(),
+            prefer_treat_as_reply: false,
         })
     }
 
