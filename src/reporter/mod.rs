@@ -1,14 +1,16 @@
 mod norec;
 
 use std::{
+    borrow::Cow,
     cmp::Ordering,
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex},
     time::{Duration, UNIX_EPOCH},
 };
 
 use anyhow::anyhow;
 use norec::NoRec;
 use opentelemetry_otlp::WithExportConfig as _;
+use regex::Regex;
 use reqwest::Url;
 use serde::Deserialize;
 use spdlog::{
@@ -249,6 +251,12 @@ impl NotifySink {
             false
         }
     }
+
+    // Workaround: https://github.com/seanmonstar/reqwest/issues/2365
+    fn strip_url(buf: &str) -> Cow<'_, str> {
+        static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" for url \(.+\)").unwrap());
+        RE.replace_all(buf, r" for url (<stripped>)")
+    }
 }
 
 impl GetSinkProp for NotifySink {
@@ -271,11 +279,26 @@ impl Sink for NotifySink {
         let mut ctx = FormatterContext::new();
         self.prop.formatter().format(record, &mut buf, &mut ctx)?;
 
-        self.notify_log(buf);
+        self.notify_log(Self::strip_url(&buf));
         Ok(())
     }
 
     fn flush(&self) -> spdlog::Result<()> {
         Ok(()) // No-op
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_url_valid() {
+        assert_eq!(
+            NotifySink::strip_url(
+                r"failed to sent request: error sending request for url (https://example.com/endpoint?a=%7Babc&_#)",
+            ),
+            r"failed to sent request: error sending request for url (<stripped>)"
+        );
     }
 }
