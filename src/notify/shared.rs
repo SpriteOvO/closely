@@ -5,7 +5,10 @@ use std::{
 
 use tokio::sync::Mutex as TokioMutex;
 
+use crate::{notify::NotifierTrait, platform::PlatformTraitStatic};
+
 pub trait NotifierShared: Default {
+    type Notifier: NotifierTrait + PlatformTraitStatic;
     type ConfigParams;
 
     fn params_key(params: &Self::ConfigParams) -> String;
@@ -24,7 +27,11 @@ impl<S: NotifierShared> SharedManager<S> {
     }
 
     pub fn obtain(&self, params: &S::ConfigParams) -> Arc<TokioMutex<S>> {
-        let key = S::params_key(params);
+        let key = format!(
+            "{}:{}",
+            S::Notifier::metadata().display_name,
+            S::params_key(params)
+        );
 
         match self.0.lock().unwrap().entry(key) {
             Entry::Occupied(entry) => Arc::clone(entry.get()),

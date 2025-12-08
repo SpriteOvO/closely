@@ -137,6 +137,7 @@ pub struct SharedStates {
 }
 
 impl NotifierShared for SharedStates {
+    type Notifier = Notifier;
     type ConfigParams = ConfigParams;
 
     fn params_key(params: &Self::ConfigParams) -> String {
