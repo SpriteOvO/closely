@@ -529,8 +529,8 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                 notify_ref: vec![NotifyRef::Direct("meow".into())],
                             },
                             SubscriptionRaw {
-                                platform: Accessor::new(SourceConfig::Twitter(
-                                    Accessor::new(twitter::source::ConfigParams {
+                                platform: Accessor::new(SourceConfig::TwitterPost(
+                                    Accessor::new(twitter::source::post::ConfigParams {
                                         username: "meowww".into(),
                                         actor: AccountRef::new("MyTwitter")
                                     })
@@ -542,8 +542,8 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                 ],
                             },
                             SubscriptionRaw {
-                                platform: Accessor::new(SourceConfig::Twitter(
-                                    Accessor::new(twitter::source::ConfigParams {
+                                platform: Accessor::new(SourceConfig::TwitterPost(
+                                    Accessor::new(twitter::source::post::ConfigParams {
                                         username: "meowww2".into(),
                                         actor: AccountRef::new("MyTwitter")
                                     })

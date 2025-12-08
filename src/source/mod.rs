@@ -24,8 +24,8 @@ pub enum SourceConfig {
     BilibiliVideo(Accessor<bilibili::source::video::ConfigParams>),
     #[serde(rename = "bilibili.playback")]
     BilibiliPlayback(Accessor<bilibili::source::playback::ConfigParams>),
-    #[serde(rename = "Twitter")]
-    Twitter(Accessor<twitter::source::ConfigParams>),
+    #[serde(rename = "Twitter", alias = "Twitter.post")]
+    TwitterPost(Accessor<twitter::source::post::ConfigParams>),
 }
 
 impl Validator for SourceConfig {
@@ -35,7 +35,7 @@ impl Validator for SourceConfig {
             Self::BilibiliSpace(p) => p.validate(),
             Self::BilibiliVideo(p) => p.validate(),
             Self::BilibiliPlayback(p) => p.validate(),
-            Self::Twitter(p) => p.validate(),
+            Self::TwitterPost(p) => p.validate(),
         }
     }
 }
@@ -47,7 +47,7 @@ impl fmt::Display for SourceConfig {
             Self::BilibiliSpace(p) => write!(f, "{p}"),
             Self::BilibiliVideo(p) => write!(f, "{p}"),
             Self::BilibiliPlayback(p) => write!(f, "{p}"),
-            Self::Twitter(p) => write!(f, "{p}"),
+            Self::TwitterPost(p) => write!(f, "{p}"),
         }
     }
 }
@@ -95,6 +95,8 @@ pub fn sourcer(platform: &Accessor<SourceConfig>) -> Sourcer {
         SourceConfig::BilibiliPlayback(p) => {
             Sourcer::new_listener(bilibili::source::playback::Listener::new(p.clone()))
         }
-        SourceConfig::Twitter(p) => Sourcer::new_fetcher(twitter::source::Fetcher::new(p.clone())),
+        SourceConfig::TwitterPost(p) => {
+            Sourcer::new_fetcher(twitter::source::post::Fetcher::new(p.clone()))
+        }
     }
 }

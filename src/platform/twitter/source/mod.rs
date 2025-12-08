@@ -1,8 +1,7 @@
+pub mod post;
+
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
-    fmt,
-    future::Future,
-    pin::Pin,
     sync::{LazyLock, Mutex as StdMutex},
 };
 
@@ -14,46 +13,12 @@ use spdlog::prelude::*;
 use tokio::sync::Mutex;
 
 use super::request::{TwitterCookies, TwitterRequester};
-use crate::{
-    config::{Accessor, AccountRef, AsSecretRef, Config, ContextualValidator, Validator},
-    platform::{PlatformMetadata, PlatformTrait},
-    source::{
-        FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostAttachmentVideo, PostContent,
-        PostUrl, PostUrlClickable, PostUrls, Posts, RepostFrom, Status, StatusKind, StatusSource,
-        User,
-    },
+use crate::source::{
+    Post, PostAttachment, PostAttachmentImage, PostAttachmentVideo, PostContent, PostUrl,
+    PostUrlClickable, PostUrls, Posts, RepostFrom, User,
 };
 
 pub(crate) const TWITTER_IMAGE_URL_END_TAG: &str = ":orig";
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct ConfigParams {
-    pub username: String,
-    #[serde(rename = "as")]
-    pub actor: AccountRef,
-}
-
-impl Validator for ConfigParams {
-    fn validate(&self) -> anyhow::Result<()> {
-        self.actor.validate(
-            &Config::global()
-                .platform()
-                .twitter
-                .as_ref()
-                .ok_or_else(|| anyhow!("Twitter in global is missing"))?
-                .account,
-        )?;
-        Ok(())
-    }
-}
-
-impl fmt::Display for ConfigParams {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Twitter:{}", self.username)
-    }
-}
-
-//
 
 mod data {
     use super::*;
@@ -358,64 +323,6 @@ mod data {
         pub name: String,
         pub screen_name: String,
         pub indices: Indices,
-    }
-}
-
-//
-
-pub struct Fetcher {
-    params: Accessor<ConfigParams>,
-    inner: FetcherInner,
-}
-
-impl PlatformTrait for Fetcher {
-    fn metadata(&self) -> PlatformMetadata {
-        PlatformMetadata {
-            display_name: "Twitter",
-        }
-    }
-}
-
-impl FetcherTrait for Fetcher {
-    fn fetch_status(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<Status>> + Send + '_>> {
-        Box::pin(self.fetch_status_impl())
-    }
-}
-
-impl fmt::Display for Fetcher {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.params)
-    }
-}
-
-impl Fetcher {
-    pub fn new(params: Accessor<ConfigParams>) -> Self {
-        let cookies = Config::global()
-            .platform()
-            .twitter
-            .as_ref()
-            .unwrap()
-            .account
-            .get(&params.actor)
-            .as_secret_ref()
-            .get_str()
-            .unwrap();
-        Self {
-            params,
-            inner: FetcherInner::new(TwitterCookies::new(cookies).unwrap()),
-        }
-    }
-
-    async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
-        let posts = self.inner.user_tweets(&self.params.username).await?;
-
-        Ok(Status::new(
-            StatusKind::Posts(posts),
-            StatusSource {
-                platform: self.metadata(),
-                user: None, // TODO: Implement it later if needed
-            },
-        ))
     }
 }
 
