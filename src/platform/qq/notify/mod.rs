@@ -9,7 +9,7 @@ use crate::{
     config::{self, Accessor, AccountRef, Config, ContextualValidator, Overridable, Validator},
     format_if, helper,
     notify::NotifierTrait,
-    platform::{PlatformMetadata, PlatformTrait},
+    platform::{PlatformMetadata, PlatformTraitStatic},
     source::{
         LiveStatus, LiveStatusKind, Notification, NotificationKind, Post, PostAttachment, PostsRef,
         RepostFrom, StatusSource,
@@ -112,8 +112,8 @@ pub struct Notifier {
     backend: lagrange::LagrangeOnebot<'static>,
 }
 
-impl PlatformTrait for Notifier {
-    fn metadata(&self) -> PlatformMetadata {
+impl PlatformTraitStatic for Notifier {
+    fn metadata() -> PlatformMetadata {
         PlatformMetadata { display_name: "QQ" }
     }
 }

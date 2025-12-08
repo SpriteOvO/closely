@@ -23,7 +23,7 @@ use crate::{
     format_if, helper,
     helper::MaybeOwned,
     notify::{NotifierShared, NotifierTrait, SharedManager},
-    platform::{PlatformMetadata, PlatformTrait},
+    platform::{PlatformMetadata, PlatformTraitStatic},
     source::{
         DocumentRef, FileRef, LiveStatus, LiveStatusKind, Notification, NotificationKind,
         PlaybackFormat, PlaybackRef, Post, PostAttachment, PostPlatformUniqueId, PostUrl, PostsRef,
@@ -150,8 +150,8 @@ pub struct Notifier {
     current_live: Mutex<Option<CurrentLive>>,
 }
 
-impl PlatformTrait for Notifier {
-    fn metadata(&self) -> PlatformMetadata {
+impl PlatformTraitStatic for Notifier {
+    fn metadata() -> PlatformMetadata {
         PlatformMetadata {
             display_name: "Telegram",
         }

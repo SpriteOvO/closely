@@ -15,7 +15,7 @@ use tokio::sync::Mutex;
 use super::super::{bilibili_request_builder, upgrade_to_https, Response};
 use crate::{
     config::{Accessor, Validator},
-    platform::{PlatformMetadata, PlatformTrait},
+    platform::{PlatformMetadata, PlatformTrait, PlatformTraitStatic},
     source::{
         FetcherTrait, LiveStatus, LiveStatusKind, Status, StatusKind, StatusSource,
         StatusSourceUser,
@@ -64,8 +64,8 @@ pub struct Fetcher {
     room_data_cache: Mutex<Option<ResponseDataRoom>>,
 }
 
-impl PlatformTrait for Fetcher {
-    fn metadata(&self) -> PlatformMetadata {
+impl PlatformTraitStatic for Fetcher {
+    fn metadata() -> PlatformMetadata {
         PlatformMetadata {
             display_name: "bilibili 直播",
         }

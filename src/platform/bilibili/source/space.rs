@@ -20,7 +20,7 @@ use tokio::sync::Mutex;
 use super::super::{upgrade_to_https, Response};
 use crate::{
     config::{Accessor, AsSecretRef, Config, Validator},
-    platform::{bilibili::bilibili_request_builder, PlatformMetadata, PlatformTrait},
+    platform::{bilibili::bilibili_request_builder, PlatformMetadata, PlatformTraitStatic},
     prop,
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostContent, PostUrl, PostUrls,
@@ -468,8 +468,8 @@ pub struct Fetcher {
     blocked: Mutex<BlockedPostIds>,
 }
 
-impl PlatformTrait for Fetcher {
-    fn metadata(&self) -> PlatformMetadata {
+impl PlatformTraitStatic for Fetcher {
+    fn metadata() -> PlatformMetadata {
         PlatformMetadata {
             display_name: "bilibili 动态",
         }
@@ -515,7 +515,7 @@ impl Fetcher {
         Ok(Status::new(
             StatusKind::Posts(posts),
             StatusSource {
-                platform: self.metadata(),
+                platform: Self::metadata(),
                 // TODO: User info is only contained in cards, not in a unique kv, implement it
                 // later if needed
                 user: None,

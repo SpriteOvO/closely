@@ -8,7 +8,7 @@ use serde_json as json;
 use super::super::{bilibili_request_builder, upgrade_to_https, Response};
 use crate::{
     config::{Accessor, Validator},
-    platform::{PlatformMetadata, PlatformTrait},
+    platform::{PlatformMetadata, PlatformTraitStatic},
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostContent, PostUrl, Posts,
         Status, StatusKind, StatusSource, User,
@@ -61,8 +61,8 @@ pub struct Fetcher {
     params: Accessor<ConfigParams>,
 }
 
-impl PlatformTrait for Fetcher {
-    fn metadata(&self) -> PlatformMetadata {
+impl PlatformTraitStatic for Fetcher {
+    fn metadata() -> PlatformMetadata {
         PlatformMetadata {
             display_name: "bilibili 视频",
         }
@@ -92,7 +92,7 @@ impl Fetcher {
         Ok(Status::new(
             StatusKind::Posts(videos),
             StatusSource {
-                platform: self.metadata(),
+                platform: Self::metadata(),
                 user: None,
             },
         ))

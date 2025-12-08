@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     config::{Accessor, Config, Validator},
-    platform::{PlatformMetadata, PlatformTrait},
+    platform::{PlatformMetadata, PlatformTraitStatic},
     source::{ListenerTrait, Update},
 };
 
@@ -72,8 +72,8 @@ pub struct Listener {
     params: Accessor<ConfigParams>,
 }
 
-impl PlatformTrait for Listener {
-    fn metadata(&self) -> PlatformMetadata {
+impl PlatformTraitStatic for Listener {
+    fn metadata() -> PlatformMetadata {
         PLATFORM_METADATA
     }
 }

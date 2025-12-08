@@ -9,7 +9,7 @@ use crate::{
             request::TwitterCookies,
             source::{validate_actor, FetcherInner},
         },
-        PlatformMetadata, PlatformTrait,
+        PlatformMetadata, PlatformTraitStatic,
     },
     source::{FetcherTrait, Status, StatusKind, StatusSource},
 };
@@ -41,8 +41,8 @@ pub struct Fetcher {
     inner: FetcherInner,
 }
 
-impl PlatformTrait for Fetcher {
-    fn metadata(&self) -> PlatformMetadata {
+impl PlatformTraitStatic for Fetcher {
+    fn metadata() -> PlatformMetadata {
         PlatformMetadata {
             display_name: "Twitter",
         }
@@ -85,7 +85,7 @@ impl Fetcher {
         Ok(Status::new(
             StatusKind::Posts(posts),
             StatusSource {
-                platform: self.metadata(),
+                platform: Self::metadata(),
                 user: None, // TODO: Implement it later if needed
             },
         ))
