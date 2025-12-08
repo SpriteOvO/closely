@@ -1,6 +1,10 @@
 mod norec;
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    cmp::Ordering,
+    sync::{Arc, Mutex},
+    time::{Duration, UNIX_EPOCH},
+};
 
 use anyhow::anyhow;
 use norec::NoRec;
@@ -172,6 +176,7 @@ struct NotifySink {
     rt: tokio::runtime::Handle,
     notifiers: Vec<Box<dyn notify::NotifierTrait>>,
     no_rec: NoRec,
+    hourly_errs: Mutex<(u64, usize)>,
 }
 
 impl NotifySink {
@@ -193,6 +198,55 @@ impl NotifySink {
             rt: tokio::runtime::Handle::current(),
             notifiers: notify.into_iter().map(notify::notifier).collect(),
             no_rec: NoRec::new(),
+            hourly_errs: Mutex::new((0, 0)),
+        }
+    }
+
+    fn notify_log(&self, message: impl Into<String>) {
+        let notification = Notification {
+            kind: NotificationKind::Log(message.into()),
+            source: &Self::STATUS_SOURCE,
+        };
+
+        tokio::task::block_in_place(|| {
+            for notifier in &self.notifiers {
+                self.rt
+                    .block_on(async { notify::notify(&**notifier, &notification).await });
+            }
+        });
+    }
+
+    fn should_skip(&self, record: &Record) -> bool {
+        const ERR_LIMIT: usize = 20;
+
+        let this_hour = record.time().duration_since(UNIX_EPOCH).unwrap().as_secs() / 3600;
+
+        let mut hourly_errs = self.hourly_errs.lock().unwrap();
+        if hourly_errs.0 != this_hour {
+            if hourly_errs.1 > ERR_LIMIT {
+                self.notify_log(format!(
+                    "⚠️ {} errors were skipped prior to this, resumed error notifications",
+                    hourly_errs.1 - ERR_LIMIT
+                ));
+            }
+            *hourly_errs = (this_hour, 0);
+        }
+
+        if LevelFilter::MoreSevereEqual(Level::Error).test(record.level()) {
+            hourly_errs.1 += 1;
+
+            match hourly_errs.1.cmp(&(ERR_LIMIT + 1)) {
+                Ordering::Equal => {
+                    self.notify_log(format!(
+                        "⚠️ too many errors (limit {ERR_LIMIT}), skip notifying in this hour. please check the logs through other means."
+                    ));
+                    true
+                }
+                Ordering::Greater => true,
+                Ordering::Less => false,
+            }
+        } else {
+            false
         }
     }
 }
@@ -209,23 +263,15 @@ impl Sink for NotifySink {
         if guard.is_none() {
             return Ok(());
         }
+        if self.should_skip(record) {
+            return Ok(());
+        }
 
         let mut buf = StringBuf::new();
         let mut ctx = FormatterContext::new();
         self.prop.formatter().format(record, &mut buf, &mut ctx)?;
 
-        let notification = Notification {
-            kind: NotificationKind::Log(buf),
-            source: &Self::STATUS_SOURCE,
-        };
-
-        tokio::task::block_in_place(|| {
-            for notifier in &self.notifiers {
-                self.rt
-                    .block_on(async { notify::notify(&**notifier, &notification).await });
-            }
-        });
-
+        self.notify_log(buf);
         Ok(())
     }
 
