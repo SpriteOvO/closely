@@ -6,6 +6,7 @@ use std::{
     fmt,
     future::Future,
     pin::Pin,
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 
@@ -20,7 +21,7 @@ use super::{ConfigChat, ConfigToken};
 use crate::{
     config::{self, Accessor, AsSecretRef, Config, Overridable, Validator},
     format_if, helper,
-    notify::NotifierTrait,
+    notify::{NotifierShared, NotifierTrait, SharedManager},
     platform::{PlatformMetadata, PlatformTrait},
     source::{
         DocumentRef, FileRef, LiveStatus, LiveStatusKind, Notification, NotificationKind,
@@ -127,8 +128,24 @@ pub struct ConfigOverride {
     token: Option<ConfigToken>,
 }
 
+static SHARED_MANAGER: SharedManager<SharedStates> = SharedManager::new();
+
+#[derive(Default)]
+pub struct SharedStates {
+    //
+}
+
+impl NotifierShared for SharedStates {
+    type ConfigParams = ConfigParams;
+
+    fn params_key(params: &Self::ConfigParams) -> String {
+        format!("{}-{:?}", params.chat, params.thread_id)
+    }
+}
+
 pub struct Notifier {
     params: Accessor<ConfigParams>,
+    shared: Arc<Mutex<SharedStates>>,
     current_live: Mutex<Option<CurrentLive>>,
 }
 
@@ -152,6 +169,7 @@ impl NotifierTrait for Notifier {
 impl Notifier {
     pub fn new(params: Accessor<ConfigParams>) -> Self {
         Self {
+            shared: SHARED_MANAGER.obtain(&*params),
             params,
             current_live: Mutex::new(None),
         }
