@@ -1,4 +1,5 @@
 pub mod bilibili;
+pub mod github;
 pub mod qq;
 pub mod rss;
 pub mod telegram;

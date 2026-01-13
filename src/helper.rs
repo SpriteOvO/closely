@@ -73,6 +73,14 @@ impl<'a, T> MaybeOwned<'a, T> {
     }
 }
 
+// https://stackoverflow.com/a/38461750
+pub fn truncate_to_str(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        None => s,
+        Some((idx, _)) => &s[..idx],
+    }
+}
+
 pub fn format_duration_in_sec(dur: Duration) -> String {
     humantime::format_duration(Duration::from_secs(dur.as_secs())).to_string()
 }

@@ -3,6 +3,8 @@ use std::{borrow::Cow, fmt, iter, slice, vec};
 use anyhow::ensure;
 use chrono::{DateTime, Local};
 
+use super::User;
+
 #[derive(Debug, Eq, PartialEq, Hash)]
 pub struct PostPlatformUniqueId(String);
 
@@ -236,13 +238,6 @@ pub enum PostContentPart {
     Plain(String),
     Link { display: String, url: String },
     InlineAttachment(PostAttachment),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct User {
-    pub nickname: String,
-    pub profile_url: String,
-    pub avatar_url: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

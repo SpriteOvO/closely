@@ -243,6 +243,8 @@ pub struct NotificationSwitch {
     #[serde(default = "helper::refl_bool::<true>")]
     pub post: bool,
     #[serde(default = "helper::refl_bool::<true>")]
+    pub article: bool,
+    #[serde(default = "helper::refl_bool::<true>")]
     pub feed: bool,
     #[serde(default = "helper::refl_bool::<true>")]
     pub log: bool,
@@ -269,6 +271,7 @@ impl Overridable for NotificationSwitch {
             live_online: new.live_online.unwrap_or(self.live_online),
             live_title: new.live_title.unwrap_or(self.live_title),
             post: new.post.unwrap_or(self.post),
+            article: new.article.unwrap_or(self.article),
             feed: new.feed.unwrap_or(self.feed),
             log: new.log.unwrap_or(self.log),
             playback: new.playback.unwrap_or(self.playback),
@@ -282,6 +285,7 @@ pub struct NotificationSwitchOverride {
     pub live_online: Option<bool>,
     pub live_title: Option<bool>,
     pub post: Option<bool>,
+    pub article: Option<bool>,
     pub feed: Option<bool>,
     pub log: Option<bool>,
     pub playback: Option<bool>,
@@ -294,6 +298,8 @@ pub struct NotificationOption<O> {
     pub platform_name: bool,
     #[serde(default = "helper::refl_bool::<false>")]
     pub author_name: bool,
+    #[serde(default = "helper::refl_bool::<true>")]
+    pub article_tag: bool,
     #[serde(default, flatten)]
     pub ext: O,
 }
@@ -314,6 +320,7 @@ impl<'a, O: Deserialize<'a> + Overridable> Overridable for NotificationOption<O>
         Self {
             platform_name: new.platform_name.unwrap_or(self.platform_name),
             author_name: new.author_name.unwrap_or(self.author_name),
+            article_tag: new.article_tag.unwrap_or(self.article_tag),
             ext: match new.ext {
                 Some(ext) => self.ext.override_into(ext),
                 None => self.ext,
@@ -326,6 +333,7 @@ impl<'a, O: Deserialize<'a> + Overridable> Overridable for NotificationOption<O>
 pub struct NotificationOptionOverride<O> {
     pub platform_name: Option<bool>,
     pub author_name: Option<bool>,
+    pub article_tag: Option<bool>,
     #[serde(flatten)]
     pub ext: Option<O>,
 }
@@ -504,6 +512,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                         live_online: true,
                                         live_title: false,
                                         post: false,
+                                        article: true,
                                         feed: true,
                                         log: true,
                                         playback: true,
@@ -512,6 +521,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                     option: NotificationOption {
                                         platform_name: true,
                                         author_name: false,
+                                        article_tag: true,
                                         ext: telegram::notify::OptionExt {
                                             no_button: false,
                                         }
@@ -612,10 +622,11 @@ platform = { name = "bilibili.live", user_id = 123456 }
 notify = []
             "#,
             |c| {
-                assert!(c
-                    .unwrap_err()
-                    .to_string()
-                    .ends_with("reference of notify not found 'reporter_notify'"))
+                assert!(
+                    c.unwrap_err()
+                        .to_string()
+                        .ends_with("reference of notify not found 'reporter_notify'")
+                )
             },
         );
 
@@ -628,10 +639,11 @@ platform = { name = "bilibili.live", user_id = 123456 }
 notify = ["meow"]
             "#,
             |c| {
-                assert!(c
-                    .unwrap_err()
-                    .to_string()
-                    .ends_with("reference of notify not found 'meow'"))
+                assert!(
+                    c.unwrap_err()
+                        .to_string()
+                        .ends_with("reference of notify not found 'meow'")
+                )
             },
         );
 
@@ -647,10 +659,11 @@ platform = { name = "bilibili.live", user_id = 123456 }
 notify = ["meow", "woof"]
             "#,
             |c| {
-                assert!(c
-                    .unwrap_err()
-                    .to_string()
-                    .ends_with("reference of notify not found 'woof'"))
+                assert!(
+                    c.unwrap_err()
+                        .to_string()
+                        .ends_with("reference of notify not found 'woof'")
+                )
             },
         );
 
@@ -666,10 +679,11 @@ platform = { name = "bilibili.live", user_id = 123456 }
 notify = ["meow"]
             "#,
             |c| {
-                assert!(c
-                    .unwrap_err()
-                    .to_string()
-                    .ends_with("both token in global and notify are missing"))
+                assert!(
+                    c.unwrap_err()
+                        .to_string()
+                        .ends_with("both token in global and notify are missing")
+                )
             },
         );
     }

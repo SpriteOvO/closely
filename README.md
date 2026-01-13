@@ -12,6 +12,7 @@ Subscribe to updates from people you follow, from any platform to any platform.
   - [Twitter (twitter.com)](https://twitter.com/)
   - [bilibili 动态 (t.bilibili.com)](https://t.bilibili.com/)
   - [bilibili 视频 (space.bilibili.com)](https://space.bilibili.com/)
+  - [GitHub Issues and PRs (github.com)](https://github.com/)
   - RSS feeds
 
 - Live streaming

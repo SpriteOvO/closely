@@ -1160,7 +1160,7 @@ impl DeleteMessage<'_> {
 
 pub enum Entity<'a> {
     Link(&'a str),
-    Quote,
+    Quote(bool /* collapsed */),
 }
 
 pub struct Text<'a> {
@@ -1203,11 +1203,13 @@ impl<'a> Text<'a> {
             .push((begin..self.text.encode_utf16().count(), Entity::Link(link)));
     }
 
-    pub fn push_quote(&mut self, content: impl FnOnce(&mut Self)) {
+    pub fn push_quote(&mut self, content: impl FnOnce(&mut Self) -> bool) {
         let begin = self.text.encode_utf16().count();
-        content(self);
-        self.entities
-            .push((begin..self.text.encode_utf16().count(), Entity::Quote));
+        let collapsed = content(self);
+        self.entities.push((
+            begin..self.text.encode_utf16().count(),
+            Entity::Quote(collapsed),
+        ));
     }
 
     pub fn push_content(&mut self, content: &'a PostContent) {
@@ -1231,8 +1233,8 @@ impl<'a> Text<'a> {
                     "length": range.end - range.start,
                     "url": url,
                 }),
-                Entity::Quote => json!({
-                    "type": "blockquote",
+                Entity::Quote(collapsed) => json!({
+                    "type": if !collapsed { "blockquote" } else { "expandable_blockquote" },
                     "offset": range.start,
                     "length": range.end - range.start,
                 }),

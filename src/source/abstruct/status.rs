@@ -3,7 +3,7 @@ use std::{fmt, vec};
 use super::{LiveStatus, Notification, NotificationKind, Posts, PostsRef};
 use crate::{
     platform::PlatformMetadata,
-    source::{diff, Feeds, FeedsRef},
+    source::{diff, Articles, ArticlesRef, Feeds, FeedsRef},
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -85,6 +85,20 @@ impl Status {
                             vec![]
                         }
                     }
+                    (StatusKind::Articles(articles), Some(StatusKind::Articles(last_articles))) => {
+                        let new_articles = diff::diff_by(&last_articles.0, &articles.0, |l, r| {
+                            l.unique_id == r.unique_id
+                        })
+                        .collect::<Vec<_>>();
+                        if !new_articles.is_empty() {
+                            vec![Notification {
+                                kind: NotificationKind::Articles(ArticlesRef(new_articles)),
+                                source: &status.source,
+                            }]
+                        } else {
+                            vec![]
+                        }
+                    }
                     (StatusKind::Feeds(feeds), Some(StatusKind::Feeds(last_feeds))) => {
                         let new_feeds = diff::diff_by(&last_feeds.items, &feeds.items, |l, r| {
                             l.unique_id == r.unique_id
@@ -130,6 +144,13 @@ impl Status {
                         // We don't care about the order at the moment.
                         stored.0.append(&mut new);
                     }
+                    (StatusKind::Articles(stored), StatusKind::Articles(new)) => {
+                        let mut new =
+                            diff::diff_by(&stored.0, new.0, |l, r| l.unique_id == r.unique_id)
+                                .collect::<Vec<_>>();
+                        // We don't care about the order at the moment.
+                        stored.0.append(&mut new);
+                    }
                     (StatusKind::Feeds(stored), StatusKind::Feeds(new)) => {
                         let mut new = diff::diff_by(&stored.items, new.items, |l, r| {
                             l.unique_id == r.unique_id
@@ -153,6 +174,7 @@ impl Status {
 pub enum StatusKind {
     Live(LiveStatus),
     Posts(Posts),
+    Articles(Articles),
     Feeds(Feeds),
 }
 
@@ -161,6 +183,7 @@ impl fmt::Display for StatusKind {
         match self {
             Self::Live(live_status) => write!(f, "{live_status}"),
             Self::Posts(posts) => write!(f, "{posts}"),
+            Self::Articles(articles) => write!(f, "{articles}"),
             Self::Feeds(feeds) => write!(f, "{feeds}"),
         }
     }

@@ -12,6 +12,7 @@ use std::{
 
 use anyhow::{anyhow, bail, ensure};
 use humantime_serde::re::humantime;
+use itertools::Itertools;
 use request::*;
 use serde::Deserialize;
 use spdlog::prelude::*;
@@ -25,9 +26,9 @@ use crate::{
     notify::{NotifierShared, NotifierTrait, SharedManager},
     platform::{PlatformMetadata, PlatformTraitStatic},
     source::{
-        DocumentRef, Feed, FeedsRef, FileRef, LiveStatus, LiveStatusKind, Notification,
-        NotificationKind, PlaybackFormat, PlaybackRef, Post, PostAttachment, PostPlatformUniqueId,
-        PostUrl, PostsRef, RepostFrom, StatusSource,
+        Article, ArticlesRef, DocumentRef, Feed, FeedsRef, FileRef, LiveStatus, LiveStatusKind,
+        Notification, NotificationKind, PlaybackFormat, PlaybackRef, Post, PostAttachment,
+        PostPlatformUniqueId, PostUrl, PostsRef, RepostFrom, StatusSource,
     },
 };
 
@@ -208,6 +209,9 @@ impl Notifier {
                     .await
             }
             NotificationKind::Posts(posts) => self.notify_posts(posts, notification.source).await,
+            NotificationKind::Articles(articles) => {
+                self.notify_articles(articles, notification.source).await
+            }
             NotificationKind::Feeds(feeds) => self.notify_feeds(feeds, notification.source).await,
             NotificationKind::Log(message) => self.notify_log(message).await,
             NotificationKind::Playback(playback) => {
@@ -512,6 +516,8 @@ impl Notifier {
                         }
                         text.push_plain(": ");
                         text.push_content(&repost_from.post.content);
+
+                        false // TODO: Collapse if too long
                     });
                     if let Some(repost_from) = &repost_from.post.repost_from {
                         text.push_plain("\n");
@@ -625,6 +631,89 @@ impl Notifier {
         if let Some(message_id) = resp.result.unwrap() {
             sent_posts.insert(post.platform_unique_id(), message_id);
         }
+        Ok(())
+    }
+
+    async fn notify_articles(
+        &self,
+        articles: &ArticlesRef<'_>,
+        source: &StatusSource,
+    ) -> anyhow::Result<()> {
+        if !self.params.base.switch.article {
+            info!("article notification is disabled, skip notifying");
+            return Ok(());
+        }
+
+        let token = self.token()?;
+
+        let mut errors = vec![];
+        for article in &articles.0 {
+            if let Err(err) = self.notify_article(token.as_ref(), article, source).await {
+                errors.push(err);
+            }
+        }
+        ensure!(errors.is_empty(), "{errors:?}");
+        Ok(())
+    }
+
+    async fn notify_article(
+        &self,
+        token: &str,
+        article: &Article,
+        source: &StatusSource,
+    ) -> anyhow::Result<()> {
+        let mut text = Text::plain(format_if!(
+            self.params.base.option.platform_name,
+            "[{}] ",
+            source.platform.display_name
+        ));
+
+        text.push_plain("📝 ");
+        if let Some(kind) = article.kind {
+            text.push_plain(kind);
+            text.push_plain(": ");
+        }
+        text.push_link(&article.title, &article.link);
+        text.push_plain(" by ");
+        text.push_link(
+            format!("@{}", article.author.nickname),
+            &article.author.profile_url,
+        );
+        text.push_plain("\n\n");
+        if self.params.base.option.article_tag {
+            text.push_plain(
+                article
+                    .tags
+                    .iter()
+                    .map(|tag| format!("#{}", tag.replace('-', "_")))
+                    .join(" "),
+            );
+            text.push_plain("\n\n");
+        }
+
+        text.push_quote(|text| {
+            text.push_plain(helper::truncate_to_str(&article.body, 2048));
+            true
+        });
+
+        const DISABLE_NOTIFICATION: bool = true; // TODO: Make it configurable
+
+        let resp = Request::new(token)
+            .send_message(&self.params.chat, text)
+            .thread_id_opt(self.params.thread_id)
+            .disable_notification_bool(DISABLE_NOTIFICATION)
+            .link_preview(LinkPreview::Disabled)
+            .send()
+            .await
+            .map(|resp| resp.map_result(|r| Some(r.message_id)))
+            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+
+        ensure!(
+            resp.ok,
+            "response contains error, description '{}'",
+            resp.description
+                .unwrap_or_else(|| "*no description*".into())
+        );
         Ok(())
     }
 
