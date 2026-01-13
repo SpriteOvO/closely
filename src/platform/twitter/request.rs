@@ -195,6 +195,7 @@ impl TwitterRequester {
             "responsive_web_grok_analyze_post_followups_enabled": true,
             "responsive_web_jetfuel_frame": true,
             "responsive_web_grok_share_attachment_enabled": true,
+            "responsive_web_grok_annotations_enabled": false,
             "articles_preview_enabled": true,
             "responsive_web_edit_tweet_api_enabled": true,
             "graphql_is_translatable_rweb_tweet_is_translatable_enabled": true,
@@ -204,6 +205,7 @@ impl TwitterRequester {
             "tweet_awards_web_tipping_enabled": false,
             "responsive_web_grok_show_grok_translated_post": true,
             "responsive_web_grok_analysis_button_from_backend": true,
+            "post_ctas_fetch_enabled": true,
             "creator_subscriptions_quote_tweet_preview_enabled": false,
             "freedom_of_speech_not_reach_fetch_enabled": true,
             "standardized_nudges_misinfo": true,
@@ -213,13 +215,13 @@ impl TwitterRequester {
             "responsive_web_grok_image_annotation_enabled": true,
             "responsive_web_grok_imagine_annotation_enabled": true,
             "responsive_web_grok_community_note_auto_translation_is_enabled": false,
-            "responsive_web_enhance_cards_enabled": false
+            "responsive_web_enhance_cards_enabled": false,
         });
         let field_toggles = json!({
             "withArticlePlainText": false
         });
         let mut url = Url::from_str(
-            "https://x.com/i/api/graphql/gXCeOBFsTOuimuCl1qXimg/UserTweetsAndReplies",
+            "https://x.com/i/api/graphql/wdllkXYZIqXnuwj9wF9jDA/UserTweetsAndReplies",
         )?;
         {
             let mut query = url.query_pairs_mut();
