@@ -1,6 +1,6 @@
 use std::fmt;
 
-use super::{DocumentRef, LiveStatus, PlaybackRef, PostsRef, StatusSource};
+use super::{DocumentRef, FeedsRef, LiveStatus, PlaybackRef, PostsRef, StatusSource};
 
 #[derive(Debug)]
 pub struct Notification<'a> {
@@ -19,6 +19,7 @@ pub enum NotificationKind<'a> {
     LiveOnline(&'a LiveStatus),
     LiveTitle(&'a LiveStatus, &'a str /* old title */),
     Posts(PostsRef<'a>),
+    Feeds(FeedsRef<'a>),
     Log(String),
     Playback(PlaybackRef<'a>),
     Document(DocumentRef<'a>),
@@ -32,6 +33,7 @@ impl fmt::Display for NotificationKind<'_> {
                 write!(f, "{live_status}, old title '{old_title}'")
             }
             Self::Posts(posts) => write!(f, "{posts}"),
+            Self::Feeds(feeds) => write!(f, "{feeds}"),
             Self::Log(message) => write!(f, "log '{message}'"),
             Self::Playback(playback) => write!(f, "{playback}"),
             Self::Document(document) => write!(f, "{document}"),

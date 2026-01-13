@@ -243,6 +243,8 @@ pub struct NotificationSwitch {
     #[serde(default = "helper::refl_bool::<true>")]
     pub post: bool,
     #[serde(default = "helper::refl_bool::<true>")]
+    pub feed: bool,
+    #[serde(default = "helper::refl_bool::<true>")]
     pub log: bool,
     #[serde(default = "helper::refl_bool::<true>")]
     pub playback: bool,
@@ -267,6 +269,7 @@ impl Overridable for NotificationSwitch {
             live_online: new.live_online.unwrap_or(self.live_online),
             live_title: new.live_title.unwrap_or(self.live_title),
             post: new.post.unwrap_or(self.post),
+            feed: new.feed.unwrap_or(self.feed),
             log: new.log.unwrap_or(self.log),
             playback: new.playback.unwrap_or(self.playback),
             document: new.document.unwrap_or(self.document),
@@ -279,6 +282,7 @@ pub struct NotificationSwitchOverride {
     pub live_online: Option<bool>,
     pub live_title: Option<bool>,
     pub post: Option<bool>,
+    pub feed: Option<bool>,
     pub log: Option<bool>,
     pub playback: Option<bool>,
     pub document: Option<bool>,
@@ -500,6 +504,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                         live_online: true,
                                         live_title: false,
                                         post: false,
+                                        feed: true,
                                         log: true,
                                         playback: true,
                                         document: true,

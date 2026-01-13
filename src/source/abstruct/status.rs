@@ -1,7 +1,10 @@
 use std::{fmt, vec};
 
 use super::{LiveStatus, Notification, NotificationKind, Posts, PostsRef};
-use crate::{platform::PlatformMetadata, source::diff};
+use crate::{
+    platform::PlatformMetadata,
+    source::{diff, Feeds, FeedsRef},
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StatusSource {
@@ -82,6 +85,23 @@ impl Status {
                             vec![]
                         }
                     }
+                    (StatusKind::Feeds(feeds), Some(StatusKind::Feeds(last_feeds))) => {
+                        let new_feeds = diff::diff_by(&last_feeds.items, &feeds.items, |l, r| {
+                            l.unique_id == r.unique_id
+                        })
+                        .collect::<Vec<_>>();
+                        if !new_feeds.is_empty() {
+                            vec![Notification {
+                                kind: NotificationKind::Feeds(FeedsRef {
+                                    title: feeds.title.as_deref(),
+                                    items: new_feeds,
+                                }),
+                                source: &status.source,
+                            }]
+                        } else {
+                            vec![]
+                        }
+                    }
                     (_, None) => vec![],
                     (_, _) => panic!("states mismatch"),
                 },
@@ -110,6 +130,14 @@ impl Status {
                         // We don't care about the order at the moment.
                         stored.0.append(&mut new);
                     }
+                    (StatusKind::Feeds(stored), StatusKind::Feeds(new)) => {
+                        let mut new = diff::diff_by(&stored.items, new.items, |l, r| {
+                            l.unique_id == r.unique_id
+                        })
+                        .collect::<Vec<_>>();
+                        // We don't care about the order at the moment.
+                        stored.items.append(&mut new);
+                    }
                     _ => unreachable!("the stored status and the new status kinds are mismatch"),
                 }
                 stored.source.platform = new.source.platform;
@@ -125,6 +153,7 @@ impl Status {
 pub enum StatusKind {
     Live(LiveStatus),
     Posts(Posts),
+    Feeds(Feeds),
 }
 
 impl fmt::Display for StatusKind {
@@ -132,6 +161,7 @@ impl fmt::Display for StatusKind {
         match self {
             Self::Live(live_status) => write!(f, "{live_status}"),
             Self::Posts(posts) => write!(f, "{posts}"),
+            Self::Feeds(feeds) => write!(f, "{feeds}"),
         }
     }
 }

@@ -28,6 +28,8 @@ pub enum SourceConfig {
     TwitterPost(Accessor<twitter::source::post::ConfigParams>),
     #[serde(rename = "Twitter.reply")]
     TwitterReply(Accessor<twitter::source::reply::ConfigParams>),
+    #[serde(rename = "RSS")]
+    Rss(Accessor<rss::source::ConfigParams>),
 }
 
 impl Validator for SourceConfig {
@@ -39,6 +41,7 @@ impl Validator for SourceConfig {
             Self::BilibiliPlayback(p) => p.validate(),
             Self::TwitterReply(p) => p.validate(),
             Self::TwitterPost(p) => p.validate(),
+            Self::Rss(p) => p.validate(),
         }
     }
 }
@@ -52,6 +55,7 @@ impl fmt::Display for SourceConfig {
             Self::BilibiliPlayback(p) => write!(f, "{p}"),
             Self::TwitterReply(p) => write!(f, "{p}"),
             Self::TwitterPost(p) => write!(f, "{p}"),
+            Self::Rss(p) => write!(f, "{p}"),
         }
     }
 }
@@ -105,5 +109,6 @@ pub fn sourcer(platform: &Accessor<SourceConfig>) -> Sourcer {
         SourceConfig::TwitterReply(p) => {
             Sourcer::new_fetcher(twitter::source::reply::Fetcher::new(p.clone()))
         }
+        SourceConfig::Rss(p) => Sourcer::new_fetcher(rss::source::Fetcher::new(p.clone())),
     }
 }

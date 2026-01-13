@@ -1,5 +1,6 @@
 pub mod bilibili;
 pub mod qq;
+pub mod rss;
 pub mod telegram;
 pub mod twitter;
 

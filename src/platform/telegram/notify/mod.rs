@@ -20,14 +20,14 @@ use tokio::sync::Mutex;
 use super::{ConfigChat, ConfigToken};
 use crate::{
     config::{self, Accessor, AsSecretRef, Config, Overridable, Validator},
-    format_if, helper,
-    helper::MaybeOwned,
+    format_if,
+    helper::{self, MaybeOwned},
     notify::{NotifierShared, NotifierTrait, SharedManager},
     platform::{PlatformMetadata, PlatformTraitStatic},
     source::{
-        DocumentRef, FileRef, LiveStatus, LiveStatusKind, Notification, NotificationKind,
-        PlaybackFormat, PlaybackRef, Post, PostAttachment, PostPlatformUniqueId, PostUrl, PostsRef,
-        RepostFrom, StatusSource,
+        DocumentRef, Feed, FeedsRef, FileRef, LiveStatus, LiveStatusKind, Notification,
+        NotificationKind, PlaybackFormat, PlaybackRef, Post, PostAttachment, PostPlatformUniqueId,
+        PostUrl, PostsRef, RepostFrom, StatusSource,
     },
 };
 
@@ -208,6 +208,7 @@ impl Notifier {
                     .await
             }
             NotificationKind::Posts(posts) => self.notify_posts(posts, notification.source).await,
+            NotificationKind::Feeds(feeds) => self.notify_feeds(feeds, notification.source).await,
             NotificationKind::Log(message) => self.notify_log(message).await,
             NotificationKind::Playback(playback) => {
                 self.notify_playback(playback, notification.source).await
@@ -624,6 +625,80 @@ impl Notifier {
         if let Some(message_id) = resp.result.unwrap() {
             sent_posts.insert(post.platform_unique_id(), message_id);
         }
+        Ok(())
+    }
+
+    async fn notify_feeds(
+        &self,
+        feeds: &FeedsRef<'_>,
+        source: &StatusSource,
+    ) -> anyhow::Result<()> {
+        if !self.params.base.switch.feed {
+            info!("feed notification is disabled, skip notifying");
+            return Ok(());
+        }
+
+        let token = self.token()?;
+
+        let mut errors = vec![];
+        for feed in &feeds.items {
+            if let Err(err) = self
+                .notify_feed(token.as_ref(), feeds.title, feed, source)
+                .await
+            {
+                errors.push(err);
+            }
+        }
+        ensure!(errors.is_empty(), "{errors:?}");
+        Ok(())
+    }
+
+    async fn notify_feed(
+        &self,
+        token: &str,
+        title: Option<&str>,
+        feed: &Feed,
+        source: &StatusSource,
+    ) -> anyhow::Result<()> {
+        let mut text = Text::plain(format_if!(
+            self.params.base.option.platform_name,
+            "[{}] ",
+            source.platform.display_name
+        ));
+
+        if let Some(title) = title {
+            text.push_plain(format!("📢 {title}\n\n"));
+        }
+
+        if let Some(title) = &feed.title {
+            if let Some(link) = feed.link.as_deref() {
+                text.push_link(title, link);
+            } else {
+                text.push_plain(title);
+            }
+            text.push_plain("\n\n");
+        }
+
+        // TODO: Description
+
+        const DISABLE_NOTIFICATION: bool = true; // TODO: Make it configurable
+
+        let resp = Request::new(token)
+            .send_message(&self.params.chat, text)
+            .thread_id_opt(self.params.thread_id)
+            .disable_notification_bool(DISABLE_NOTIFICATION)
+            // .link_preview(LinkPreview::Disabled)
+            .send()
+            .await
+            .map(|resp| resp.map_result(|r| Some(r.message_id)))
+            .map_err(|err| anyhow!("failed to send request to Telegram: {err}"))?;
+
+        ensure!(
+            resp.ok,
+            "response contains error, description '{}'",
+            resp.description
+                .unwrap_or_else(|| "*no description*".into())
+        );
         Ok(())
     }
 
