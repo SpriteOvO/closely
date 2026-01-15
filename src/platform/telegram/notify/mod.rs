@@ -799,8 +799,15 @@ impl Notifier {
 
         let token = self.token()?;
 
+        let mut text = Text::new();
+        // TODO: Only quote payload and KV
+        text.push_quote(|text| {
+            text.push_plain(message);
+            true
+        });
+
         let resp = Request::new(&token)
-            .send_message(&self.params.chat, Text::plain(message))
+            .send_message(&self.params.chat, text)
             .thread_id_opt(self.params.thread_id)
             .link_preview(LinkPreview::Disabled)
             // .disable_notification() // TODO: Make it configurable
