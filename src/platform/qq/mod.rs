@@ -1,5 +1,5 @@
-pub(crate) mod lagrange;
 pub mod notify;
+pub(crate) mod onebot11;
 
 use std::fmt;
 
@@ -43,12 +43,13 @@ impl Validator for ConfigGlobal {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigAccount {
-    pub lagrange: lagrange::ConfigLagrange,
+    #[serde(alias = "lagrange")]
+    pub onebot11: onebot11::ConfigOneBot11,
 }
 
 impl Validator for ConfigAccount {
     fn validate(&self) -> anyhow::Result<()> {
-        self.lagrange.validate()?;
+        self.onebot11.validate()?;
         Ok(())
     }
 }

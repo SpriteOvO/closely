@@ -4,7 +4,7 @@ use anyhow::{anyhow, ensure};
 use serde::Deserialize;
 use spdlog::prelude::*;
 
-use super::{lagrange, ConfigChat};
+use super::{onebot11, ConfigChat};
 use crate::{
     config::{self, Accessor, AccountRef, Config, ContextualValidator, Overridable, Validator},
     format_if, helper,
@@ -109,7 +109,7 @@ impl Overridable for ConfigParams {
 
 pub struct Notifier {
     params: Accessor<ConfigParams>,
-    backend: lagrange::LagrangeOnebot<'static>,
+    backend: onebot11::OneBot11<'static>,
 }
 
 impl PlatformTraitStatic for Notifier {
@@ -129,7 +129,7 @@ impl NotifierTrait for Notifier {
 
 impl Notifier {
     pub fn new(params: Accessor<ConfigParams>) -> Self {
-        let lagrange = lagrange::LagrangeOnebot::new(
+        let onebot11 = onebot11::OneBot11::new(
             &Config::global()
                 .platform()
                 .qq
@@ -137,11 +137,11 @@ impl Notifier {
                 .unwrap()
                 .account
                 .get(&params.actor)
-                .lagrange,
+                .onebot11,
         );
         Self {
             params,
-            backend: lagrange,
+            backend: onebot11,
         }
     }
 
@@ -176,7 +176,7 @@ impl Notifier {
         }
 
         if let LiveStatusKind::Online { start_time: _ } = live_status.kind {
-            let builder = lagrange::Message::builder().image(&live_status.cover_image_url);
+            let builder = onebot11::Message::builder().image(&live_status.cover_image_url);
             let message =
                 if let Some(custom_live_text) = &self.params.base.option.ext.__live_text {
                     builder.text(format!("{custom_live_text}\n{}", live_status.live_url))
@@ -217,7 +217,7 @@ impl Notifier {
             return Ok(());
         }
 
-        let message = lagrange::Message::builder()
+        let message = onebot11::Message::builder()
             .text(format!(
                 "{}✏️ {}{}",
                 format_if!(
@@ -263,7 +263,7 @@ impl Notifier {
     }
 
     async fn notify_post(&self, post: &Post, source: &StatusSource) -> anyhow::Result<()> {
-        let mut builder = lagrange::Message::builder();
+        let mut builder = onebot11::Message::builder();
 
         if let Some(custom_post_text) = &self.params.base.option.ext.__post_text {
             builder.ref_text(custom_post_text);
@@ -280,7 +280,7 @@ impl Notifier {
         }
 
         fn append_media<'a>(
-            builder: &mut lagrange::MessageBuilder,
+            builder: &mut onebot11::MessageBuilder,
             attachments: impl Iterator<Item = &'a PostAttachment>,
         ) {
             builder.ref_images(attachments.filter_map(|attachment| match attachment {
@@ -308,7 +308,7 @@ impl Notifier {
                 }
 
                 fn append_reposts_rec(
-                    builder: &mut lagrange::MessageBuilder,
+                    builder: &mut onebot11::MessageBuilder,
                     repost_from: &RepostFrom,
                 ) {
                     builder.ref_text("🔁 ");
@@ -361,7 +361,7 @@ impl Notifier {
             return Ok(());
         }
 
-        let message = lagrange::Message::builder()
+        let message = onebot11::Message::builder()
             .text(message)
             .mention_all_if(self.params.mention_all, true)
             .build();

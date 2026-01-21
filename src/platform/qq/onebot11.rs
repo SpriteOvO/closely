@@ -18,13 +18,13 @@ pub struct RemoteHttp {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct ConfigLagrange {
+pub struct ConfigOneBot11 {
     pub remote_http: RemoteHttp,
     #[serde(flatten)]
     pub access_token: Option<ConfigAccessToken>,
 }
 
-impl Validator for ConfigLagrange {
+impl Validator for ConfigOneBot11 {
     fn validate(&self) -> anyhow::Result<()> {
         // TODO: Validate remote_http
         if let Some(access_token) = &self.access_token {
@@ -42,19 +42,19 @@ secret_enum! {
     }
 }
 
-pub struct LagrangeOnebot<'a> {
-    config: &'a ConfigLagrange,
+pub struct OneBot11<'a> {
+    config: &'a ConfigOneBot11,
 }
 
-impl<'a> LagrangeOnebot<'a> {
-    pub fn new(config: &'a ConfigLagrange) -> Self {
+impl<'a> OneBot11<'a> {
+    pub fn new(config: &'a ConfigOneBot11) -> Self {
         Self { config }
         // instance
         //     .version_info_retry_timeout(Duration::from_secs(5))
         //     .await
         //     .map_err(|_| {
         //         anyhow!(
-        //             "failed to connect Lagrange on '{}:{}'",
+        //             "failed to connect onebot11 on '{}:{}'",
         //             config.http_host,
         //             config.http_port
         //         )
@@ -92,7 +92,7 @@ impl<'a> LagrangeOnebot<'a> {
         }
         .await
         .map_err(|err: anyhow::Error| {
-            anyhow!("failed to request to lagrange. method: '{method}', err: {err}")
+            anyhow!("failed to request to onebot11. method: '{method}', err: {err}")
         })
     }
 
