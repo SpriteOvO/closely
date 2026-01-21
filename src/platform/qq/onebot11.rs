@@ -1,6 +1,7 @@
 use std::{borrow::Cow, fmt::Debug, time::Duration};
 
 use anyhow::{anyhow, ensure};
+use reqwest::Url;
 use serde::{de::DeserializeOwned, ser::SerializeStruct, Deserialize, Serialize, Serializer};
 use serde_json::{self as json, json};
 use tokio::time::timeout;
@@ -12,21 +13,14 @@ use crate::{
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct RemoteHttp {
-    pub host: String,
-    pub port: u16,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigOneBot11 {
-    pub remote_http: RemoteHttp,
+    pub remote_http: Url,
     #[serde(flatten)]
     pub access_token: Option<ConfigAccessToken>,
 }
 
 impl Validator for ConfigOneBot11 {
     fn validate(&self) -> anyhow::Result<()> {
-        // TODO: Validate remote_http
         if let Some(access_token) = &self.access_token {
             access_token.validate()?;
         }
@@ -67,11 +61,11 @@ impl<'a> OneBot11<'a> {
         arguments: Option<json::Value>,
     ) -> anyhow::Result<Response<T>> {
         async {
+            let url = self.config.remote_http.join(method).map_err(|err| {
+                anyhow!("failed to make URL for onebot11 method '{method}': {err}")
+            })?;
             let mut resp = helper::reqwest_client()?
-                .post(format!(
-                    "http://{}:{}/{method}",
-                    self.config.remote_http.host, self.config.remote_http.port
-                ))
+                .post(url)
                 .json(&arguments.unwrap_or(json::Value::Null));
             if let Some(access_token) = self.config.access_token.as_ref() {
                 resp = resp.bearer_auth(access_token.as_secret_ref().get_str()?);

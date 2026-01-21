@@ -413,7 +413,7 @@ url = "https://example.com/"
 interval = '1min'
 
 [platform.QQ.account.MyQQ]
-onebot11 = { remote_http = { host = "localhost", port = 8000 } }
+onebot11 = { remote_http = "http://localhost:8000/" }
 
 [platform.Telegram]
 token = "ttt"
@@ -464,10 +464,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                             account: Accounts::from_iter([
                                 ("MyQQ".into(), Accessor::new(qq::ConfigAccount {
                                     onebot11: qq::onebot11::ConfigOneBot11 {
-                                        remote_http: qq::onebot11::RemoteHttp {
-                                            host: "localhost".into(),
-                                            port: 8000,
-                                        },
+                                        remote_http: Url::parse("http://localhost:8000/").unwrap(),
                                         access_token: None,
                                     }
                                 }))
