@@ -2,7 +2,7 @@ pub mod notify;
 
 use std::fmt;
 
-use http::Uri;
+use reqwest::Url;
 use serde::Deserialize;
 use serde_json as json;
 use spdlog::prelude::*;
@@ -74,12 +74,8 @@ impl Validator for ConfigGlobal {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum ConfigApiServer {
-    Url(#[serde(with = "http_serde::uri")] Uri),
-    UrlOpts {
-        #[serde(with = "http_serde::uri")]
-        url: Uri,
-        as_necessary: bool,
-    },
+    Url(Url),
+    UrlOpts { url: Url, as_necessary: bool },
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

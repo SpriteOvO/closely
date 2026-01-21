@@ -2,7 +2,6 @@ use std::{borrow::Cow, fmt, io::Cursor, mem, ops::Range, sync::LazyLock, time::D
 
 use anyhow::{anyhow, bail, ensure};
 use bytes::Bytes;
-use http::Uri;
 use image::{imageops::FilterType as ImageFilterType, DynamicImage, GenericImageView, ImageFormat};
 use itertools::Itertools;
 use reqwest::{
@@ -255,7 +254,7 @@ impl<'a> Request<'a> {
 }
 
 fn make_api_url(token: &str, method: &str, prefer_self_host: bool) -> String {
-    static OFFICIAL: LazyLock<Uri> = LazyLock::new(|| "https://api.telegram.org".parse().unwrap());
+    static OFFICIAL: LazyLock<Url> = LazyLock::new(|| "https://api.telegram.org".parse().unwrap());
 
     let url_opts = Config::global()
         .platform()
@@ -279,7 +278,7 @@ fn make_api_url(token: &str, method: &str, prefer_self_host: bool) -> String {
     make_api_url_impl(url, token, method)
 }
 
-fn make_api_url_impl(url: &Uri, token: &str, method: &str) -> String {
+fn make_api_url_impl(url: &Url, token: &str, method: &str) -> String {
     format!("{url}bot{token}/{method}")
 }
 
@@ -1472,7 +1471,7 @@ mod tests {
     fn api_urls() {
         assert_eq!(
             make_api_url_impl(
-                &Uri::from_static("https://api.telegram.org"),
+                &Url::parse("https://api.telegram.org").unwrap(),
                 "TOKEN",
                 "sendMessage"
             ),
@@ -1480,7 +1479,7 @@ mod tests {
         );
         assert_eq!(
             make_api_url_impl(
-                &Uri::from_static("https://api.telegram.org/"),
+                &Url::parse("https://api.telegram.org/").unwrap(),
                 "TOKEN",
                 "sendMessage"
             ),
@@ -1488,7 +1487,7 @@ mod tests {
         );
         assert_eq!(
             make_api_url_impl(
-                &Uri::from_static("http://172.24.5.218:8081"),
+                &Url::parse("http://172.24.5.218:8081").unwrap(),
                 "TOKEN",
                 "sendMessage"
             ),
