@@ -192,10 +192,142 @@ mod data {
     }
 
     impl ModuleDynamicMajor {
-        pub fn as_archive(&self) -> Option<&ModuleDynamicMajorArchiveInner> {
+        pub fn to_content(&self) -> Option<PostContent> {
             match self {
-                ModuleDynamicMajor::Archive(archive) => Some(&archive.archive),
-                _ => None,
+                Self::None(none) => Some(PostContent::plain(&none.none.tips)),
+                Self::Opus(opus) => {
+                    if let Some(title) = opus.opus.title.as_deref() {
+                        Some(
+                            PostContent::plain(title)
+                                .with_plain("\n\n")
+                                .with_content(opus.opus.summary.to_content()),
+                        )
+                    } else {
+                        Some(opus.opus.summary.to_content())
+                    }
+                }
+                Self::Archive(archive) => Some(
+                    PostContent::plain("投稿了视频《")
+                        .with_plain(&archive.archive.title)
+                        .with_plain("》"),
+                ),
+                Self::Article(article) => Some(
+                    PostContent::plain("投稿了文章《")
+                        .with_plain(&article.article.title)
+                        .with_plain("》"),
+                ),
+                Self::Draw(_) => None,
+                Self::Common(common) => Some(
+                    PostContent::plain(&common.common.title)
+                        .with_plain(" - ")
+                        .with_plain(&common.common.desc),
+                ),
+                Self::Pgc(pgc) => Some(
+                    PostContent::plain("剧集《")
+                        .with_plain(&pgc.pgc.title)
+                        .with_plain("》"),
+                ),
+                Self::Live(live) => Some(PostContent::plain(&live.live.title)),
+                Self::LiveRcmd | Self::Blocked => {
+                    critical!("unexpected major type", kv: { major:? = self });
+                    unreachable!()
+                }
+            }
+        }
+
+        pub fn to_url(&self) -> Option<PostUrl> {
+            match self {
+                Self::None(_) | Self::Opus(_) | Self::Draw(_) | Self::Common(_) => {
+                    // No need to add extra URLs
+                    None
+                }
+                Self::Archive(archive) => Some(PostUrl::new_clickable(
+                    format!("https://www.bilibili.com/video/{}", archive.archive.bvid),
+                    "查看视频",
+                )),
+                Self::Article(article) => Some(PostUrl::new_clickable(
+                    format!("https://www.bilibili.com/read/cv{}", article.article.id),
+                    "查看文章",
+                )),
+                Self::Pgc(pgc) => Some(PostUrl::new_clickable(
+                    format!("https://www.bilibili.com/bangumi/play/ep{}", pgc.pgc.epid),
+                    "查看剧集",
+                )),
+                Self::Live(live) => Some(PostUrl::new_clickable(
+                    format!("https://live.bilibili.com/{}", live.live.id),
+                    "前往直播间",
+                )),
+                Self::LiveRcmd | Self::Blocked => {
+                    critical!("unexpected major type", kv: { major:? = self });
+                    unreachable!()
+                }
+            }
+        }
+
+        pub fn to_attachments(&self) -> Vec<PostAttachment> {
+            match self {
+                Self::None(_) => vec![],
+                Self::Opus(opus) => opus
+                    .opus
+                    .pics
+                    .iter()
+                    .map(|pic| {
+                        PostAttachment::Image(PostAttachmentImage {
+                            media_url: upgrade_to_https(&pic.url),
+                            has_spoiler: false,
+                        })
+                    })
+                    .collect(),
+                Self::Archive(archive) => {
+                    vec![PostAttachment::Image(PostAttachmentImage {
+                        media_url: upgrade_to_https(&archive.archive.cover),
+                        has_spoiler: false,
+                    })]
+                }
+                Self::Article(article) => article
+                    .article
+                    .covers
+                    .iter()
+                    .map(|cover| {
+                        PostAttachment::Image(PostAttachmentImage {
+                            media_url: upgrade_to_https(cover),
+                            has_spoiler: false,
+                        })
+                    })
+                    .collect(),
+                Self::Draw(draw) => draw
+                    .draw
+                    .items
+                    .iter()
+                    .map(|item| {
+                        PostAttachment::Image(PostAttachmentImage {
+                            media_url: upgrade_to_https(&item.src),
+                            has_spoiler: false,
+                        })
+                    })
+                    .collect(),
+                Self::Common(common) => {
+                    vec![PostAttachment::Image(PostAttachmentImage {
+                        media_url: upgrade_to_https(&common.common.cover),
+                        has_spoiler: false,
+                    })]
+                }
+                Self::Pgc(pgc) => {
+                    vec![PostAttachment::Image(PostAttachmentImage {
+                        media_url: upgrade_to_https(&pgc.pgc.cover),
+                        has_spoiler: false,
+                    })]
+                }
+                Self::Live(live) => {
+                    vec![PostAttachment::Image(PostAttachmentImage {
+                        media_url: upgrade_to_https(&live.live.cover),
+                        has_spoiler: false,
+                    })]
+                }
+                Self::LiveRcmd | Self::Blocked => {
+                    critical!("unexpected major type", kv: { major:? = self });
+                    unreachable!()
+                }
             }
         }
     }
@@ -580,57 +712,12 @@ fn fetch_space_history_impl<'a>(
 
 fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> anyhow::Result<Posts> {
     fn parse_item(item: &data::Item, parent_item: Option<&data::Item>) -> anyhow::Result<Post> {
-        let major_content =
-            item.modules
-                .dynamic
-                .major
-                .as_ref()
-                .and_then(|major| -> Option<PostContent> {
-                    match major {
-                        data::ModuleDynamicMajor::None(none) => {
-                            Some(PostContent::plain(&none.none.tips))
-                        }
-                        data::ModuleDynamicMajor::Opus(opus) => {
-                            if let Some(title) = opus.opus.title.as_deref() {
-                                Some(
-                                    PostContent::plain(title)
-                                        .with_plain("\n\n")
-                                        .with_content(opus.opus.summary.to_content()),
-                                )
-                            } else {
-                                Some(opus.opus.summary.to_content())
-                            }
-                        }
-                        data::ModuleDynamicMajor::Archive(archive) => Some(
-                            PostContent::plain("投稿了视频《")
-                                .with_plain(&archive.archive.title)
-                                .with_plain("》"),
-                        ),
-                        data::ModuleDynamicMajor::Article(article) => Some(
-                            PostContent::plain("投稿了文章《")
-                                .with_plain(&article.article.title)
-                                .with_plain("》"),
-                        ),
-                        data::ModuleDynamicMajor::Draw(_) => None,
-                        data::ModuleDynamicMajor::Common(common) => Some(
-                            PostContent::plain(&common.common.title)
-                                .with_plain(" - ")
-                                .with_plain(&common.common.desc),
-                        ),
-                        data::ModuleDynamicMajor::Pgc(pgc) => Some(
-                            PostContent::plain("剧集《")
-                                .with_plain(&pgc.pgc.title)
-                                .with_plain("》"),
-                        ),
-                        data::ModuleDynamicMajor::Live(live) => {
-                            Some(PostContent::plain(&live.live.title))
-                        }
-                        data::ModuleDynamicMajor::LiveRcmd | data::ModuleDynamicMajor::Blocked => {
-                            critical!("unexpected major type", kv: { major:? });
-                            unreachable!()
-                        }
-                    }
-                });
+        let major_content = item
+            .modules
+            .dynamic
+            .major
+            .as_ref()
+            .and_then(|major| major.to_content());
         let content = match (&item.modules.dynamic.desc, major_content) {
             (Some(desc), Some(major)) => desc.to_content().with_plain("\n\n").with_content(major),
             (Some(desc), None) => desc.to_content(),
@@ -661,35 +748,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
             .dynamic
             .major
             .as_ref()
-            .and_then(|major| match major {
-                data::ModuleDynamicMajor::None(_)
-                | data::ModuleDynamicMajor::Opus(_)
-                | data::ModuleDynamicMajor::Draw(_)
-                | data::ModuleDynamicMajor::Common(_) => {
-                    // No need to add extra URLs
-                    None
-                }
-                data::ModuleDynamicMajor::Archive(archive) => Some(PostUrl::new_clickable(
-                    format!("https://www.bilibili.com/video/{}", archive.archive.bvid),
-                    "查看视频",
-                )),
-                data::ModuleDynamicMajor::Article(article) => Some(PostUrl::new_clickable(
-                    format!("https://www.bilibili.com/read/cv{}", article.article.id),
-                    "查看文章",
-                )),
-                data::ModuleDynamicMajor::Pgc(pgc) => Some(PostUrl::new_clickable(
-                    format!("https://www.bilibili.com/bangumi/play/ep{}", pgc.pgc.epid),
-                    "查看剧集",
-                )),
-                data::ModuleDynamicMajor::Live(live) => Some(PostUrl::new_clickable(
-                    format!("https://live.bilibili.com/{}", live.live.id),
-                    "前往直播间",
-                )),
-                data::ModuleDynamicMajor::LiveRcmd | data::ModuleDynamicMajor::Blocked => {
-                    critical!("unexpected major type", kv: { major:? });
-                    unreachable!()
-                }
-            })
+            .and_then(|major| major.to_url())
             .unwrap_or(major_url);
 
         let time = item
@@ -723,70 +782,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
                 .dynamic
                 .major
                 .as_ref()
-                .map(|major| match major {
-                    data::ModuleDynamicMajor::None(_) => vec![],
-                    data::ModuleDynamicMajor::Opus(opus) => opus
-                        .opus
-                        .pics
-                        .iter()
-                        .map(|pic| {
-                            PostAttachment::Image(PostAttachmentImage {
-                                media_url: upgrade_to_https(&pic.url),
-                                has_spoiler: false,
-                            })
-                        })
-                        .collect(),
-                    data::ModuleDynamicMajor::Archive(archive) => {
-                        vec![PostAttachment::Image(PostAttachmentImage {
-                            media_url: upgrade_to_https(&archive.archive.cover),
-                            has_spoiler: false,
-                        })]
-                    }
-                    data::ModuleDynamicMajor::Article(article) => article
-                        .article
-                        .covers
-                        .iter()
-                        .map(|cover| {
-                            PostAttachment::Image(PostAttachmentImage {
-                                media_url: upgrade_to_https(cover),
-                                has_spoiler: false,
-                            })
-                        })
-                        .collect(),
-                    data::ModuleDynamicMajor::Draw(draw) => draw
-                        .draw
-                        .items
-                        .iter()
-                        .map(|item| {
-                            PostAttachment::Image(PostAttachmentImage {
-                                media_url: upgrade_to_https(&item.src),
-                                has_spoiler: false,
-                            })
-                        })
-                        .collect(),
-                    data::ModuleDynamicMajor::Common(common) => {
-                        vec![PostAttachment::Image(PostAttachmentImage {
-                            media_url: upgrade_to_https(&common.common.cover),
-                            has_spoiler: false,
-                        })]
-                    }
-                    data::ModuleDynamicMajor::Pgc(pgc) => {
-                        vec![PostAttachment::Image(PostAttachmentImage {
-                            media_url: upgrade_to_https(&pgc.pgc.cover),
-                            has_spoiler: false,
-                        })]
-                    }
-                    data::ModuleDynamicMajor::Live(live) => {
-                        vec![PostAttachment::Image(PostAttachmentImage {
-                            media_url: upgrade_to_https(&live.live.cover),
-                            has_spoiler: false,
-                        })]
-                    }
-                    data::ModuleDynamicMajor::LiveRcmd | data::ModuleDynamicMajor::Blocked => {
-                        critical!("unexpected major type: {major:?}");
-                        unreachable!()
-                    }
-                })
+                .map(|major| major.to_attachments())
                 .unwrap_or_default(),
             prefer_treat_as_reply: false,
         })
