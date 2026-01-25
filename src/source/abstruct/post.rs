@@ -12,6 +12,7 @@ pub struct PostPlatformUniqueId(String);
 pub struct Post {
     pub user: User,
     pub content: PostContent,
+    pub event: Option<PostContent>, // e.g. live reservation
     pub(crate) urls: PostUrls,
     pub time: DateTime<Local>,
     pub is_pinned: bool,

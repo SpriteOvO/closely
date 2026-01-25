@@ -142,6 +142,7 @@ fn parse_response(mid: u64, resp: data::SeriesArchives) -> anyhow::Result<Posts>
                     avatar_url: None,
                 },
                 content: PostContent::plain(archive.title),
+                event: None,
                 urls: PostUrl::new_clickable(
                     format!("https://www.bilibili.com/video/{}", archive.bvid),
                     "查看视频",

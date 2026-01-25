@@ -306,6 +306,10 @@ impl Notifier {
                     builder.ref_text(post.content.fallback());
                     builder.ref_text("\n\n");
                 }
+                if let Some(event) = &post.event {
+                    builder.ref_text(event.fallback());
+                    builder.ref_text("\n\n");
+                }
 
                 fn append_reposts_rec(
                     builder: &mut onebot11::MessageBuilder,
@@ -315,6 +319,10 @@ impl Notifier {
                     builder.ref_text(format!("{}: ", repost_from.post.user.nickname));
                     append_media(builder, repost_from.post.attachments(false));
                     builder.ref_text(repost_from.post.content.fallback());
+                    if let Some(event) = &repost_from.post.event {
+                        builder.ref_text("\n\n");
+                        builder.ref_text(event.fallback());
+                    }
                     if let Some(repost_from) = &repost_from.post.repost_from {
                         builder.ref_text("\n\n");
                         append_reposts_rec(builder, repost_from);
@@ -330,6 +338,10 @@ impl Notifier {
                 ));
                 append_media(&mut builder, post.attachments(false));
                 builder.ref_text(post.content.fallback());
+                if let Some(event) = &post.event {
+                    builder.ref_text("\n\n");
+                    builder.ref_text(event.fallback());
+                }
             }
         }
         if self.params.base.option.ext.__post_text.is_none() {

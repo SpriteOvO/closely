@@ -162,6 +162,7 @@ mod data {
     pub struct ModuleDynamic {
         pub desc: Option<RichText>,
         pub major: Option<ModuleDynamicMajor>,
+        pub additional: Option<ModuleDynamicAdditional>,
     }
 
     //
@@ -590,6 +591,54 @@ mod data {
         // pub width: u64
         // pub size: u64
     }
+
+    //
+
+    #[derive(Debug, Deserialize)]
+    #[serde(tag = "type")]
+    pub enum ModuleDynamicAdditional {
+        #[serde(rename = "ADDITIONAL_TYPE_RESERVE")]
+        Reserve { reserve: ModuleDynamicReserve },
+        #[serde(untagged)]
+        Unknown(json::Value),
+    }
+
+    impl ModuleDynamicAdditional {
+        pub fn to_content(&self) -> Option<PostContent> {
+            match self {
+                Self::Reserve { reserve } => {
+                    let mut content = PostContent::plain(&reserve.title);
+                    if let Some(desc1) = &reserve.desc1 {
+                        content = content.with_plain("\n").with_plain(&desc1.text);
+                    }
+                    // Ignore `desc2`
+                    if let Some(desc3) = &reserve.desc3 {
+                        warn!("bilibili reservation desc3 is not null", kv: { desc3:? });
+                    }
+                    Some(content)
+                }
+                Self::Unknown(data) => {
+                    warn!("unknown bilibili additional variant", kv: { data: });
+                    None
+                }
+            }
+        }
+    }
+
+    #[rustfmt::skip] // TODO: https://github.com/rust-lang/rustfmt/issues/6755
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicReserve {
+        pub title: String,
+        pub desc1: Option<ReserveDescription>, // "YY-DD HH:MM 直播" (UTC+8?)
+        pub desc2: Option<ReserveDescription>, // "XX人预约"
+        pub desc3: Option<ReserveDescription>, // null
+        // pub reserve_total: u64,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ReserveDescription {
+        pub text: String,
+    }
 }
 
 pub struct Fetcher {
@@ -725,6 +774,13 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
             (None, None) => bail!("item no content. item: {item:?}"),
         };
 
+        let event = item
+            .modules
+            .dynamic
+            .additional
+            .as_ref()
+            .and_then(|additional| additional.to_content());
+
         let original = item
             .orig
             .as_ref()
@@ -773,6 +829,7 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
         Ok(Post {
             user: item.modules.author.clone().into(),
             content,
+            event,
             urls: PostUrls::new(url),
             time,
             is_pinned,

@@ -499,6 +499,13 @@ impl Notifier {
                     text.push_content(&post.content);
                     text.push_plain("\n");
                 }
+                if let Some(event) = &post.event {
+                    text.push_quote(|text| {
+                        text.push_content(event);
+                        false
+                    });
+                    text.push_plain("\n");
+                }
 
                 fn push_reposts_rec<'a>(text: &mut Text<'a>, repost_from: &'a RepostFrom) {
                     text.push_quote(|text| {
@@ -517,6 +524,12 @@ impl Notifier {
                         text.push_plain(": ");
                         text.push_content(&repost_from.post.content);
 
+                        if let Some(event) = &repost_from.post.event {
+                            text.push_plain("\n\n---\n");
+                            text.push_content(event);
+                            text.push_plain("\n---");
+                        }
+
                         false // TODO: Collapse if too long
                     });
                     if let Some(repost_from) = &repost_from.post.repost_from {
@@ -531,7 +544,14 @@ impl Notifier {
                     text.push_link(&post.user.nickname, &post.user.profile_url);
                     text.push_plain(": ");
                 }
-                text.push_content(&post.content)
+                text.push_content(&post.content);
+                if let Some(event) = &post.event {
+                    text.push_plain("\n");
+                    text.push_quote(|text| {
+                        text.push_content(event);
+                        false
+                    });
+                }
             }
         }
 

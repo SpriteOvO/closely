@@ -686,6 +686,7 @@ impl FetcherInner {
                 content
                     .unwrap_or_else(|| if repost_from.is_some() { "Retweet" } else { "" }.into()),
             ),
+            event: None,
             urls,
             time,
             is_pinned,

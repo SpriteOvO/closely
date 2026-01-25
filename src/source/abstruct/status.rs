@@ -261,6 +261,7 @@ mod tests {
             StatusKind::Posts(Posts(vec![Post {
                 user: mock_user(),
                 content: PostContent::plain("content1"),
+                event: None,
                 urls: PostUrls::new(PostUrl::Identity("id1".into())),
                 time: DateTime::UNIX_EPOCH.into(),
                 is_pinned: false,
@@ -286,6 +287,7 @@ mod tests {
                 Post {
                     user: mock_user(),
                     content: PostContent::plain("content1"),
+                    event: None,
                     urls: PostUrls::new(PostUrl::Identity("id1".into())),
                     time: DateTime::UNIX_EPOCH.into(),
                     is_pinned: false,
@@ -296,6 +298,7 @@ mod tests {
                 Post {
                     user: mock_user(),
                     content: PostContent::plain("content2"),
+                    event: None,
                     urls: PostUrls::new(PostUrl::Identity("id2".into())),
                     time: DateTime::UNIX_EPOCH.into(),
                     is_pinned: false,
@@ -316,6 +319,7 @@ mod tests {
                 Post {
                     user: mock_user(),
                     content: PostContent::plain("content1"),
+                    event: None,
                     urls: PostUrls::new(PostUrl::Identity("id1".into())),
                     time: DateTime::UNIX_EPOCH.into(),
                     is_pinned: false,
@@ -326,6 +330,7 @@ mod tests {
                 Post {
                     user: mock_user(),
                     content: PostContent::plain("content2"),
+                    event: None,
                     urls: PostUrls::new(PostUrl::Identity("id2".into())),
                     time: DateTime::UNIX_EPOCH.into(),
                     is_pinned: false,
@@ -361,6 +366,7 @@ mod tests {
             StatusKind::Posts(Posts(vec![Post {
                 user: mock_user(),
                 content: PostContent::plain("content3"),
+                event: None,
                 urls: PostUrls::new(PostUrl::Identity("id3".into())),
                 time: DateTime::UNIX_EPOCH.into(),
                 is_pinned: false,
@@ -383,6 +389,7 @@ mod tests {
                 Post {
                     user: mock_user(),
                     content: PostContent::plain("content1"),
+                    event: None,
                     urls: PostUrls::new(PostUrl::Identity("id1".into())),
                     time: DateTime::UNIX_EPOCH.into(),
                     is_pinned: false,
@@ -393,6 +400,7 @@ mod tests {
                 Post {
                     user: mock_user(),
                     content: PostContent::plain("content2"),
+                    event: None,
                     urls: PostUrls::new(PostUrl::Identity("id2".into())),
                     time: DateTime::UNIX_EPOCH.into(),
                     is_pinned: false,
@@ -403,6 +411,7 @@ mod tests {
                 Post {
                     user: mock_user(),
                     content: PostContent::plain("content3"),
+                    event: None,
                     urls: PostUrls::new(PostUrl::Identity("id3".into())),
                     time: DateTime::UNIX_EPOCH.into(),
                     is_pinned: false,
@@ -458,6 +467,7 @@ mod tests {
             StatusKind::Posts(Posts(vec![Post {
                 user: mock_user(),
                 content: PostContent::plain("content1"),
+                event: None,
                 urls: PostUrls::new(PostUrl::Identity("id1".into())),
                 time: DateTime::UNIX_EPOCH.into(),
                 is_pinned: false,
