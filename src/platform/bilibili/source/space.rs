@@ -653,6 +653,8 @@ mod data {
         Reserve { reserve: ModuleDynamicReserve },
         #[serde(rename = "ADDITIONAL_TYPE_UGC")]
         Ugc { ugc: ModuleDynamicUgc },
+        #[serde(rename = "ADDITIONAL_TYPE_GOODS")]
+        Goods { goods: ModuleDynamicGoods },
         #[serde(untagged)]
         Unknown(json::Value),
     }
@@ -692,6 +694,38 @@ mod data {
                         content.push_plain(&ugc.title);
                     }
                     content.push_plain(format!("\n时长：{}", ugc.duration));
+                    Some(content)
+                }
+                Self::Goods { goods } => {
+                    let mut content = PostContent::new();
+                    if !goods.head_text.is_empty() {
+                        content.push_plain(&goods.head_text);
+                    }
+                    goods.items.iter().for_each(|item| {
+                        content.push_plain("\n\n");
+                        if !item.cover.is_empty() {
+                            content.push_inline_attachment(PostAttachment::Image(
+                                PostAttachmentImage {
+                                    media_url: upgrade_to_https(&item.cover),
+                                    has_spoiler: false,
+                                },
+                            ));
+                        }
+                        content.push_plain("商品：");
+                        if !item.jump_url.is_empty() {
+                            content.push_link(&item.name, &item.jump_url);
+                        } else {
+                            content.push_plain(&item.name);
+                        }
+                        if !item.brief.is_empty() {
+                            content.push_plain("\n简介：");
+                            content.push_plain(&item.brief);
+                        }
+                        if !item.price.is_empty() {
+                            content.push_plain("\n价格：");
+                            content.push_plain(&item.price);
+                        }
+                    });
                     Some(content)
                 }
                 Self::Unknown(data) => {
@@ -738,6 +772,22 @@ mod data {
         pub jump_url: String, // "//www.bilibili.com/video/XXX"
         pub cover: String,
         pub duration: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicGoods {
+        pub head_text: String, // "" for empty
+        pub items: Vec<GoodItem>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct GoodItem {
+        pub cover: String,
+        pub name: String,
+        pub brief: String, // "" for empty
+        pub price: String,
+        pub jump_url: String,
+        pub jump_desc: String,
     }
 }
 
