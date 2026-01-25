@@ -666,11 +666,11 @@ mod data {
                 Self::Reserve { reserve } => {
                     let mut content = PostContent::plain(&reserve.title);
                     if let Some(desc1) = &reserve.desc1 {
-                        content = content.with_plain("\n").with_plain(&desc1.text);
+                        content = content.with_plain("\n").with_part(desc1.to_content_part());
                     }
                     // Ignore `desc2`
                     if let Some(desc3) = &reserve.desc3 {
-                        warn!("bilibili reservation desc3 is not null", kv: { desc3:? });
+                        content = content.with_plain("\n").with_part(desc3.to_content_part());
                     }
                     Some(content)
                 }
@@ -688,13 +688,27 @@ mod data {
         pub title: String,
         pub desc1: Option<ReserveDescription>, // "YY-DD HH:MM 直播" (UTC+8?)
         pub desc2: Option<ReserveDescription>, // "XX人预约"
-        pub desc3: Option<ReserveDescription>, // null
+        pub desc3: Option<ReserveDescription>, // "预约有奖：XXX"
         // pub reserve_total: u64,
     }
 
     #[derive(Debug, Deserialize)]
     pub struct ReserveDescription {
         pub text: String,
+        pub jump_url: String, // "" for None
+    }
+
+    impl ReserveDescription {
+        pub fn to_content_part(&self) -> PostContentPart {
+            if self.jump_url.is_empty() {
+                PostContentPart::Plain(self.text.clone())
+            } else {
+                PostContentPart::Link {
+                    display: self.text.clone(),
+                    url: self.jump_url.clone(),
+                }
+            }
+        }
     }
 }
 

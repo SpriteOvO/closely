@@ -216,6 +216,15 @@ impl PostContent {
         self
     }
 
+    pub fn push_part(&mut self, part: PostContentPart) {
+        self.0.push(part);
+    }
+
+    pub fn with_part(mut self, part: PostContentPart) -> Self {
+        self.push_part(part);
+        self
+    }
+
     pub fn push_plain(&mut self, text: impl Into<String>) {
         self.0.push(PostContentPart::Plain(text.into()));
     }
