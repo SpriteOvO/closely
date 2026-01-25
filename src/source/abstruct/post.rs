@@ -167,6 +167,10 @@ pub struct PostUrlClickable {
 pub struct PostContent(Vec<PostContentPart>);
 
 impl PostContent {
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
     pub fn from_parts(parts: impl IntoIterator<Item = PostContentPart>) -> Self {
         Self(parts.into_iter().collect())
     }

@@ -45,6 +45,12 @@ impl fmt::Display for ConfigParams {
     }
 }
 
+enum TrimRule<T> {
+    Remove,
+    Replace(T),
+    Keep,
+}
+
 mod data {
     use super::*;
     use crate::source::PostContentPart;
@@ -197,7 +203,9 @@ mod data {
             match self {
                 Self::None(none) => Some(PostContent::plain(&none.none.tips)),
                 Self::Opus(opus) => {
-                    if let Some(title) = opus.opus.title.as_deref() {
+                    if let Some(title) = opus.opus.title.as_deref()
+                        && !title.is_empty()
+                    {
                         Some(
                             PostContent::plain(title)
                                 .with_plain("\n\n")
@@ -463,12 +471,30 @@ mod data {
     #[derive(Debug, Deserialize)]
     pub struct RichText {
         rich_text_nodes: Vec<RichTextNode>,
-        text: String, // Fallback
+        // text: String, // Fallback
     }
 
     impl RichText {
         pub fn to_content(&self) -> PostContent {
-            PostContent::from_parts(self.rich_text_nodes.iter().map(|node| match &node.kind {
+            if self.rich_text_nodes.is_empty() {
+                return PostContent::new();
+            }
+
+            // Sometimes the last node is just a newline or ends with a newline, we trim it
+            // here
+            let last_node_trim_end_rule = self.rich_text_nodes.last().unwrap().trim_end_rule();
+            let rich_text_nodes: Vec<_> = match &last_node_trim_end_rule {
+                TrimRule::Keep => self.rich_text_nodes[..].iter().collect(),
+                TrimRule::Remove => self.rich_text_nodes[..self.rich_text_nodes.len() - 1]
+                    .iter()
+                    .collect(),
+                TrimRule::Replace(node) => self.rich_text_nodes[..self.rich_text_nodes.len() - 1]
+                    .iter()
+                    .chain([node])
+                    .collect(),
+            };
+
+            PostContent::from_parts(rich_text_nodes.iter().map(|node| match &node.kind {
                 RichTextNodeKind::Text => PostContentPart::Plain(node.text.clone()),
                 RichTextNodeKind::Web { jump_url } => PostContentPart::Link {
                     display: node.text.clone(),
@@ -532,6 +558,37 @@ mod data {
         pub text: String,
         #[serde(flatten)]
         pub kind: RichTextNodeKind,
+    }
+
+    impl RichTextNode {
+        fn is_newline(&self) -> bool {
+            matches!(&self.kind, RichTextNodeKind::Text)
+                && self.text == "\n"
+                && self.orig_text == "\n"
+        }
+
+        fn ends_with_newline(&self) -> bool {
+            matches!(&self.kind, RichTextNodeKind::Text)
+                && self.text.ends_with("\n")
+                && self.orig_text.ends_with("\n")
+        }
+
+        // "\n" -> Remove
+        // "text\n" -> Replace("text")
+        // "text" -> Keep
+        fn trim_end_rule(&self) -> TrimRule<Self> {
+            if self.is_newline() {
+                TrimRule::Remove
+            } else if self.ends_with_newline() {
+                TrimRule::Replace(Self {
+                    orig_text: self.orig_text.trim_end_matches("\n").into(),
+                    text: self.text.trim_end_matches("\n").into(),
+                    kind: RichTextNodeKind::Text,
+                })
+            } else {
+                TrimRule::Keep
+            }
+        }
     }
 
     #[derive(Debug, Deserialize)]
@@ -761,15 +818,21 @@ fn fetch_space_history_impl<'a>(
 
 fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> anyhow::Result<Posts> {
     fn parse_item(item: &data::Item, parent_item: Option<&data::Item>) -> anyhow::Result<Post> {
+        let desc_content = item
+            .modules
+            .dynamic
+            .desc
+            .as_ref()
+            .map(|desc| desc.to_content());
         let major_content = item
             .modules
             .dynamic
             .major
             .as_ref()
             .and_then(|major| major.to_content());
-        let content = match (&item.modules.dynamic.desc, major_content) {
-            (Some(desc), Some(major)) => desc.to_content().with_plain("\n\n").with_content(major),
-            (Some(desc), None) => desc.to_content(),
+        let content = match (desc_content, major_content) {
+            (Some(desc), Some(major)) => desc.with_plain("\n\n").with_content(major),
+            (Some(desc), None) => desc,
             (None, Some(major)) => major,
             (None, None) => bail!("item no content. item: {item:?}"),
         };
