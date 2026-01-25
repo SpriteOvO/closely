@@ -5,7 +5,7 @@ use chrono::DateTime;
 use serde::Deserialize;
 use serde_json as json;
 
-use super::super::{bilibili_request_builder, upgrade_to_https, Response};
+use super::super::{Response, bilibili_request_builder, upgrade_to_https};
 use crate::{
     config::{Accessor, Validator},
     platform::{PlatformMetadata, PlatformTraitStatic},
@@ -171,13 +171,12 @@ mod tests {
     async fn deser() {
         let videos = fetch_series_archives(522384919, 3747026).await.unwrap();
 
-        assert!(videos.0.iter().all(|post| !post
-            .urls
-            .major()
-            .as_clickable()
-            .unwrap()
-            .url
-            .is_empty()));
+        assert!(
+            videos
+                .0
+                .iter()
+                .all(|post| !post.urls.major().as_clickable().unwrap().url.is_empty())
+        );
         assert!(videos.0.iter().all(|post| !post.content.is_empty()));
     }
 }

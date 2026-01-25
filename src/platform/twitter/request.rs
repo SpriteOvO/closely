@@ -8,11 +8,11 @@ use anyhow::{anyhow, ensure};
 use headless_chrome::{
     browser::tab::RequestPausedDecision,
     protocol::cdp::{
-        Fetch::{events::RequestPausedEvent, RequestPattern, RequestStage},
+        Fetch::{RequestPattern, RequestStage, events::RequestPausedEvent},
         Network::CookieParam,
     },
 };
-use reqwest::{header::COOKIE, Url};
+use reqwest::{Url, header::COOKIE};
 use serde_json::{self as json, json};
 use spdlog::prelude::*;
 use tokio::{sync::Mutex, time::sleep};

@@ -65,7 +65,9 @@ impl Validator for ConfigGlobal {
         }
         #[allow(deprecated)]
         if self.experimental.send_live_image_as_preview.is_some() {
-            warn!("config option 'platform.Telegram.experimental.send_live_image_as_preview' is deprecated, it's now always enabled");
+            warn!(
+                "config option 'platform.Telegram.experimental.send_live_image_as_preview' is deprecated, it's now always enabled"
+            );
         }
         Ok(())
     }

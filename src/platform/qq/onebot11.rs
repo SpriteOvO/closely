@@ -2,7 +2,7 @@ use std::{borrow::Cow, fmt::Debug, time::Duration};
 
 use anyhow::{anyhow, ensure};
 use reqwest::Url;
-use serde::{de::DeserializeOwned, ser::SerializeStruct, Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer, de::DeserializeOwned, ser::SerializeStruct};
 use serde_json::{self as json, json};
 use tokio::time::timeout;
 
@@ -175,7 +175,7 @@ impl MessageBuilder {
     pub fn ref_text<'a>(&mut self, text: impl Into<Cow<'a, str>>) -> &mut Self {
         let text = text.into();
         if !text.is_empty() {
-            self.0 .0.push(MessageSegment::Text(MessageSegmentText {
+            self.0.0.push(MessageSegment::Text(MessageSegmentText {
                 text: text.into(),
             }));
         }
@@ -188,7 +188,7 @@ impl MessageBuilder {
     }
 
     pub fn ref_image(&mut self, file: impl Into<String>) -> &mut Self {
-        self.0 .0.push(MessageSegment::Image(MessageSegmentImage {
+        self.0.0.push(MessageSegment::Image(MessageSegmentImage {
             file: file.into(),
         }));
         self
@@ -201,7 +201,7 @@ impl MessageBuilder {
 
     pub fn ref_images(&mut self, files: impl IntoIterator<Item = impl Into<String>>) -> &mut Self {
         files.into_iter().for_each(|file| {
-            self.0 .0.push(MessageSegment::Image(MessageSegmentImage {
+            self.0.0.push(MessageSegment::Image(MessageSegmentImage {
                 file: file.into(),
             }))
         });
@@ -218,7 +218,7 @@ impl MessageBuilder {
             self.ref_text("\n");
         }
         self.0
-             .0
+            .0
             .push(MessageSegment::At(MessageSegmentAt::UserId(user_id)));
         self
     }
@@ -232,7 +232,7 @@ impl MessageBuilder {
         if newline {
             self.ref_text("\n");
         }
-        self.0 .0.push(MessageSegment::At(MessageSegmentAt::All));
+        self.0.0.push(MessageSegment::At(MessageSegmentAt::All));
         self
     }
 

@@ -11,16 +11,16 @@ use std::{
 
 use anyhow::{anyhow, bail, ensure};
 use chrono::DateTime;
-use reqwest::{header::COOKIE, Url};
+use reqwest::{Url, header::COOKIE};
 use serde::Deserialize;
 use serde_json::{self as json};
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
 
-use super::super::{upgrade_to_https, Response};
+use super::super::{Response, upgrade_to_https};
 use crate::{
     config::{Accessor, AsSecretRef, Config, Validator},
-    platform::{bilibili::bilibili_request_builder, PlatformMetadata, PlatformTraitStatic},
+    platform::{PlatformMetadata, PlatformTraitStatic, bilibili::bilibili_request_builder},
     prop,
     source::{
         FetcherTrait, Post, PostAttachment, PostAttachmentImage, PostContent, PostUrl, PostUrls,
@@ -981,25 +981,23 @@ mod tests {
         let history = fetch_space_history(8047632, &mut blocked, None)
             .await
             .unwrap();
-        assert!(history.0.iter().all(|post| !post
-            .urls
-            .major()
-            .as_clickable()
-            .unwrap()
-            .url
-            .is_empty()));
+        assert!(
+            history
+                .0
+                .iter()
+                .all(|post| !post.urls.major().as_clickable().unwrap().url.is_empty())
+        );
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
 
         let history = fetch_space_history(178362496, &mut blocked, None)
             .await
             .unwrap();
-        assert!(history.0.iter().all(|post| !post
-            .urls
-            .major()
-            .as_clickable()
-            .unwrap()
-            .url
-            .is_empty()));
+        assert!(
+            history
+                .0
+                .iter()
+                .all(|post| !post.urls.major().as_clickable().unwrap().url.is_empty())
+        );
         assert!(history.0.iter().all(|post| !post.content.is_empty()));
     }
 }

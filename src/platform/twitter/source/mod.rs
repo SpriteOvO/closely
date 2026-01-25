@@ -2,13 +2,13 @@ pub mod post;
 pub mod reply;
 
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     sync::{LazyLock, Mutex as StdMutex},
 };
 
 use anyhow::anyhow;
 use chrono::DateTime;
-use futures::future::{join_all, OptionFuture};
+use futures::future::{OptionFuture, join_all};
 use serde::Deserialize;
 use spdlog::prelude::*;
 use tokio::sync::Mutex;
@@ -731,7 +731,7 @@ fn replace_entities(mut text: String, entities: &data::TweetLegacyEntities) -> S
         return text;
     }
 
-    indices.sort_by(|lhs, rhs| rhs.1 .0.cmp(&lhs.1 .0));
+    indices.sort_by(|lhs, rhs| rhs.1.0.cmp(&lhs.1.0));
     indices.into_iter().for_each(|(entity, (start, end))| {
         let byte_pos = |utf8_pos| text.char_indices().nth(utf8_pos).map(|(pos, _)| pos);
         let range = (byte_pos(start), byte_pos(end - 1));
@@ -784,10 +784,11 @@ mod tests {
 
         let posts = fetcher.user_tweets("NASA").await.unwrap().0;
         assert!(posts.iter().any(|post| !post.attachments.is_empty()));
-        assert!(posts.iter().all(|post| post
-            .urls
-            .major()
-            .as_clickable()
-            .is_some_and(|url| url.url.starts_with("https://x.com/NASA/status"))));
+        assert!(posts.iter().all(|post| {
+            post.urls
+                .major()
+                .as_clickable()
+                .is_some_and(|url| url.url.starts_with("https://x.com/NASA/status"))
+        }));
     }
 }

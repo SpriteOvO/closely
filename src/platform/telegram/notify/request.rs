@@ -2,15 +2,15 @@ use std::{borrow::Cow, fmt, io::Cursor, mem, ops::Range, sync::LazyLock, time::D
 
 use anyhow::{anyhow, bail, ensure};
 use bytes::Bytes;
-use image::{imageops::FilterType as ImageFilterType, DynamicImage, GenericImageView, ImageFormat};
+use image::{DynamicImage, GenericImageView, ImageFormat, imageops::FilterType as ImageFilterType};
 use itertools::Itertools;
 use reqwest::{
-    multipart::{Form, Part},
     Url,
+    multipart::{Form, Part},
 };
 use serde::{
-    de::{DeserializeOwned, IgnoredAny},
     Deserialize,
+    de::{DeserializeOwned, IgnoredAny},
 };
 use serde_json::{self as json, json};
 use spdlog::prelude::*;
@@ -105,29 +105,24 @@ impl<'a> Request<'a> {
             anyhow!("failed to deserialize response: {err}, status: {status}, text: '{text}', request '{body}'")
         })?;
 
-        if retry && !resp.ok && resp.description.is_some() {
-            if let Some(after) = resp
+        if retry
+            && !resp.ok
+            && resp.description.is_some()
+            && let Some(after) = resp
                 .description
                 .as_deref()
                 .unwrap()
                 .strip_prefix("Too Many Requests: retry after ")
-            {
-                warn!("Telegram rate limited, retry after '{}' + 1 seconds", after, kv: { after });
+        {
+            warn!("Telegram rate limited, retry after '{}' + 1 seconds", after, kv: { after });
 
-                let after = after
-                    .parse::<u64>()
-                    .map_err(|err| anyhow!("failed to parse rate limit duration: {err}"))?;
-                tokio::time::sleep(tokio::time::Duration::from_secs(after + 1)).await;
+            let after = after
+                .parse::<u64>()
+                .map_err(|err| anyhow!("failed to parse rate limit duration: {err}"))?;
+            tokio::time::sleep(tokio::time::Duration::from_secs(after + 1)).await;
 
-                return Box::pin(self.send_request_inner(
-                    method,
-                    body,
-                    files,
-                    false,
-                    prefer_self_host,
-                ))
+            return Box::pin(self.send_request_inner(method, body, files, false, prefer_self_host))
                 .await;
-            }
         }
 
         Ok(resp)
@@ -1119,7 +1114,11 @@ impl<'a> EditMessageMedia<'a> {
             )
             .await?;
         if retry_multipart && is_media_failure(&resp) {
-            warn!("failed to send media with URL, retrying with HTTP multipart. url '{:?}', description '{}'", self.media.input(), resp.description.as_deref().unwrap_or("*no description*"));
+            warn!(
+                "failed to send media with URL, retrying with HTTP multipart. url '{:?}', description '{}'",
+                self.media.input(),
+                resp.description.as_deref().unwrap_or("*no description*")
+            );
 
             let downloaded = download_file(self.media).await?;
             body["media"]["media"] = downloaded.input().to_url(0).into();

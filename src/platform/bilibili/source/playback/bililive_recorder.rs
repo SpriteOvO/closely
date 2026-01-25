@@ -10,7 +10,7 @@ use serde_json as json;
 use spdlog::prelude::*;
 use tokio::{
     fs,
-    sync::{mpsc, Mutex},
+    sync::{Mutex, mpsc},
 };
 use warp::Filter;
 
@@ -121,10 +121,10 @@ async fn webhook_handler(
 
     if let Ok(event) = json::from_slice(&event).inspect_err(|err| {
         error!("failed to deserialize bililive-recorder webhook request", kv: { err:, event = debug_str });
-    }) {
-        if let Err(err) = handle(event, &ctx).await {
-            error!("bililive-recorder webhook handler error", kv: { err: });
-        }
+    })
+        && let Err(err) = handle(event, &ctx).await
+    {
+        error!("bililive-recorder webhook handler error", kv: { err: });
     }
 
     // Always respond 200 OK to Bililive Recorder as it will retry on error
@@ -229,10 +229,10 @@ async fn handle(event: data::WebhookV2, params: &Context) -> anyhow::Result<()> 
             let metadate_file = playback_file.with_extension("xml");
 
             send_update(playback_file, playback_type).await?;
-            if let FileType::Video(_) = playback_type {
-                if let Ok(true) = fs::try_exists(&metadate_file).await {
-                    send_update(metadate_file, FileType::Metadata).await?;
-                }
+            if let FileType::Video(_) = playback_type
+                && let Ok(true) = fs::try_exists(&metadate_file).await
+            {
+                send_update(metadate_file, FileType::Metadata).await?;
             }
 
             Ok(())

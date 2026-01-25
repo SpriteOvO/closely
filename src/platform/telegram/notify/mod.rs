@@ -564,12 +564,13 @@ impl Notifier {
         let buttons = if !self.params.base.option.ext.no_button
             && (num_attachments == 0 || num_attachments == 1)
         {
-            Some(Markup::InlineKeyboard(vec![post
-                .urls_recursive()
-                .into_iter()
-                .filter_map(|url| url.as_clickable())
-                .map(|url| Button::new_url(&url.display, &url.url))
-                .collect::<Vec<_>>()]))
+            Some(Markup::InlineKeyboard(vec![
+                post.urls_recursive()
+                    .into_iter()
+                    .filter_map(|url| url.as_clickable())
+                    .map(|url| Button::new_url(&url.display, &url.url))
+                    .collect::<Vec<_>>(),
+            ]))
         } else {
             text.push_plain("\n\n");
             let mut iter = post

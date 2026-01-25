@@ -7,8 +7,8 @@ use tokio::{sync::mpsc, time::MissedTickBehavior};
 use super::Task;
 use crate::{
     config::Accessor,
-    notify::{notifier, notify, NotifierConfig, NotifierTrait},
-    source::{sourcer, FetcherTrait, Notification, SourceConfig, Sourcer, Status, Update},
+    notify::{NotifierConfig, NotifierTrait, notifier, notify},
+    source::{FetcherTrait, Notification, SourceConfig, Sourcer, Status, Update, sourcer},
 };
 
 pub struct TaskSubscription {

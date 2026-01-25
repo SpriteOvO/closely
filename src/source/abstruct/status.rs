@@ -3,7 +3,7 @@ use std::{fmt, vec};
 use super::{LiveStatus, Notification, NotificationKind, Posts, PostsRef};
 use crate::{
     platform::PlatformMetadata,
-    source::{diff, Articles, ArticlesRef, Feeds, FeedsRef},
+    source::{Articles, ArticlesRef, Feeds, FeedsRef, diff},
 };
 
 #[derive(Clone, Debug, PartialEq)]

@@ -14,10 +14,10 @@ use regex::Regex;
 use reqwest::Url;
 use serde::Deserialize;
 use spdlog::{
-    formatter::{pattern, FormatterContext, PatternFormatter},
+    Record, StringBuf,
+    formatter::{FormatterContext, PatternFormatter, pattern},
     prelude::*,
     sink::{GetSinkProp, Sink, SinkProp},
-    Record, StringBuf,
 };
 use spdlog_opentelemetry::OpenTelemetrySink;
 

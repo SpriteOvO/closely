@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Values, HashMap},
+    collections::{HashMap, hash_map::Values},
     fmt,
 };
 

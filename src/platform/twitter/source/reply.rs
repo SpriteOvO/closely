@@ -5,11 +5,11 @@ use serde::Deserialize;
 use crate::{
     config::{Accessor, AccountRef, AsSecretRef, Config, Validator},
     platform::{
+        PlatformMetadata, PlatformTraitStatic,
         twitter::{
             request::TwitterCookies,
-            source::{validate_actor, FetcherInner},
+            source::{FetcherInner, validate_actor},
         },
-        PlatformMetadata, PlatformTraitStatic,
     },
     source::{FetcherTrait, Status, StatusKind, StatusSource},
 };

@@ -4,7 +4,7 @@ use anyhow::{anyhow, ensure};
 use serde::Deserialize;
 use spdlog::prelude::*;
 
-use super::{onebot11, ConfigChat};
+use super::{ConfigChat, onebot11};
 use crate::{
     config::{self, Accessor, AccountRef, Config, ContextualValidator, Overridable, Validator},
     format_if, helper,
