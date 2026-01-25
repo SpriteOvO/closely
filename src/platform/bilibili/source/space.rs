@@ -53,7 +53,7 @@ enum TrimRule<T> {
 
 mod data {
     use super::*;
-    use crate::source::PostContentPart;
+    use crate::{platform::bilibili::normalize_bilibili_url, source::PostContentPart};
 
     #[derive(Clone, Debug, Deserialize)]
     #[serde(untagged, deny_unknown_fields)]
@@ -505,14 +505,9 @@ mod data {
                     url: format!("https://space.bilibili.com/{rid}"),
                 },
                 RichTextNodeKind::Topic { jump_url } => {
-                    if jump_url.starts_with("//search.bilibili.com") {
-                        PostContentPart::Link {
-                            display: node.text.clone(),
-                            url: format!("https:{jump_url}"),
-                        }
-                    } else {
-                        warn!("unexpected bilibili topic URL in rich text node", kv: { jump_url: });
-                        PostContentPart::Plain(node.orig_text.clone())
+                    PostContentPart::Link {
+                        display: node.text.clone(),
+                        url: normalize_bilibili_url(jump_url).into(),
                     }
                 }
                 RichTextNodeKind::Bv { rid, .. } => PostContentPart::Link {
@@ -656,6 +651,8 @@ mod data {
     pub enum ModuleDynamicAdditional {
         #[serde(rename = "ADDITIONAL_TYPE_RESERVE")]
         Reserve { reserve: ModuleDynamicReserve },
+        #[serde(rename = "ADDITIONAL_TYPE_UGC")]
+        Ugc { ugc: ModuleDynamicUgc },
         #[serde(untagged)]
         Unknown(json::Value),
     }
@@ -672,6 +669,29 @@ mod data {
                     if let Some(desc3) = &reserve.desc3 {
                         content = content.with_plain("\n").with_part(desc3.to_content_part());
                     }
+                    Some(content)
+                }
+                Self::Ugc { ugc } => {
+                    let mut content = PostContent::new();
+                    if !ugc.head_text.is_empty() {
+                        content.push_plain(format!("{}\n", ugc.head_text));
+                    }
+                    if !ugc.cover.is_empty() {
+                        content.push_inline_attachment(PostAttachment::Image(
+                            PostAttachmentImage {
+                                media_url: upgrade_to_https(&ugc.cover),
+                                has_spoiler: false,
+                            },
+                        ));
+                    }
+
+                    content.push_plain("视频：");
+                    if !ugc.jump_url.is_empty() {
+                        content.push_link(&ugc.title, normalize_bilibili_url(&ugc.jump_url));
+                    } else {
+                        content.push_plain(&ugc.title);
+                    }
+                    content.push_plain(format!("\n时长：{}", ugc.duration));
                     Some(content)
                 }
                 Self::Unknown(data) => {
@@ -709,6 +729,15 @@ mod data {
                 }
             }
         }
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicUgc {
+        pub head_text: String, // "" for empty
+        pub title: String,
+        pub jump_url: String, // "//www.bilibili.com/video/XXX"
+        pub cover: String,
+        pub duration: String,
     }
 }
 

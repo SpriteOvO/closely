@@ -1,5 +1,7 @@
 pub mod source;
 
+use std::borrow::Cow;
+
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use serde::Deserialize;
 
@@ -31,11 +33,20 @@ struct Response<T> {
     pub(crate) data: Option<T>,
 }
 
+// TODO: Return Cow
 fn upgrade_to_https(url: &str) -> String {
     if url.starts_with("http://") {
         url.replacen("http://", "https://", 1)
     } else {
         url.into()
+    }
+}
+
+fn normalize_bilibili_url(url: &str) -> Cow<'_, str> {
+    if url.starts_with("//") {
+        Cow::Owned(format!("https:{url}"))
+    } else {
+        Cow::Borrowed(url)
     }
 }
 

@@ -39,6 +39,24 @@ impl Post {
                     None
                 }
             }))
+            .chain(
+                self.event
+                    .as_ref()
+                    .map(|event| {
+                        event.parts().filter_map(move |content| {
+                            if !include_inlined {
+                                return None;
+                            }
+                            if let PostContentPart::InlineAttachment(attachment) = content {
+                                Some(attachment)
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                    .into_iter()
+                    .flatten(),
+            )
     }
 
     pub fn attachments_recursive(&self, include_inlined: bool) -> Vec<&PostAttachment> {
@@ -245,12 +263,24 @@ impl PostContent {
         self.push_link(display, url);
         self
     }
+
+    pub fn push_inline_attachment(&mut self, attachment: PostAttachment) {
+        self.0.push(PostContentPart::InlineAttachment(attachment));
+    }
+
+    pub fn with_inline_attachment(mut self, attachment: PostAttachment) -> Self {
+        self.push_inline_attachment(attachment);
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PostContentPart {
     Plain(String),
-    Link { display: String, url: String },
+    Link {
+        display: String,
+        url: String, // "//search.bilibili.com"
+    },
     InlineAttachment(PostAttachment),
 }
 
