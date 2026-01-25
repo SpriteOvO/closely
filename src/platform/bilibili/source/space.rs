@@ -655,12 +655,14 @@ mod data {
         Ugc { ugc: ModuleDynamicUgc },
         #[serde(rename = "ADDITIONAL_TYPE_GOODS")]
         Goods { goods: ModuleDynamicGoods },
+        #[serde(rename = "ADDITIONAL_TYPE_VOTE")]
+        Vote { vote: ModuleDynamicVote },
         #[serde(untagged)]
         Unknown(json::Value),
     }
 
     impl ModuleDynamicAdditional {
-        pub fn to_content(&self) -> Option<PostContent> {
+        pub async fn to_content(&self) -> anyhow::Result<Option<PostContent>> {
             match self {
                 Self::Reserve { reserve } => {
                     let mut content = PostContent::plain(&reserve.title);
@@ -671,7 +673,7 @@ mod data {
                     if let Some(desc3) = &reserve.desc3 {
                         content = content.with_plain("\n").with_part(desc3.to_content_part());
                     }
-                    Some(content)
+                    Ok(Some(content))
                 }
                 Self::Ugc { ugc } => {
                     let mut content = PostContent::new();
@@ -694,7 +696,7 @@ mod data {
                         content.push_plain(&ugc.title);
                     }
                     content.push_plain(format!("\n时长：{}", ugc.duration));
-                    Some(content)
+                    Ok(Some(content))
                 }
                 Self::Goods { goods } => {
                     let mut content = PostContent::new();
@@ -726,11 +728,28 @@ mod data {
                             content.push_plain(&item.price);
                         }
                     });
-                    Some(content)
+                    Ok(Some(content))
+                }
+                Self::Vote { vote } => {
+                    let vote_info = fetch_vote_info(&vote.vote_id).await?;
+
+                    let mut content = PostContent::new();
+                    content.push_plain(format!("投票：{}", vote_info.title));
+                    if !vote_info.desc.is_empty() {
+                        content.push_plain("\n");
+                        content.push_plain(&vote_info.desc);
+                    }
+                    if !vote_info.options.is_empty() {
+                        content.push_plain("\n");
+                        vote_info.options.iter().for_each(|option| {
+                            content.push_plain(format!("\n- {}", option.opt_desc));
+                        });
+                    }
+                    Ok(Some(content))
                 }
                 Self::Unknown(data) => {
                     warn!("unknown bilibili additional variant", kv: { data: });
-                    None
+                    Ok(None)
                 }
             }
         }
@@ -788,6 +807,30 @@ mod data {
         pub price: String,
         pub jump_url: String,
         pub jump_desc: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicVote {
+        pub vote_id: String,
+        pub title: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct VoteInfoResponse {
+        pub vote_info: VoteInfo,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct VoteInfo {
+        pub vote_id: u64,
+        pub title: String,
+        pub desc: String,
+        pub options: Vec<VoteOption>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct VoteOption {
+        pub opt_desc: String,
     }
 }
 
@@ -935,7 +978,14 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
             .dynamic
             .additional
             .as_ref()
-            .and_then(|additional| additional.to_content());
+            .and_then(|additional| {
+                // TODO: Make `parse_response` async
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(additional.to_content())
+                })
+                .transpose()
+            })
+            .transpose()?;
 
         let original = item
             .orig
@@ -1039,7 +1089,8 @@ fn parse_response(resp: data::SpaceHistory, blocked: &mut BlockedPostIds) -> any
     Ok(Posts(items))
 }
 
-const ENDPOINT_URL: &str = "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space";
+const API_SPACE: &str = "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space";
+const API_VOTE_INFO: &str = "https://api.bilibili.com/x/vote/vote_info";
 
 async fn fetch_space(user_id: u64, cookies: Option<Cow<'_, str>>) -> anyhow::Result<(u32, String)> {
     let Some(cookies) = cookies else {
@@ -1058,7 +1109,7 @@ async fn fetch_space(user_id: u64, cookies: Option<Cow<'_, str>>) -> anyhow::Res
         "ugcDelete",
         "onlyfansQaCard",
     ];
-    let mut url = Url::from_str(ENDPOINT_URL)?;
+    let mut url = Url::from_str(API_SPACE)?;
     {
         let mut query = url.query_pairs_mut();
         query.append_pair("host_mid", &user_id.to_string());
@@ -1097,7 +1148,7 @@ async fn fetch_space_via_headless(user_id: u64) -> anyhow::Result<(u32, String)>
         Box::new({
             let body_res = Arc::clone(&body_res);
             move |event, fetch_body| {
-                if event.response.url.starts_with(ENDPOINT_URL) {
+                if event.response.url.starts_with(API_SPACE) {
                     *body_res.lock().unwrap() = Some((event.response.status, fetch_body()));
                 }
             }
@@ -1124,6 +1175,37 @@ async fn fetch_space_via_headless(user_id: u64) -> anyhow::Result<(u32, String)>
     );
 
     Ok((status, body.body))
+}
+
+async fn fetch_vote_info(vote_id: &str) -> anyhow::Result<data::VoteInfo> {
+    let mut url = Url::from_str(API_VOTE_INFO)?;
+    {
+        let mut query = url.query_pairs_mut();
+        query.append_pair("vote_id", vote_id);
+    }
+    let resp = bilibili_request_builder()?
+        .get(url.as_ref())
+        .send()
+        .await
+        .map_err(|err| anyhow!("failed to send request to fetch vote info: {err}"))?;
+    let status = resp.status();
+    let text = resp
+        .text()
+        .await
+        .map_err(|err| anyhow!("failed to read vote info response text for bilibili: {err}"))?;
+    ensure!(
+        status == 200,
+        "vote info response status is not success: {text:?}"
+    );
+
+    let resp: Response<data::VoteInfoResponse> = json::from_str(&text)
+        .map_err(|err| anyhow!("failed to deserialize vote info response: {err}"))?;
+    ensure!(
+        resp.code == 0,
+        "vote info response contains error, response '{text}'"
+    );
+
+    Ok(resp.data.unwrap().vote_info)
 }
 
 #[cfg(test)]
