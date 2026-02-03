@@ -183,7 +183,7 @@ impl TwitterRequester {
             "rweb_video_screen_enabled": false,
             "profile_label_improvements_pcf_label_in_post_enabled": true,
             "responsive_web_profile_redirect_enabled": false,
-            "rweb_tipjar_consumption_enabled": true,
+            "rweb_tipjar_consumption_enabled": false,
             "verified_phone_label_enabled": false,
             "creator_subscriptions_tweet_preview_api_enabled": true,
             "responsive_web_graphql_timeline_navigation_enabled": true,
@@ -221,7 +221,7 @@ impl TwitterRequester {
             "withArticlePlainText": false
         });
         let mut url = Url::from_str(
-            "https://x.com/i/api/graphql/rUGgLrfxEz17FY2HSk2b6w/UserTweetsAndReplies",
+            "https://x.com/i/api/graphql/NullQbZlUJl-u6oBYRdrVw/UserTweetsAndReplies",
         )?;
         {
             let mut query = url.query_pairs_mut();
