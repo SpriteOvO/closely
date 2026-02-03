@@ -8,6 +8,8 @@ use tokio::process::Command;
 
 use crate::prop;
 
+pub const TIMEOUT: Duration = Duration::from_secs(60 * 3);
+
 pub fn reqwest_client() -> anyhow::Result<reqwest::Client> {
     reqwest_client_with(identity)
 }
@@ -17,7 +19,7 @@ pub fn reqwest_client_with(
 ) -> anyhow::Result<reqwest::Client> {
     configure(
         reqwest::ClientBuilder::new()
-            .timeout(Duration::from_secs(60) * 3)
+            .timeout(TIMEOUT)
             .default_headers(HeaderMap::from_iter([(
                 header::USER_AGENT,
                 HeaderValue::from_str(&prop::UserAgent::Logo.as_str()).unwrap(),

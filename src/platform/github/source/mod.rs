@@ -1,10 +1,12 @@
 use std::{fmt, future::Future, pin::Pin};
 
 use anyhow::{Ok, anyhow, ensure};
+use octocrab::Octocrab;
 use serde::Deserialize;
 
 use crate::{
     config::{Accessor, Validator},
+    helper::TIMEOUT,
     platform::{PlatformMetadata, PlatformTraitStatic},
     source::{Article, Articles, FetcherTrait, Status, StatusKind, StatusSource, User},
 };
@@ -35,6 +37,7 @@ impl fmt::Display for ConfigParams {
 
 pub struct Fetcher {
     params: Accessor<ConfigParams>,
+    instance: Octocrab,
 }
 
 impl PlatformTraitStatic for Fetcher {
@@ -59,11 +62,18 @@ impl fmt::Display for Fetcher {
 
 impl Fetcher {
     pub fn new(params: Accessor<ConfigParams>) -> Self {
-        Self { params }
+        let instance = Octocrab::builder()
+            .set_connect_timeout(Some(TIMEOUT))
+            .set_read_timeout(Some(TIMEOUT))
+            .set_write_timeout(Some(TIMEOUT))
+            .build()
+            .map_err(|err| anyhow!("failed to build Octocrab instance: {err}"))
+            .unwrap();
+        Self { params, instance }
     }
 
     async fn fetch_status_impl(&self) -> anyhow::Result<Status> {
-        let issues_prs = fetch(&self.params.repo, &self.params.query).await?;
+        let issues_prs = fetch(&self.instance, &self.params.repo, &self.params.query).await?;
 
         Ok(Status::new(
             StatusKind::Articles(issues_prs),
@@ -75,8 +85,8 @@ impl Fetcher {
     }
 }
 
-async fn fetch(repo: &str, query: &str) -> anyhow::Result<Articles> {
-    let results = octocrab::instance()
+async fn fetch(instance: &Octocrab, repo: &str, query: &str) -> anyhow::Result<Articles> {
+    let results = instance
         .search()
         .issues_and_pull_requests(&format!("repo:{repo} {query}"))
         .sort("created")
