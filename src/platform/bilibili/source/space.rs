@@ -735,9 +735,11 @@ mod data {
 
                     let mut content = PostContent::new();
                     content.push_plain(format!("投票：{}", vote_info.title));
-                    if !vote_info.desc.is_empty() {
+                    if let Some(desc) = vote_info.desc.as_deref()
+                        && !desc.is_empty()
+                    {
                         content.push_plain("\n");
-                        content.push_plain(&vote_info.desc);
+                        content.push_plain(desc);
                     }
                     if !vote_info.options.is_empty() {
                         content.push_plain("\n");
@@ -824,7 +826,7 @@ mod data {
     pub struct VoteInfo {
         pub vote_id: u64,
         pub title: String,
-        pub desc: String,
+        pub desc: Option<String>,
         pub options: Vec<VoteOption>,
     }
 
