@@ -657,6 +657,8 @@ mod data {
         Goods { goods: ModuleDynamicGoods },
         #[serde(rename = "ADDITIONAL_TYPE_VOTE")]
         Vote { vote: ModuleDynamicVote },
+        #[serde(rename = "ADDITIONAL_TYPE_COMMON")]
+        Common { common: ModuleDynamicCommon },
         #[serde(untagged)]
         Unknown(json::Value),
     }
@@ -749,6 +751,13 @@ mod data {
                     }
                     Ok(Some(content))
                 }
+                Self::Common { common } => {
+                    // Ads, e.g. https://www.bilibili.com/opus/1166649345397751863
+                    if common.sub_type != "game" {
+                        warn!("unknown bilibili additional common sub_type", kv: { sub_type = common.sub_type });
+                    }
+                    Ok(None)
+                }
                 Self::Unknown(data) => {
                     warn!("unknown bilibili additional variant", kv: { data: });
                     Ok(None)
@@ -815,6 +824,11 @@ mod data {
     pub struct ModuleDynamicVote {
         pub vote_id: String,
         pub title: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ModuleDynamicCommon {
+        pub sub_type: String,
     }
 
     #[derive(Debug, Deserialize)]
