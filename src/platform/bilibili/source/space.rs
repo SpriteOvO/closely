@@ -950,7 +950,9 @@ fn fetch_space_history_impl<'a>(
             _ => return Err(FetchSpaceHistoryError::Others(text)),
         }
 
-        Ok(parse_response(resp.data.unwrap(), blocked)?)
+        Ok(parse_response(resp.data.unwrap(), blocked).map_err(|err| {
+            anyhow!("failed to parse space response for user id '{user_id}': {err}")
+        })?)
     })
 }
 
