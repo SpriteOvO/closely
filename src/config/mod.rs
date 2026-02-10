@@ -195,6 +195,8 @@ pub struct SubscriptionRef<'a> {
 // Should be always used with `#[serde(flatten)]`
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct NotifierBase<O = ()> {
+    #[serde(default = "helper::refl_bool::<true>")]
+    pub enable: bool,
     #[serde(default)]
     pub switch: NotificationSwitch,
     #[serde(default)]
@@ -215,6 +217,7 @@ impl<'a, O: Deserialize<'a> + Overridable> Overridable for NotifierBase<O> {
         Self: Sized,
     {
         Self {
+            enable: new.enable.unwrap_or(self.enable),
             switch: match new.switch {
                 Some(switch) => self.switch.override_into(switch),
                 None => self.switch,
@@ -230,6 +233,7 @@ impl<'a, O: Deserialize<'a> + Overridable> Overridable for NotifierBase<O> {
 // Should be always used with `#[serde(flatten)]`
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct NotifierBaseOverride<O = ()> {
+    enable: Option<bool>,
     switch: Option<NotificationSwitchOverride>,
     option: Option<NotificationOptionOverride<O>>,
 }
@@ -505,6 +509,7 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                             "woof".into(),
                             Accessor::new(NotifierConfig::Telegram(Accessor::new(telegram::notify::ConfigParams {
                                 base: NotifierBase {
+                                    enable: true,
                                     switch: NotificationSwitch {
                                         live_online: true,
                                         live_title: false,
@@ -731,6 +736,7 @@ notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", switch = { 
                                 Accessor::new(NotifierConfig::Telegram(Accessor::new(
                                     telegram::notify::ConfigParams {
                                         base: NotifierBase {
+                                            enable: true,
                                             switch: NotificationSwitch {
                                                 post: false,
                                                 ..Default::default()

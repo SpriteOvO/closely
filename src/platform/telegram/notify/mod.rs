@@ -199,6 +199,10 @@ impl Notifier {
 
     async fn notify_impl(&self, notification: &Notification<'_>) -> anyhow::Result<()> {
         info!("notifying to", kv: { to: = self.params });
+        if !self.params.base.enable {
+            info!("notifier is disabled, skip notifying");
+            return Ok(());
+        }
 
         match &notification.kind {
             NotificationKind::LiveOnline(live_status) => {
