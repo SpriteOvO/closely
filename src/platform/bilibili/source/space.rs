@@ -510,6 +510,10 @@ mod data {
                         url: normalize_bilibili_url(jump_url).into(),
                     }
                 }
+                RichTextNodeKind::Av { jump_url, .. } => PostContentPart::Link {
+                    display: node.text.clone(),
+                    url: jump_url.clone(),
+                },
                 RichTextNodeKind::Bv { rid, .. } => PostContentPart::Link {
                     display: node.text.clone(),
                     url: format!("https://www.bilibili.com/video/{rid}"),
@@ -601,6 +605,8 @@ mod data {
         Topic { jump_url: String },
         #[serde(rename = "RICH_TEXT_NODE_TYPE_LOTTERY")]
         Lottery { rid: String },
+        #[serde(rename = "RICH_TEXT_NODE_TYPE_AV")]
+        Av { jump_url: String, rid: String },
         #[serde(rename = "RICH_TEXT_NODE_TYPE_BV")]
         Bv { jump_url: String, rid: String },
         #[serde(rename = "RICH_TEXT_NODE_TYPE_VIEW_PICTURE")]
