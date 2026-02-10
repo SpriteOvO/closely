@@ -195,7 +195,7 @@ impl TwitterRequester {
             "responsive_web_grok_analyze_post_followups_enabled": true,
             "responsive_web_jetfuel_frame": true,
             "responsive_web_grok_share_attachment_enabled": true,
-            "responsive_web_grok_annotations_enabled": false,
+            "responsive_web_grok_annotations_enabled": true,
             "articles_preview_enabled": true,
             "responsive_web_edit_tweet_api_enabled": true,
             "graphql_is_translatable_rweb_tweet_is_translatable_enabled": true,
@@ -206,7 +206,6 @@ impl TwitterRequester {
             "responsive_web_grok_show_grok_translated_post": true,
             "responsive_web_grok_analysis_button_from_backend": true,
             "post_ctas_fetch_enabled": true,
-            "creator_subscriptions_quote_tweet_preview_enabled": false,
             "freedom_of_speech_not_reach_fetch_enabled": true,
             "standardized_nudges_misinfo": true,
             "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": true,
@@ -221,7 +220,7 @@ impl TwitterRequester {
             "withArticlePlainText": false
         });
         let mut url = Url::from_str(
-            "https://x.com/i/api/graphql/NullQbZlUJl-u6oBYRdrVw/UserTweetsAndReplies",
+            "https://x.com/i/api/graphql/j-j88wFEnqbcTk5sWnJj4A/UserTweetsAndReplies",
         )?;
         {
             let mut query = url.query_pairs_mut();
