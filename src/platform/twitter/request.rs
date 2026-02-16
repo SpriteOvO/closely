@@ -220,7 +220,7 @@ impl TwitterRequester {
             "withArticlePlainText": false
         });
         let mut url = Url::from_str(
-            "https://x.com/i/api/graphql/j-j88wFEnqbcTk5sWnJj4A/UserTweetsAndReplies",
+            "https://x.com/i/api/graphql/aDl2OEiH_EFH10mA_ewZ9A/UserTweetsAndReplies",
         )?;
         {
             let mut query = url.query_pairs_mut();
