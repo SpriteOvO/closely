@@ -462,7 +462,7 @@ mod data {
     #[derive(Debug, Deserialize)]
     pub struct ModuleDynamicMajorLiveInner {
         pub cover: String, // URL
-        pub id: u64,
+        pub id: String,
         pub title: String,
     }
 
