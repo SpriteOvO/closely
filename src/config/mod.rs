@@ -106,7 +106,10 @@ impl Config {
                     name.clone(),
                     SubscriptionRef {
                         platform: &subscription.platform,
-                        interval: subscription.interval.unwrap_or(self.interval),
+                        interval: subscription
+                            .interval
+                            .or(self.platform.global_interval_of(&subscription.platform))
+                            .unwrap_or(self.interval),
                         notify: subscription
                             .notify_ref
                             .iter()
@@ -173,6 +176,24 @@ impl Validator for PlatformGlobal {
         self.twitter.validate()?;
         self.bilibili.validate()?;
         Ok(())
+    }
+}
+
+impl PlatformGlobal {
+    pub fn global_interval_of(&self, source: &Accessor<SourceConfig>) -> Option<Duration> {
+        match &**source {
+            SourceConfig::BilibiliSpace(_) => self
+                .bilibili
+                .as_ref()
+                .and_then(|b| b.space.as_ref().and_then(|p| p.interval)),
+            SourceConfig::BilibiliLive(_)
+            | SourceConfig::BilibiliVideo(_)
+            | SourceConfig::BilibiliPlayback(_)
+            | SourceConfig::TwitterPost(_)
+            | SourceConfig::TwitterReply(_)
+            | SourceConfig::GitHubIssuePr(_)
+            | SourceConfig::Rss(_) => None,
+        }
     }
 }
 
@@ -426,6 +447,7 @@ token = "ttt"
 cookies = "a=b;c=d;ct0=blah"
 
 [platform.bilibili]
+space = { interval = '10m' }
 playback = { bililive_recorder = { listen_webhook = { host = "127.0.0.1", port = 8888 }, working_directory = "/brec/" } }
 
 [notify]
@@ -435,6 +457,10 @@ woof = { platform = "Telegram", id = 5678, thread_id = 900, switch = { post = fa
 [[subscription.meow]]
 platform = { name = "bilibili.live", user_id = 123456 }
 interval = '30s'
+notify = ["meow"]
+
+[[subscription.meow]]
+platform = { name = "bilibili.space", user_id = 123456 }
 notify = ["meow"]
 
 [[subscription.meow]]
@@ -484,6 +510,9 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                         })),
                         bilibili: Accessor::new(Some(bilibili::ConfigGlobal {
                             cookies: Accessor::new(None),
+                            space: Accessor::new(Some(bilibili::source::space::ConfigGlobal {
+                                interval: Some(Duration::from_secs(600))
+                            })),
                             playback: Accessor::new(Some(bilibili::source::playback::ConfigGlobal {
                                 bililive_recorder: Accessor::new(bilibili::source::playback::bililive_recorder::ConfigBililiveRecorder {
                                     listen_webhook: bilibili::source::playback::bililive_recorder::ConfigListen {
@@ -543,6 +572,13 @@ notify = ["meow", "woof", { ref = "woof", id = 123 }]
                                     Accessor::new(bilibili::source::live::ConfigParams { user_id: 123456 })
                                 )),
                                 interval: Some(Duration::from_secs(30)),
+                                notify_ref: vec![NotifyRef::Direct("meow".into())],
+                            },
+                            SubscriptionRaw {
+                                platform: Accessor::new(SourceConfig::BilibiliSpace(
+                                    Accessor::new(bilibili::source::space::ConfigParams { user_id: 123456 })
+                                )),
+                                interval: None,
                                 notify_ref: vec![NotifyRef::Direct("meow".into())],
                             },
                             SubscriptionRaw {
@@ -696,6 +732,9 @@ notify = ["meow"]
             r#"
 interval = '1min'
 
+[platform.bilibili.space]
+interval = '10m'
+
 [notify]
 meow = { platform = "Telegram", id = 1234, thread_id = 123, token = "xxx" }
 woof = { platform = "Telegram", id = 5678, thread_id = 456, token = "yyy" }
@@ -703,54 +742,74 @@ woof = { platform = "Telegram", id = 5678, thread_id = 456, token = "yyy" }
 [[subscription.meow]]
 platform = { name = "bilibili.live", user_id = 123456 }
 notify = ["meow", { ref = "woof", thread_id = 114 }, { ref = "woof", switch = { post = false } }]
+
+[[subscription.meow]]
+platform = { name = "bilibili.space", user_id = 123456 }
+notify = []
             "#,
             |c| {
                 let subscriptions = c.unwrap().subscriptions().collect::<Vec<_>>();
 
                 assert_eq!(
                     subscriptions,
-                    vec![(
-                        "meow".into(),
-                        SubscriptionRef {
-                            platform: &Accessor::new(SourceConfig::BilibiliLive(Accessor::new(
-                                bilibili::source::live::ConfigParams { user_id: 123456 }
-                            ))),
-                            interval: Duration::from_secs(60),
-                            notify: vec![
-                                Accessor::new(NotifierConfig::Telegram(Accessor::new(
-                                    telegram::notify::ConfigParams {
-                                        base: NotifierBase::default(),
-                                        chat: telegram::ConfigChat::Id(1234),
-                                        thread_id: Some(123),
-                                        token: Some(telegram::ConfigToken::with_raw("xxx")),
-                                    }
-                                ))),
-                                Accessor::new(NotifierConfig::Telegram(Accessor::new(
-                                    telegram::notify::ConfigParams {
-                                        base: NotifierBase::default(),
-                                        chat: telegram::ConfigChat::Id(5678),
-                                        thread_id: Some(114),
-                                        token: Some(telegram::ConfigToken::with_raw("yyy")),
-                                    }
-                                ))),
-                                Accessor::new(NotifierConfig::Telegram(Accessor::new(
-                                    telegram::notify::ConfigParams {
-                                        base: NotifierBase {
-                                            enable: true,
-                                            switch: NotificationSwitch {
-                                                post: false,
-                                                ..Default::default()
+                    vec![
+                        (
+                            "meow".into(),
+                            SubscriptionRef {
+                                platform: &Accessor::new(SourceConfig::BilibiliLive(
+                                    Accessor::new(bilibili::source::live::ConfigParams {
+                                        user_id: 123456
+                                    })
+                                )),
+                                interval: Duration::from_secs(60),
+                                notify: vec![
+                                    Accessor::new(NotifierConfig::Telegram(Accessor::new(
+                                        telegram::notify::ConfigParams {
+                                            base: NotifierBase::default(),
+                                            chat: telegram::ConfigChat::Id(1234),
+                                            thread_id: Some(123),
+                                            token: Some(telegram::ConfigToken::with_raw("xxx")),
+                                        }
+                                    ))),
+                                    Accessor::new(NotifierConfig::Telegram(Accessor::new(
+                                        telegram::notify::ConfigParams {
+                                            base: NotifierBase::default(),
+                                            chat: telegram::ConfigChat::Id(5678),
+                                            thread_id: Some(114),
+                                            token: Some(telegram::ConfigToken::with_raw("yyy")),
+                                        }
+                                    ))),
+                                    Accessor::new(NotifierConfig::Telegram(Accessor::new(
+                                        telegram::notify::ConfigParams {
+                                            base: NotifierBase {
+                                                enable: true,
+                                                switch: NotificationSwitch {
+                                                    post: false,
+                                                    ..Default::default()
+                                                },
+                                                option: NotificationOption::default()
                                             },
-                                            option: NotificationOption::default()
-                                        },
-                                        chat: telegram::ConfigChat::Id(5678),
-                                        thread_id: Some(456),
-                                        token: Some(telegram::ConfigToken::with_raw("yyy")),
-                                    }
-                                )))
-                            ],
-                        }
-                    ),]
+                                            chat: telegram::ConfigChat::Id(5678),
+                                            thread_id: Some(456),
+                                            token: Some(telegram::ConfigToken::with_raw("yyy")),
+                                        }
+                                    )))
+                                ],
+                            }
+                        ),
+                        (
+                            "meow".into(),
+                            SubscriptionRef {
+                                platform: &Accessor::new(SourceConfig::BilibiliSpace(
+                                    Accessor::new(bilibili::source::space::ConfigParams {
+                                        user_id: 123456
+                                    })
+                                )),
+                                interval: Duration::from_secs(600),
+                                notify: vec![]
+                            }
+                        )
+                    ]
                 );
             },
         );

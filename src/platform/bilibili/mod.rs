@@ -14,12 +14,14 @@ use crate::{
 pub struct ConfigGlobal {
     #[serde(flatten)]
     pub cookies: Accessor<Option<ConfigCookies>>,
+    pub space: Accessor<Option<source::space::ConfigGlobal>>,
     pub playback: Accessor<Option<source::playback::ConfigGlobal>>,
 }
 
 impl Validator for ConfigGlobal {
     fn validate(&self) -> anyhow::Result<()> {
         self.cookies.validate()?;
+        self.space.validate()?;
         self.playback.validate()?;
         Ok(())
     }

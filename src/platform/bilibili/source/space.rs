@@ -7,6 +7,7 @@ use std::{
     pin::Pin,
     str::FromStr,
     sync::{Arc, Mutex as StdMutex},
+    time::Duration,
 };
 
 use anyhow::{anyhow, bail, ensure};
@@ -27,6 +28,18 @@ use crate::{
         Posts, RepostFrom, Status, StatusKind, StatusSource, User,
     },
 };
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ConfigGlobal {
+    #[serde(default, with = "humantime_serde")]
+    pub interval: Option<Duration>,
+}
+
+impl Validator for ConfigGlobal {
+    fn validate(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ConfigParams {
