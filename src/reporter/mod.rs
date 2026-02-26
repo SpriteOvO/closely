@@ -15,7 +15,7 @@ use reqwest::Url;
 use serde::Deserialize;
 use spdlog::{
     Record, StringBuf,
-    formatter::{FormatterContext, PatternFormatter, pattern},
+    formatter::{FormatterContext, Pattern, PatternFormatter, pattern},
     prelude::*,
     sink::{GetSinkProp, Sink, SinkProp},
 };
@@ -193,7 +193,8 @@ impl NotifySink {
         let prop = SinkProp::default();
         prop.set_level_filter(LevelFilter::MoreSevereEqual(Level::Warn));
         prop.set_formatter(PatternFormatter::new(pattern!(
-            "#log #{level} {payload}{eol}@{source}{eol}{kv}"
+            "{$emoji} #log #{level} {payload}{eol}@{source}{eol}{kv}",
+            {$emoji} => EmojiPattern::default
         )));
         Self {
             prop,
@@ -285,6 +286,29 @@ impl Sink for NotifySink {
 
     fn flush(&self) -> spdlog::Result<()> {
         Ok(()) // No-op
+    }
+}
+
+#[derive(Clone, Default)]
+struct EmojiPattern;
+
+impl Pattern for EmojiPattern {
+    fn format(
+        &self,
+        record: &Record,
+        dest: &mut StringBuf,
+        _ctx: &mut spdlog::formatter::PatternContext,
+    ) -> spdlog::Result<()> {
+        let emoji = match record.level() {
+            Level::Trace => "⬜️",
+            Level::Debug => "⬜️",
+            Level::Info => "⬜️",
+            Level::Warn => "🟨",
+            Level::Error => "🟥",
+            Level::Critical => "🟥🟥🟥",
+        };
+        dest.push_str(emoji);
+        Ok(())
     }
 }
 
