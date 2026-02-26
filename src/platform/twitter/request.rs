@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashMap, hash_map::Entry},
     str::FromStr,
     sync::{Arc, Mutex as StdMutex},
     time::Duration,
@@ -46,16 +47,34 @@ impl TwitterCookies {
     }
 }
 
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+enum TransactionEndpoint {
+    UserTweetsAndReplies,
+}
+
+impl TransactionEndpoint {
+    fn endpoint(&self) -> &'static str {
+        match self {
+            Self::UserTweetsAndReplies => "/with_replies",
+        }
+    }
+    fn api_endpoint(&self) -> &'static str {
+        match self {
+            Self::UserTweetsAndReplies => "/UserTweetsAndReplies",
+        }
+    }
+}
+
 pub struct TwitterRequester {
     cookies: TwitterCookies,
-    transaction_id: Mutex<Option<String>>,
+    transactions: Mutex<HashMap<TransactionEndpoint, Transaction>>,
 }
 
 impl TwitterRequester {
     pub fn new(cookies: TwitterCookies) -> Self {
         Self {
             cookies,
-            transaction_id: Mutex::new(None),
+            transactions: Mutex::new(HashMap::new()),
         }
     }
 
@@ -170,68 +189,12 @@ impl TwitterRequester {
         &self,
         user_id: impl AsRef<str>,
     ) -> anyhow::Result<reqwest::Response> {
-        let user_id = user_id.as_ref();
-
-        let variables = json!({
-            "userId": user_id,
-            "count": 20,
-            "includePromotedContent": true,
-            "withCommunity": true,
-            "withVoice": true
-        });
-        let features = json!({
-            "rweb_video_screen_enabled": false,
-            "profile_label_improvements_pcf_label_in_post_enabled": true,
-            "responsive_web_profile_redirect_enabled": false,
-            "rweb_tipjar_consumption_enabled": false,
-            "verified_phone_label_enabled": false,
-            "creator_subscriptions_tweet_preview_api_enabled": true,
-            "responsive_web_graphql_timeline_navigation_enabled": true,
-            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": false,
-            "premium_content_api_read_enabled": false,
-            "communities_web_enable_tweet_community_results_fetch": true,
-            "c9s_tweet_anatomy_moderator_badge_enabled": true,
-            "responsive_web_grok_analyze_button_fetch_trends_enabled": false,
-            "responsive_web_grok_analyze_post_followups_enabled": true,
-            "responsive_web_jetfuel_frame": true,
-            "responsive_web_grok_share_attachment_enabled": true,
-            "responsive_web_grok_annotations_enabled": true,
-            "articles_preview_enabled": true,
-            "responsive_web_edit_tweet_api_enabled": true,
-            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": true,
-            "view_counts_everywhere_api_enabled": true,
-            "longform_notetweets_consumption_enabled": true,
-            "responsive_web_twitter_article_tweet_consumption_enabled": true,
-            "tweet_awards_web_tipping_enabled": false,
-            "responsive_web_grok_show_grok_translated_post": true,
-            "responsive_web_grok_analysis_button_from_backend": true,
-            "post_ctas_fetch_enabled": true,
-            "freedom_of_speech_not_reach_fetch_enabled": true,
-            "standardized_nudges_misinfo": true,
-            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": true,
-            "longform_notetweets_rich_text_read_enabled": true,
-            "longform_notetweets_inline_media_enabled": true,
-            "responsive_web_grok_image_annotation_enabled": true,
-            "responsive_web_grok_imagine_annotation_enabled": true,
-            "responsive_web_grok_community_note_auto_translation_is_enabled": false,
-            "responsive_web_enhance_cards_enabled": false,
-        });
-        let field_toggles = json!({
-            "withArticlePlainText": false
-        });
-        let mut url = Url::from_str(
-            "https://x.com/i/api/graphql/aDl2OEiH_EFH10mA_ewZ9A/UserTweetsAndReplies",
-        )?;
-        {
-            let mut query = url.query_pairs_mut();
-            query.append_pair("variables", &json::to_string(&variables)?);
-            query.append_pair("features", &json::to_string(&features)?);
-            query.append_pair("fieldToggles", &json::to_string(&field_toggles)?);
-        }
-
-        self.request_with_transaction_id(url)
-            .await
-            .map_err(|err| anyhow!("failed to fetch user tweets and replies: {err}"))
+        self.request_with_transaction(
+            TransactionEndpoint::UserTweetsAndReplies,
+            &HashMap::from([(Transaction::USER_ID_PLACEHOLDER, user_id.as_ref())]),
+        )
+        .await
+        .map_err(|err| anyhow!("failed to fetch user tweets and replies: {err}"))
     }
 
     pub async fn tweet_result_by_rest_id(
@@ -321,32 +284,32 @@ impl TwitterRequester {
         Ok(resp)
     }
 
-    async fn request_with_transaction_id(
+    async fn request_with_transaction(
         &self,
-        url: impl AsRef<str>,
+        endpoint: TransactionEndpoint,
+        replacements: &HashMap<&str, &str>,
     ) -> anyhow::Result<reqwest::Response> {
-        let url = url.as_ref();
-
-        let mut transaction_id = self.transaction_id.lock().await;
-        if transaction_id.is_none() {
-            *transaction_id = Some(self.get_x_client_transaction_id().await?);
-        }
+        let mut transactions = self.transactions.lock().await;
+        let transaction = match transactions.entry(endpoint) {
+            Entry::Vacant(entry) => entry.insert(self.get_x_client_transaction(endpoint).await?),
+            Entry::Occupied(entry) => entry.into_mut(),
+        };
 
         let res = self
-            .request_with_transaction_id_inner(url, transaction_id.as_deref().unwrap())
+            .request_with_transaction_inner(transaction, replacements)
             .await;
 
         match res {
             Err(RequestError::Auth) => {
-                warn!("Twitter 404 auth error, refreshing transaction id and retrying");
+                warn!("Twitter 404 auth error, refreshing transaction and retrying");
                 // Retry once to get a new transaction id
-                *transaction_id = Some(self.get_x_client_transaction_id().await?);
+                *transaction = self.get_x_client_transaction(endpoint).await?;
                 let res = self
-                    .request_with_transaction_id_inner(url, transaction_id.as_deref().unwrap())
+                    .request_with_transaction_inner(transaction, replacements)
                     .await;
                 // Auth error again, clear the transaction id to force refresh next time.
                 if matches!(res, Err(RequestError::Auth)) {
-                    *transaction_id = None;
+                    transactions.remove(&endpoint);
                 }
                 res
             }
@@ -355,17 +318,17 @@ impl TwitterRequester {
         .map_err(RequestError::anyway)
     }
 
-    async fn request_with_transaction_id_inner(
+    async fn request_with_transaction_inner(
         &self,
-        url: impl AsRef<str>,
-        transaction_id: &str,
+        transaction: &Transaction,
+        replacements: &HashMap<&str, &str>,
     ) -> Result<reqwest::Response, RequestError> {
         let resp = helper::reqwest_client()?
-            .get(url.as_ref())
+            .get(transaction.url(replacements))
             .bearer_auth(BEARER_TOKEN)
             .header(COOKIE, &self.cookies.raw)
             .header("x-csrf-token", &self.cookies.ct0)
-            .header("x-client-transaction-id", transaction_id)
+            .header("x-client-transaction-id", &transaction.id)
             .send()
             .await
             .map_err(|err| anyhow!("failed to send request for Twitter: {err}"))?;
@@ -384,7 +347,10 @@ impl TwitterRequester {
         Ok(resp)
     }
 
-    async fn get_x_client_transaction_id(&self) -> anyhow::Result<String> {
+    async fn get_x_client_transaction(
+        &self,
+        endpoint: TransactionEndpoint,
+    ) -> anyhow::Result<Transaction> {
         use headless_chrome::{Browser, LaunchOptionsBuilder};
 
         let browser = Browser::new(
@@ -395,7 +361,7 @@ impl TwitterRequester {
         )?;
 
         let tab = browser.new_tab()?;
-        let id = Arc::new(StdMutex::new(None));
+        let transaction = Arc::new(StdMutex::new(None));
         tab.enable_fetch(
             Some(&[RequestPattern {
                 url_pattern: None,
@@ -405,19 +371,36 @@ impl TwitterRequester {
             None,
         )?;
         tab.enable_request_interception(Arc::new({
-            let id = id.clone();
+            let transaction = transaction.clone();
             move |_transport, _session_id, event: RequestPausedEvent| {
-                let mut id = id.lock().unwrap();
+                let mut transaction = transaction.lock().unwrap();
                 let url = event.params.request.url;
-                if id.is_none()
+                if transaction.is_none()
                     && url.starts_with("https://x.com/i/api/graphql/")
-                    && url.contains("/UserTweetsAndReplies")
+                    && url.contains(endpoint.api_endpoint())
                 {
-                    *id = event.params.request.headers.0.as_ref().and_then(|headers| {
-                        headers["x-client-transaction-id"]
-                            .as_str()
-                            .map(ToString::to_string)
-                    });
+                    *transaction = event
+                        .params
+                        .request
+                        .headers
+                        .0
+                        .as_ref()
+                        .and_then(|headers| {
+                            headers["x-client-transaction-id"]
+                                .as_str()
+                                .map(ToString::to_string)
+                        })
+                        .map(|id| Transaction {
+                            // TODO:
+                            // Note that for guests the URL is starts with "https://api.x.com/graphql/",
+                            // for login users the URL is starts with "https://x.com/i/api/graphql/".
+                            // But for now, this seems not cause any problem.
+                            url: url.replace(
+                                "11348282", // NASA user ID
+                                Transaction::USER_ID_PLACEHOLDER,
+                            ),
+                            id,
+                        });
                 }
                 RequestPausedDecision::Continue(None)
             }
@@ -445,7 +428,7 @@ impl TwitterRequester {
                 .collect(),
         )?;
         tab.set_user_agent(&prop::UserAgent::Mocked.as_str(), None, None)?;
-        tab.navigate_to("https://x.com/NASA/with_replies")?;
+        tab.navigate_to(&format!("https://x.com/NASA{}", endpoint.endpoint()))?;
         // Do not use `wait_until_navigated` because Twitter will never make the browser
         // report networkAlmostIdle.
         //
@@ -453,17 +436,34 @@ impl TwitterRequester {
 
         tokio::select! {
             _ = async {
-                while id.lock().unwrap().is_none() {
+                while transaction.lock().unwrap().is_none() {
                    sleep(Duration::from_millis(100)).await;
                 }
             } => {}
             _ = sleep(Duration::from_secs(30)) => {}
         };
 
-        let id = id.lock().unwrap().take().ok_or_else(|| {
+        let transaction = transaction.lock().unwrap().take().ok_or_else(|| {
             anyhow!("headless browser did not catch the expected header for Twitter")
         })?;
-        Ok(id)
+        Ok(transaction)
+    }
+}
+
+struct Transaction {
+    url: String,
+    id: String,
+}
+
+impl Transaction {
+    const USER_ID_PLACEHOLDER: &'static str = "{{USER_ID}}";
+
+    fn url(&self, replacements: &HashMap<&str, &str>) -> String {
+        let mut url = self.url.clone();
+        for (k, v) in replacements {
+            url = url.replace(k, &v);
+        }
+        url
     }
 }
 
