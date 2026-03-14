@@ -21,6 +21,8 @@ pub struct OptionExt {
     // TODO: For temporary use on QQ platform, due to demand from a particular user. We eventually
     // want to support custom text via pattern templates (similar to spdlog-rs, but more generic).
     // And because they are temporary, we do not currently support their overriding.
+    //
+    // Placeholders: {title} {url}
     pub __live_text: Option<String>,
     pub __post_text: Option<String>,
 }
@@ -183,7 +185,11 @@ impl Notifier {
             let builder = onebot11::Message::builder().image(&live_status.cover_image_url);
             let message =
                 if let Some(custom_live_text) = &self.params.base.option.ext.__live_text {
-                    builder.text(format!("{custom_live_text}\n{}", live_status.live_url))
+                    builder.text(
+                        custom_live_text
+                            .replace("{title}", &live_status.title)
+                            .replace("{url}", &live_status.live_url),
+                    )
                 } else {
                     builder.text(format!(
                         "{}🟢 {}{}\n{}",
