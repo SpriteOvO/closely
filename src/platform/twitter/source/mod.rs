@@ -135,7 +135,7 @@ mod data {
     #[derive(Clone, Debug, PartialEq, Deserialize)]
     pub struct UserByScreenNameLegacy {
         pub description: String,
-        pub pinned_tweet_ids_str: Vec<String>,
+        pub pinned_tweet_ids_str: Option<Vec<String>>,
         pub profile_banner_url: Option<String>,
     }
 
@@ -678,7 +678,8 @@ impl FetcherInner {
             .result
             .legacy
             .pinned_tweet_ids_str
-            .contains(&tweet.rest_id);
+            .as_ref()
+            .is_some_and(|ids| ids.contains(&tweet.rest_id));
 
         Ok(Post {
             user: tweet.core.user_results.result.into(),
