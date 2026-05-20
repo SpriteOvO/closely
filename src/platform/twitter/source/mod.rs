@@ -290,6 +290,10 @@ mod data {
         pub fn urls(&self) -> impl Iterator<Item = &TweetLegacyEntityUrl> {
             self.url.iter().flat_map(|url| url.urls.iter())
         }
+
+        pub fn user_mentions(&self) -> impl Iterator<Item = &TweetLegacyEntityUserMention> {
+            self.user_mentions.iter().flatten()
+        }
     }
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -525,7 +529,7 @@ impl FetcherInner {
 
     async fn parse_tweet(&self, tweet: data::Tweet, query_reply: bool) -> anyhow::Result<Post> {
         let content = if tweet.legacy.retweeted_status_result.is_none() {
-            Some(replace_entities(
+            Some(compose_content_with_entities(
                 tweet.legacy.full_text,
                 &tweet.legacy.entities,
             ))
@@ -689,10 +693,9 @@ impl FetcherInner {
 
         Ok(Post {
             user: tweet.core.user_results.result.into(),
-            content: PostContent::plain(
-                content
-                    .unwrap_or_else(|| if repost_from.is_some() { "Retweet" } else { "" }.into()),
-            ),
+            content: content.unwrap_or_else(|| {
+                PostContent::plain(if repost_from.is_some() { "Retweet" } else { "" })
+            }),
             event: None,
             urls,
             time,
@@ -707,10 +710,14 @@ impl FetcherInner {
 enum ReplaceKind<'a> {
     Url(&'a str),
     Media,
+    UserMention { screen_name: &'a str },
 }
 
-fn replace_entities(mut text: String, entities: &data::TweetLegacyEntities) -> String {
-    // TODO: entities.user_mentions
+fn compose_content_with_entities(
+    text: String,
+    entities: &data::TweetLegacyEntities,
+) -> PostContent {
+    let default = || PostContent::plain(text.trim());
 
     let mut media_entities = entities.media.iter().flatten().collect::<Vec<_>>();
     // Multiple media share the same indices, they are expected to be overlapped
@@ -726,8 +733,19 @@ fn replace_entities(mut text: String, entities: &data::TweetLegacyEntities) -> S
                 url.indices,
             )
         }))
+        .chain(entities.user_mentions().map(|user_mention| {
+            (
+                ReplaceKind::UserMention {
+                    screen_name: &user_mention.screen_name,
+                },
+                user_mention.indices,
+            )
+        }))
         .map(|(entity, indices)| (entity, (indices.0 as usize, indices.1 as usize)))
         .collect::<Vec<_>>();
+    if indices.is_empty() {
+        return default();
+    }
     if is_indices_overlap(
         &indices
             .iter()
@@ -735,30 +753,56 @@ fn replace_entities(mut text: String, entities: &data::TweetLegacyEntities) -> S
             .collect::<Vec<_>>(),
     ) {
         warn!("overlapping indices in tweet, give up replacing entities", kv: { text, entities:? });
-        return text;
+        return default();
     }
 
-    indices.sort_by(|lhs, rhs| rhs.1.0.cmp(&lhs.1.0));
-    indices.into_iter().for_each(|(entity, (start, end))| {
+    let mut last = 0..;
+    let mut content = PostContent::new();
+
+    indices.sort_by(|lhs, rhs| lhs.1.0.cmp(&rhs.1.0));
+
+    let mut iter = indices.into_iter().peekable();
+    while let Some((entity, (start, end))) = iter.next() {
         let byte_pos = |utf8_pos| text.char_indices().nth(utf8_pos).map(|(pos, _)| pos);
-        let range = (byte_pos(start), byte_pos(end - 1));
-        if range.0.is_none() || range.1.is_none() {
+        let range = (byte_pos(start), byte_pos(end));
+        if range.0.is_none()
+        // For case of entity at the end of text
+        || (range.1.is_none() && end != text.chars().count())
+        {
             warn!("invalid indices in tweet, give up replacing entities", kv: { text, entities:? });
-            return;
+            return default();
         }
-        let range = range.0.unwrap()..=range.1.unwrap();
+        let range = range.0.unwrap()..range.1.unwrap_or(text.len());
+
+        let mut before_entity = &text[last.start..range.start];
+        if last.start == 0 {
+            before_entity = before_entity.trim_start();
+        }
+        content.push_plain(before_entity);
 
         match entity {
             ReplaceKind::Url(url) => {
-                text.replace_range(range, url);
+                // Replace short URL with expanded URL
+                content.push_plain(url);
             }
             ReplaceKind::Media => {
-                text.replace_range(range, "");
+                // Remove media URL from text
+            }
+            ReplaceKind::UserMention { screen_name } => {
+                // Replace @user with URL
+                content.push_link(&text[range.clone()], format!("https://x.com/{screen_name}"));
             }
         }
-    });
+        last = range.end..;
 
-    text.trim().into()
+        if iter.peek().is_none() {
+            // Last entity, push the rest text
+            let after_entity = text[last.start..].trim_end();
+            content.push_plain(after_entity);
+        }
+    }
+
+    content
 }
 
 fn is_indices_overlap<I: Copy + PartialOrd>(indices: &[(I, I)]) -> bool {
