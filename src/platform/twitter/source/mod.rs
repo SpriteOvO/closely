@@ -213,7 +213,7 @@ mod data {
     pub enum TimelineItemContent {
         #[serde(rename = "TimelineTweet")]
         Tweet {
-            tweet_results: wrapper::MaybeEmpty<Box<wrapper::Result<ResultTweet>>>,
+            tweet_results: wrapper::Result<Box<ResultTweet>>,
         },
         #[serde(rename = "TimelineUser")]
         User,
@@ -235,7 +235,7 @@ mod data {
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
     pub struct TweetCard {
-        pub legacy: TweetCardLegacy,
+        pub legacy: Option<TweetCardLegacy>,
     }
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -282,8 +282,14 @@ mod data {
     #[derive(Clone, Debug, PartialEq, Deserialize)]
     pub struct TweetLegacyEntities {
         pub media: Option<Vec<TweetLegacyEntityMedia>>,
-        pub urls: Vec<TweetLegacyEntityUrl>,
-        pub user_mentions: Vec<TweetLegacyEntityUserMention>,
+        pub url: Option<TweetLegacyEntitiesUrl>,
+        pub user_mentions: Option<Vec<TweetLegacyEntityUserMention>>,
+    }
+
+    impl TweetLegacyEntities {
+        pub fn urls(&self) -> impl Iterator<Item = &TweetLegacyEntityUrl> {
+            self.url.iter().flat_map(|url| url.urls.iter())
+        }
     }
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -314,6 +320,11 @@ mod data {
         pub bitrate: Option<u64>,
         pub content_type: String,
         pub url: String,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Deserialize)]
+    pub struct TweetLegacyEntitiesUrl {
+        pub urls: Vec<TweetLegacyEntityUrl>,
     }
 
     #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -408,9 +419,7 @@ impl FetcherInner {
                 })
                 .flatten()
                 .filter_map(|item| match item.item_content {
-                    data::TimelineItemContent::Tweet { tweet_results } => {
-                        tweet_results.into_option()
-                    }
+                    data::TimelineItemContent::Tweet { tweet_results } => Some(tweet_results),
                     data::TimelineItemContent::User => None,
                 })
                 .map(|result| result.result.into_tweet())
@@ -463,9 +472,7 @@ impl FetcherInner {
                         items
                             .into_iter()
                             .filter_map(|item| match item.item_content {
-                                data::TimelineItemContent::Tweet { tweet_results } => {
-                                    tweet_results.into_option()
-                                }
+                                data::TimelineItemContent::Tweet { tweet_results } => Some(tweet_results),
                                 data::TimelineItemContent::User => None,
                             })
                             .map(|result| result.result.into_tweet())
@@ -561,7 +568,7 @@ impl FetcherInner {
 
         let possibly_sensitive = tweet.legacy.possibly_sensitive.unwrap_or(false);
 
-        let card_attachment = tweet.card.and_then(|card| {
+        let card_attachment = tweet.card.and_then(|card| card.legacy).and_then(|legacy| {
             const IMAGE_KEYS: [&str; 3] = [
                 "photo_image_full_size_original",
                 "summary_photo_image_original",
@@ -569,7 +576,7 @@ impl FetcherInner {
             ];
 
             let image = IMAGE_KEYS.into_iter().find_map(|key| {
-                card.legacy
+                legacy
                     .binding_values
                     .iter()
                     .find_map(|kv| (kv.key == key).then_some(&kv.value))
@@ -585,13 +592,12 @@ impl FetcherInner {
                 Some(_) => {
                     critical!(
                         "type of image card mismatched!",
-                        kv: { tweet:? = urls.major(), card_kv:? = card.legacy.binding_values }
+                        kv: { tweet:? = urls.major(), card_kv:? = legacy.binding_values }
                     );
                     None
                 }
                 None => {
-                    if card
-                        .legacy
+                    if legacy
                         .binding_values
                         .iter()
                         .any(|kv| matches!(kv.value, data::TweetCardValue::Image { .. }))
@@ -607,7 +613,7 @@ impl FetcherInner {
                         {
                             warn!(
                                 "expected image key not found in card, but the card contains image",
-                                kv: { tweet:? = urls.major(), card_kv:? = card.legacy.binding_values }
+                                kv: { tweet:? = urls.major(), card_kv:? = legacy.binding_values }
                             );
                         }
                     }
@@ -714,7 +720,7 @@ fn replace_entities(mut text: String, entities: &data::TweetLegacyEntities) -> S
     let mut indices = media_entities
         .into_iter()
         .map(|media| (ReplaceKind::Media, media.indices))
-        .chain(entities.urls.iter().map(|url| {
+        .chain(entities.urls().map(|url| {
             (
                 ReplaceKind::Url(url.expanded_url.as_deref().unwrap_or(&url.url)),
                 url.indices,
