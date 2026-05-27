@@ -771,11 +771,23 @@ mod data {
                     Ok(Some(content))
                 }
                 Self::Common { common } => {
-                    // Ads, e.g. https://www.bilibili.com/opus/1166649345397751863
-                    if common.sub_type != "game" {
-                        warn!("unknown bilibili additional common sub_type", kv: { sub_type = common.sub_type });
+                    match common.sub_type.as_str() {
+                        "decoration" => {
+                            let mut content = PostContent::new();
+                            content.push_plain(format!("{}：", common.head_text));
+                            content.push_link(&common.title, &common.jump_url);
+                            content.push_plain(format!("\n{}", common.desc1));
+                            Ok(Some(content))
+                        }
+                        "game" => {
+                            // Ads, e.g. https://www.bilibili.com/opus/1166649345397751863
+                            Ok(None)
+                        }
+                        _ => {
+                            warn!("unknown bilibili additional common sub_type", kv: { sub_type = common.sub_type });
+                            Ok(None)
+                        }
                     }
-                    Ok(None)
                 }
                 Self::Unknown(data) => {
                     warn!("unknown bilibili additional variant", kv: { data: });
@@ -848,6 +860,12 @@ mod data {
     #[derive(Debug, Deserialize)]
     pub struct ModuleDynamicCommon {
         pub sub_type: String,
+        pub head_text: String,
+        pub jump_url: String,
+        pub cover: String,
+        pub title: String,
+        pub desc1: String,
+        pub desc2: String,
     }
 
     #[derive(Debug, Deserialize)]
